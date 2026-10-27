@@ -1,0 +1,23 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Traço",
+      "type": "float",
+      "default": 2,
+      "min": 0.5,
+      "max": 4
+    },
+    {
+      "id": "hatching",
+      "label": "Hachuras",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "name": "Desenho a lápis",
+  "description": "Contornos e hachuras sobre papel.",
+  "category": "Arte"
+}

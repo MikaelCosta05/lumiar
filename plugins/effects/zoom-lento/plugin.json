@@ -1,0 +1,37 @@
+{
+  "name": "Zoom lento (Ken Burns)",
+  "description": "Aproxima suavemente do início ao fim do clipe.",
+  "category": "Movimento",
+  "params": [
+    {
+      "id": "zoomStart",
+      "label": "Zoom inicial",
+      "type": "float",
+      "default": 1,
+      "min": 1,
+      "max": 2
+    },
+    {
+      "id": "zoomEnd",
+      "label": "Zoom final",
+      "type": "float",
+      "default": 1.25,
+      "min": 1,
+      "max": 2
+    },
+    {
+      "id": "center",
+      "label": "Ponto de foco",
+      "type": "vec2",
+      "default": [
+        0.5,
+        0.5
+      ],
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "preview": {
+    "zoomEnd": 1.8
+  }
+}

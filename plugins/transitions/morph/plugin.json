@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 0.1,
+      "min": 0,
+      "max": 0.3
+    }
+  ],
+  "name": "Morph",
+  "description": "As imagens se deformam uma na outra pelas cores.",
+  "category": "Criativas"
+}

@@ -1,0 +1,32 @@
+{
+  "name": "Zoom no ritmo",
+  "description": "Pulsa no ritmo da música (BPM), com flash opcional.",
+  "category": "Movimento",
+  "params": [
+    {
+      "id": "amount",
+      "label": "Força",
+      "type": "float",
+      "default": 0.12,
+      "min": 0,
+      "max": 0.5
+    },
+    {
+      "id": "bpm",
+      "label": "BPM",
+      "type": "float",
+      "default": 120,
+      "min": 40,
+      "max": 200,
+      "step": 1
+    },
+    {
+      "id": "flash",
+      "label": "Flash",
+      "type": "float",
+      "default": 0.2,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "Contorno neon",
+  "description": "Destaca as bordas com uma cor neon.",
+  "category": "Estilizar",
+  "params": [
+    {
+      "id": "thickness",
+      "label": "Espessura",
+      "type": "float",
+      "default": 1.5,
+      "min": 0.5,
+      "max": 4
+    },
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#00f0ff"
+    },
+    {
+      "id": "darken",
+      "label": "Escurecer fundo",
+      "type": "float",
+      "default": 0.7,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "threshold",
+      "label": "A partir de",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "name": "Solarizado",
+  "description": "Inverte só as partes claras, como foto superexposta.",
+  "category": "Criativos"
+}

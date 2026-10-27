@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "contrast",
+      "label": "Contraste",
+      "type": "float",
+      "default": 1.3,
+      "min": 0.5,
+      "max": 2.5
+    }
+  ],
+  "name": "Câmera térmica",
+  "description": "Cores de calor, do azul ao branco.",
+  "category": "Sci-fi"
+}

@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Onda de choque",
+  "description": "Um anel de energia sai do centro e distorce a imagem.",
+  "category": "Impacto"
+}

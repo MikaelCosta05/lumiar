@@ -1,0 +1,33 @@
+{
+  "name": "Persianas",
+  "description": "Faixas que abrem como uma persiana.",
+  "category": "Formas",
+  "params": [
+    {
+      "id": "count",
+      "label": "Faixas",
+      "type": "float",
+      "default": 10,
+      "min": 2,
+      "max": 30,
+      "step": 1
+    },
+    {
+      "id": "vertical",
+      "label": "Vertical (0/1)",
+      "type": "float",
+      "default": 0,
+      "min": 0,
+      "max": 1,
+      "step": 1
+    },
+    {
+      "id": "smoothness",
+      "label": "Suavidade",
+      "type": "float",
+      "default": 0.1,
+      "min": 0.01,
+      "max": 0.5
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "Glitch",
+  "description": "Troca de clipe com faixas deslocadas e cores separadas.",
+  "category": "Estilizar",
+  "params": [
+    {
+      "id": "intensity",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 0.7,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

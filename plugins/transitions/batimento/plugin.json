@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Batimento",
+  "description": "Dois pulsos de coração e a troca no segundo.",
+  "category": "Impacto"
+}

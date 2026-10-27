@@ -1,0 +1,34 @@
+{
+  "params": [
+    {
+      "id": "amount",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    },
+    {
+      "id": "speed",
+      "label": "Velocidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 3
+    },
+    {
+      "id": "bottom",
+      "label": "Mais forte embaixo",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "name": "Miragem de calor",
+  "description": "O ar tremendo de calor, como no asfalto quente.",
+  "category": "Distorção",
+  "preview": {
+    "amount": 2
+  }
+}

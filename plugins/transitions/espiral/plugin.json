@@ -1,0 +1,23 @@
+{
+  "params": [
+    {
+      "id": "turns",
+      "label": "Voltas",
+      "type": "float",
+      "default": 2,
+      "min": 0.5,
+      "max": 4
+    },
+    {
+      "id": "smoothness",
+      "label": "Suavidade",
+      "type": "float",
+      "default": 0.05,
+      "min": 0.01,
+      "max": 0.3
+    }
+  ],
+  "name": "Espiral",
+  "description": "O próximo clipe entra girando em espiral.",
+  "category": "Formas"
+}

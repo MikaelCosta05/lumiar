@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "dots",
+      "label": "Bolinhas",
+      "type": "float",
+      "default": 10,
+      "min": 4,
+      "max": 30,
+      "step": 1
+    }
+  ],
+  "name": "Bolinhas",
+  "description": "Bolinhas crescem do centro para as bordas.",
+  "category": "Formas"
+}

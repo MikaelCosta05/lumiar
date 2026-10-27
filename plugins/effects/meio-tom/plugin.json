@@ -1,0 +1,24 @@
+{
+  "name": "Meio-tom (HQ)",
+  "description": "Pontos de impressão como em revista em quadrinhos.",
+  "category": "Estilizar",
+  "params": [
+    {
+      "id": "size",
+      "label": "Tamanho dos pontos",
+      "type": "float",
+      "default": 8,
+      "min": 3,
+      "max": 30,
+      "step": 1
+    },
+    {
+      "id": "colorful",
+      "label": "Cor",
+      "type": "float",
+      "default": 0,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "params": [
+    {
+      "id": "curvature",
+      "label": "Curvatura",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "lines",
+      "label": "Linhas",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "name": "TV de tubo (CRT)",
+  "description": "Tela curva, linhas e subpixels de televisão antiga.",
+  "category": "Retrô"
+}

@@ -1,0 +1,6 @@
+{
+  "params": [],
+  "name": "Restaurar",
+  "description": "Tira ruído, recupera contornos e cor de vídeo antigo.",
+  "category": "Ferramentas"
+}

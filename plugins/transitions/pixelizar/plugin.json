@@ -1,0 +1,25 @@
+{
+  "name": "Pixelizar",
+  "description": "A imagem vira blocos, troca de clipe e volta ao normal.",
+  "category": "Estilizar",
+  "params": [
+    {
+      "id": "blocks",
+      "label": "Blocos (mínimo)",
+      "type": "float",
+      "default": 20,
+      "min": 4,
+      "max": 100,
+      "step": 1
+    },
+    {
+      "id": "steps",
+      "label": "Etapas",
+      "type": "float",
+      "default": 30,
+      "min": 0,
+      "max": 60,
+      "step": 1
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "size",
+      "label": "Blocos",
+      "type": "float",
+      "default": 24,
+      "min": 8,
+      "max": 60,
+      "step": 1
+    }
+  ],
+  "name": "Pixels ao vento",
+  "description": "O clipe se desfaz em blocos que somem aos poucos.",
+  "category": "Criativas"
+}

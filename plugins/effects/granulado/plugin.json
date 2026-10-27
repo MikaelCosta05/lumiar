@@ -1,0 +1,36 @@
+{
+  "name": "Granulado de filme",
+  "description": "Grão e leve oscilação de luz de película.",
+  "category": "Retrô",
+  "params": [
+    {
+      "id": "amount",
+      "label": "Quantidade",
+      "type": "float",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "size",
+      "label": "Tamanho do grão",
+      "type": "float",
+      "default": 1.5,
+      "min": 1,
+      "max": 4,
+      "step": 0.5
+    },
+    {
+      "id": "flicker",
+      "label": "Oscilação",
+      "type": "float",
+      "default": 0.3,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "preview": {
+    "amount": 1,
+    "size": 2
+  }
+}

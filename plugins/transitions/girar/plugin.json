@@ -1,0 +1,15 @@
+{
+  "name": "Girar",
+  "description": "Gira e afasta a imagem, voltando já no próximo clipe.",
+  "category": "Movimento",
+  "params": [
+    {
+      "id": "turns",
+      "label": "Voltas",
+      "type": "float",
+      "default": 1,
+      "min": 0.25,
+      "max": 2
+    }
+  ]
+}

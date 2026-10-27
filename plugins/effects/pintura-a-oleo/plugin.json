@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "radius",
+      "label": "Pincel",
+      "type": "float",
+      "default": 3,
+      "min": 1,
+      "max": 4,
+      "step": 1
+    }
+  ],
+  "name": "Pintura a óleo",
+  "description": "Pinceladas suaves que achatam as cores (filtro Kuwahara).",
+  "category": "Arte"
+}

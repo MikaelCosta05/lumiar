@@ -1,0 +1,21 @@
+{
+  "params": [
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#3fd4ff"
+    },
+    {
+      "id": "opacity",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 0.9,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "name": "Holograma",
+  "description": "Projeção azul tremida, com linhas e falhas.",
+  "category": "Sci-fi"
+}

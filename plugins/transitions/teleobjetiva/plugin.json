@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Teleobjetiva",
+  "description": "Mergulho de zoom com desfoque de movimento.",
+  "category": "Câmera"
+}

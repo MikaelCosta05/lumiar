@@ -1,0 +1,32 @@
+{
+  "name": "Caleidoscópio",
+  "description": "Fatias espelhadas girando em volta do centro.",
+  "category": "Distorção",
+  "params": [
+    {
+      "id": "segments",
+      "label": "Fatias",
+      "type": "float",
+      "default": 6,
+      "min": 2,
+      "max": 16,
+      "step": 1
+    },
+    {
+      "id": "speed",
+      "label": "Rotação",
+      "type": "float",
+      "default": 0.2,
+      "min": -2,
+      "max": 2
+    },
+    {
+      "id": "zoom",
+      "label": "Zoom",
+      "type": "float",
+      "default": 1,
+      "min": 0.5,
+      "max": 2
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "width",
+      "label": "Largura da faixa",
+      "type": "float",
+      "default": 0.12,
+      "min": 0.02,
+      "max": 0.3
+    }
+  ],
+  "name": "Arco-íris",
+  "description": "Uma faixa de arco-íris atravessa a tela.",
+  "category": "Criativas"
+}

@@ -1,0 +1,19 @@
+{
+  "params": [
+    {
+      "id": "size",
+      "label": "Tamanho dos LEDs",
+      "type": "float",
+      "default": 10,
+      "min": 4,
+      "max": 30,
+      "step": 1
+    }
+  ],
+  "name": "Painel de LED",
+  "description": "A imagem formada por pontos de luz, como um telão.",
+  "category": "Estilizar",
+  "preview": {
+    "size": 24
+  }
+}

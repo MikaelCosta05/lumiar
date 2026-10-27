@@ -1,0 +1,13 @@
+{
+  "params": [
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#fff2c8"
+    }
+  ],
+  "name": "Explosão de luz",
+  "description": "Raios de luz explodem do centro e clareiam tudo.",
+  "category": "Impacto"
+}

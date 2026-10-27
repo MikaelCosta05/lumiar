@@ -1,0 +1,26 @@
+{
+  "name": "Círculo",
+  "description": "Um círculo cresce revelando o próximo clipe.",
+  "category": "Formas",
+  "params": [
+    {
+      "id": "smoothness",
+      "label": "Suavidade",
+      "type": "float",
+      "default": 0.05,
+      "min": 0.01,
+      "max": 0.4
+    },
+    {
+      "id": "center",
+      "label": "Centro",
+      "type": "vec2",
+      "default": [
+        0.5,
+        0.5
+      ],
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

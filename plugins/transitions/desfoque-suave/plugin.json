@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Desfoque suave",
+  "description": "Desfoca, troca de clipe e foca de novo.",
+  "category": "Básicas"
+}

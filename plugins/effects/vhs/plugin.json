@@ -1,0 +1,45 @@
+{
+  "name": "VHS",
+  "description": "Fita antiga: ruído, linhas, cor vazando e imagem tremida.",
+  "category": "Retrô",
+  "params": [
+    {
+      "id": "noise",
+      "label": "Ruído",
+      "type": "float",
+      "default": 0.35,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "lines",
+      "label": "Linhas",
+      "type": "float",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "bleed",
+      "label": "Vazamento de cor",
+      "type": "float",
+      "default": 0.004,
+      "min": 0,
+      "max": 0.02,
+      "step": 0.0005
+    },
+    {
+      "id": "wobble",
+      "label": "Tremor",
+      "type": "float",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "preview": {
+    "noise": 0.8,
+    "lines": 0.9,
+    "bleed": 0.01
+  }
+}

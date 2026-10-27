@@ -1,0 +1,21 @@
+{
+  "name": "Flash",
+  "description": "Clarão de luz no meio da troca.",
+  "category": "Básicas",
+  "params": [
+    {
+      "id": "brightness",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#ffffff"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "params": [
+    {
+      "id": "tint",
+      "label": "Cor do corte",
+      "type": "color",
+      "default": "#ffffff"
+    }
+  ],
+  "name": "Corte de espada",
+  "description": "Um golpe na diagonal parte a imagem em duas.",
+  "category": "Criativas"
+}

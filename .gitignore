@@ -1,0 +1,8 @@
+node_modules
+dist
+*.log
+release
+public/models
+public/ort
+public/mediapipe
+.tmp-test

@@ -1,0 +1,13 @@
+{
+  "params": [
+    {
+      "id": "tint",
+      "label": "Cor do raio",
+      "type": "color",
+      "default": "#c7d2ff"
+    }
+  ],
+  "name": "Raio",
+  "description": "Um relâmpago corta a tela e troca o clipe.",
+  "category": "Impacto"
+}

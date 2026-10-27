@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "cells",
+      "label": "Cacos",
+      "type": "float",
+      "default": 18,
+      "min": 4,
+      "max": 60,
+      "step": 1
+    }
+  ],
+  "name": "Vitral",
+  "description": "Cacos de vidro colorido com contorno de chumbo.",
+  "category": "Arte"
+}

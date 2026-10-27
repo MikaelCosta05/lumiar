@@ -1,0 +1,20 @@
+{
+  "name": "Fade por cor",
+  "description": "Escurece até uma cor e clareia no próximo clipe.",
+  "category": "Básicas",
+  "params": [
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#000000"
+    }
+  ],
+  "preview": {
+    "tint": [
+      1,
+      1,
+      1
+    ]
+  }
+}

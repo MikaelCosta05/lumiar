@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "glow",
+      "label": "Brilho",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Pilha brilhante",
+  "description": "Cópias brilhantes se empilham para o centro.",
+  "category": "Criativas"
+}

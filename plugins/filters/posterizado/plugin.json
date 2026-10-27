@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "levels",
+      "label": "Níveis",
+      "type": "float",
+      "default": 4,
+      "min": 2,
+      "max": 10,
+      "step": 1
+    }
+  ],
+  "name": "Posterizado",
+  "description": "Poucas cores, como pôster impresso.",
+  "category": "Criativos"
+}

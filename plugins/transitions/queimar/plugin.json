@@ -1,0 +1,29 @@
+{
+  "name": "Queimar",
+  "description": "O clipe atual \"queima\" com bordas incandescentes.",
+  "category": "Estilizar",
+  "params": [
+    {
+      "id": "scale",
+      "label": "Escala do ruído",
+      "type": "float",
+      "default": 5,
+      "min": 2,
+      "max": 12
+    },
+    {
+      "id": "edge",
+      "label": "Borda",
+      "type": "float",
+      "default": 0.08,
+      "min": 0.02,
+      "max": 0.3
+    },
+    {
+      "id": "tint",
+      "label": "Cor da brasa",
+      "type": "color",
+      "default": "#ff7a1a"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "params": [
+    {
+      "id": "pixel",
+      "label": "Tamanho do pixel",
+      "type": "float",
+      "default": 3,
+      "min": 1,
+      "max": 8,
+      "step": 1
+    },
+    {
+      "id": "dark",
+      "label": "Escuro",
+      "type": "color",
+      "default": "#1a1c2c"
+    },
+    {
+      "id": "light",
+      "label": "Claro",
+      "type": "color",
+      "default": "#f4f0e0"
+    }
+  ],
+  "name": "Dither 1-bit",
+  "description": "Só duas cores, com pontilhado de computador antigo.",
+  "category": "Retrô"
+}

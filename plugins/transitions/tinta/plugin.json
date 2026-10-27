@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "scale",
+      "label": "Detalhe",
+      "type": "float",
+      "default": 3,
+      "min": 1,
+      "max": 8
+    }
+  ],
+  "name": "Gota de tinta",
+  "description": "O próximo clipe se espalha como tinta na água.",
+  "category": "Criativas"
+}

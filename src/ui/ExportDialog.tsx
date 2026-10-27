@@ -1,0 +1,339 @@
+import { AudioLines, Camera, CircleCheck, Download, Film, LoaderCircle, TriangleAlert, X } from 'lucide-react';
+import { useState } from 'react';
+import { FORMAT_INFO, outputSize, type ExportFormat, type ExportProgress, type ExportSettings } from '../media/exporter';
+import type { Project } from '../project/model';
+import { formatTime } from './format';
+import { Button, cx, IconButton, Segmented, Slider } from './kit';
+
+export type ExportState =
+  | { status: 'setup' }
+  | { status: 'running'; progress: ExportProgress }
+  | { status: 'done'; url: string; fileName: string; size: number }
+  | { status: 'error'; message: string };
+
+interface Props {
+  state: ExportState;
+  project: Project;
+  duration: number;
+  /** Posição do cursor (para marcar o trecho) */
+  time: number;
+  onStart: (settings: ExportSettings) => void;
+  onSnapshot: () => void;
+  onCancel: () => void;
+  onClose: () => void;
+}
+
+export function download(url: string, fileName: string): void {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+}
+
+const SETTINGS_KEY = 'lumiar:export';
+const HEIGHTS = [4320, 2160, 1440, 1080, 720, 480, 360, 240];
+const VIDEO_FPS = [12, 24, 25, 30, 48, 50, 60];
+const GIF_FPS = [10, 12, 15, 20, 25];
+
+const DEFAULTS: ExportSettings = { format: 'mp4', height: null, fps: null, quality: 'high', range: null };
+
+function loadSettings(): ExportSettings {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null') as Partial<ExportSettings> | null;
+    // O trecho depende do projeto: não é lembrado.
+    return { ...DEFAULTS, ...saved, range: null };
+  } catch {
+    return DEFAULTS;
+  }
+}
+
+function saveSettings(settings: ExportSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, range: null }));
+  } catch {
+    // Sem armazenamento: só não lembra da próxima vez.
+  }
+}
+
+export function ExportDialog({ state, project, duration, time, onStart, onSnapshot, onCancel, onClose }: Props) {
+  return (
+    <div className="fixed inset-0 z-40 flex animate-fade-in items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div
+        className={cx(
+          'max-h-full w-full animate-pop-in overflow-y-auto rounded-2xl border border-line bg-panel p-6 shadow-2xl',
+          state.status === 'setup' ? 'max-w-xl' : 'max-w-md',
+        )}
+      >
+        {state.status === 'setup' && (
+          <ExportSetup project={project} duration={duration} time={time} onStart={onStart} onSnapshot={onSnapshot} onClose={onClose} />
+        )}
+
+        {state.status === 'running' && (
+          <>
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
+                <LoaderCircle size={20} className="animate-spin" />
+              </span>
+              <div>
+                <h3 className="text-[15px] font-semibold">Exportando</h3>
+                <p className="text-xs text-dim">{state.progress.stage}…</p>
+              </div>
+              <span className="ml-auto font-mono text-xl font-semibold">{Math.round(state.progress.fraction * 100)}%</span>
+            </div>
+            <div className="mt-5 h-2 overflow-hidden rounded-full bg-panel-3">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-accent via-accent-2 to-pink transition-[width] duration-150"
+                style={{ width: `${state.progress.fraction * 100}%` }}
+              />
+            </div>
+            <div className="mt-5 flex justify-end">
+              <Button onClick={onCancel}>Cancelar</Button>
+            </div>
+          </>
+        )}
+
+        {state.status === 'done' && (
+          <>
+            <div className="flex items-start gap-3">
+              <span className="flex size-10 items-center justify-center rounded-full bg-success/15 text-success">
+                <CircleCheck size={20} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[15px] font-semibold">Arquivo pronto!</h3>
+                <p className="truncate text-xs text-dim">{state.fileName}</p>
+                <p className="font-mono text-xs text-faint">{(state.size / 1024 / 1024).toFixed(1)} MB</p>
+              </div>
+              <IconButton label="Fechar" onClick={onClose}>
+                <X size={16} />
+              </IconButton>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button onClick={onClose}>Fechar</Button>
+              <Button variant="primary" icon={<Download size={14} />} onClick={() => download(state.url, state.fileName)}>
+                Baixar de novo
+              </Button>
+            </div>
+          </>
+        )}
+
+        {state.status === 'error' && (
+          <>
+            <div className="flex items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger/15 text-danger">
+                <TriangleAlert size={20} />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-semibold">Não foi possível exportar</h3>
+                <p className="mt-1 whitespace-pre-wrap text-xs text-dim">{state.message}</p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end">
+              <Button onClick={onClose}>Fechar</Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExportSetup({
+  project,
+  duration,
+  time,
+  onStart,
+  onSnapshot,
+  onClose,
+}: Pick<Props, 'project' | 'duration' | 'time' | 'onStart' | 'onSnapshot' | 'onClose'>) {
+  const [settings, setSettings] = useState(loadSettings);
+  const [custom, setCustom] = useState(false);
+  const [range, setRange] = useState({ start: 0, end: duration });
+  const set = (patch: Partial<ExportSettings>) => setSettings((s) => ({ ...s, ...patch }));
+  const info = FORMAT_INFO[settings.format];
+  const gif = settings.format === 'gif';
+  const size = outputSize(project, settings.height ?? (gif ? 360 : null));
+  const fps = settings.fps ?? (gif ? 15 : project.fps);
+  const length = custom ? Math.max(0, range.end - range.start) : duration;
+
+  const chooseFormat = (format: ExportFormat) => {
+    // GIF pesado não faz sentido: ao trocar, já sugere tamanho e fps menores.
+    if (format === 'gif' && settings.format !== 'gif') set({ format, height: 360, fps: 15 });
+    else if (format !== 'gif' && settings.format === 'gif') set({ format, height: null, fps: null });
+    else set({ format });
+  };
+
+  const start = () => {
+    const final: ExportSettings = { ...settings, height: settings.height ?? (gif ? 360 : null), fps: settings.fps ?? (gif ? 15 : null) };
+    saveSettings(final);
+    onStart({ ...final, range: custom ? range : null });
+  };
+
+  const heights = HEIGHTS.filter((h) => h !== Math.min(project.width, project.height) && (gif ? h <= 720 : true));
+
+  return (
+    <>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[15px] font-semibold">Exportar</h3>
+          <p className="text-xs text-dim">Escolha o formato e as opções do arquivo.</p>
+        </div>
+        <IconButton label="Fechar" onClick={onClose}>
+          <X size={16} />
+        </IconButton>
+      </div>
+
+      <Label>Formato</Label>
+      <div className="grid grid-cols-3 gap-2">
+        {(Object.keys(FORMAT_INFO) as ExportFormat[]).map((f) => {
+          const item = FORMAT_INFO[f];
+          return (
+            <button
+              key={f}
+              onClick={() => chooseFormat(f)}
+              className={cx(
+                'flex items-start gap-2 rounded-xl border p-2.5 text-left transition-colors',
+                settings.format === f ? 'border-accent bg-accent/10' : 'border-line hover:border-line-strong hover:bg-panel-2',
+              )}
+            >
+              <span className={cx('mt-0.5 shrink-0', settings.format === f ? 'text-accent' : 'text-faint')}>
+                {item.video ? <Film size={14} /> : <AudioLines size={14} />}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{item.label}</span>
+                <span className="block text-[10px] leading-tight text-faint">{item.hint}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {info.video && (
+        <div className="grid grid-cols-2 gap-x-4">
+          <div>
+            <Label>Resolução</Label>
+            <select
+              className="field w-full"
+              value={settings.height ?? ''}
+              onChange={(e) => set({ height: e.target.value ? Number(e.target.value) : null })}
+            >
+              {!gif && (
+                <option value="">
+                  Do projeto ({project.width}×{project.height})
+                </option>
+              )}
+              {heights.map((h) => {
+                const s = outputSize(project, h);
+                return (
+                  <option key={h} value={h}>
+                    {h === 4320 ? '8K' : h === 2160 ? '4K' : h === 1440 ? '2K' : `${h}p`} ({s.width}×{s.height})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <div>
+            <Label>Quadros por segundo</Label>
+            <select className="field w-full" value={settings.fps ?? ''} onChange={(e) => set({ fps: e.target.value ? Number(e.target.value) : null })}>
+              {!gif && <option value="">Do projeto ({project.fps} fps)</option>}
+              {(gif ? GIF_FPS : VIDEO_FPS).map((f) => (
+                <option key={f} value={f}>
+                  {f} fps
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
+      {!gif && settings.format !== 'wav' && (
+        <>
+          <Label>Qualidade</Label>
+          <Segmented
+            options={[
+              { value: 'low', label: 'Baixa' },
+              { value: 'medium', label: 'Média' },
+              { value: 'high', label: 'Alta' },
+              { value: 'very-high', label: 'Máxima' },
+            ]}
+            value={settings.quality}
+            onChange={(quality) => set({ quality })}
+          />
+        </>
+      )}
+
+      <Label>Trecho</Label>
+      <Segmented
+        options={[
+          { value: 'all', label: `Tudo (${formatTime(duration)})` },
+          { value: 'custom', label: 'Escolher trecho' },
+        ]}
+        value={custom ? 'custom' : 'all'}
+        onChange={(v) => setCustom(v === 'custom')}
+      />
+      {custom && (
+        <div className="mt-2 space-y-1 rounded-xl border border-line bg-panel-2 p-3">
+          <RangeRow
+            label="Início"
+            value={range.start}
+            max={duration}
+            onChange={(v) => setRange((r) => ({ ...r, start: Math.min(v, r.end - 0.1) }))}
+            onCursor={() => setRange((r) => ({ ...r, start: Math.min(time, r.end - 0.1) }))}
+          />
+          <RangeRow
+            label="Fim"
+            value={range.end}
+            max={duration}
+            onChange={(v) => setRange((r) => ({ ...r, end: Math.max(v, r.start + 0.1) }))}
+            onCursor={() => setRange((r) => ({ ...r, end: Math.max(time, r.start + 0.1) }))}
+          />
+        </div>
+      )}
+
+      <p className="mt-4 rounded-lg bg-panel-2 px-3 py-2 font-mono text-[11px] text-dim">
+        {info.label}
+        {info.video && ` · ${size.width}×${size.height} · ${fps} fps`} · {formatTime(length)}
+        {gif && length > 15 && <span className="text-amber"> · GIFs longos ficam pesados</span>}
+      </p>
+
+      <div className="mt-5 flex items-center gap-2">
+        <Button variant="ghost" icon={<Camera size={14} />} onClick={onSnapshot} title="Salva a imagem que está no preview agora">
+          Quadro atual (PNG)
+        </Button>
+        <span className="flex-1" />
+        <Button onClick={onClose}>Cancelar</Button>
+        <Button variant="primary" icon={<Download size={14} />} onClick={start} disabled={length < 0.05}>
+          Exportar {info.label}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function Label({ children }: { children: string }) {
+  return <p className="mb-1.5 mt-4 text-[11px] font-semibold uppercase tracking-wider text-faint">{children}</p>;
+}
+
+function RangeRow({
+  label,
+  value,
+  max,
+  onChange,
+  onCursor,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  onChange: (v: number) => void;
+  onCursor: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-10 text-xs text-dim">{label}</span>
+      <Slider label={label} value={value} min={0} max={max} step={0.01} onChange={onChange} />
+      <span className="w-16 text-right font-mono text-[11px]">{formatTime(value)}</span>
+      <button onClick={onCursor} className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] text-faint hover:bg-panel-3 hover:text-fg" title="Usar a posição do cursor">
+        cursor
+      </button>
+    </div>
+  );
+}

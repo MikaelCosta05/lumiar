@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "count",
+      "label": "Faixas",
+      "type": "float",
+      "default": 8,
+      "min": 3,
+      "max": 20,
+      "step": 1
+    }
+  ],
+  "name": "Listras diagonais",
+  "description": "Faixas na diagonal vão sendo pintadas com o próximo clipe.",
+  "category": "Movimento"
+}

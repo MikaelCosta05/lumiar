@@ -1,0 +1,15 @@
+{
+  "name": "Zoom com desfoque",
+  "description": "Mergulha no clipe atual e sai no próximo, com desfoque radial.",
+  "category": "Movimento",
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

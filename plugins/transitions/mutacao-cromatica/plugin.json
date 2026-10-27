@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Mutação cromática",
+  "description": "Os canais de cor se separam e se juntam no próximo clipe.",
+  "category": "Criativas"
+}

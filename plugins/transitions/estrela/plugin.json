@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "spin",
+      "label": "Giro",
+      "type": "float",
+      "default": 1.5,
+      "min": 0,
+      "max": 6
+    }
+  ],
+  "name": "Estrela",
+  "description": "Uma estrela gira e cresce até cobrir a tela.",
+  "category": "Formas"
+}

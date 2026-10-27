@@ -1,0 +1,99 @@
+{
+  "name": "lumiar",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Lumiar — editor de vídeo focado em efeitos e transições na GPU",
+  "author": {
+    "name": "Lumiar"
+  },
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "setup": "node scripts/setup-assets.mjs",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "app": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win nsis --x64",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64"
+  },
+  "devDependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/montserrat": "^5.3.0",
+    "@fontsource/bebas-neue": "^5.3.0",
+    "@fontsource/great-vibes": "^5.3.0",
+    "@fontsource/monoton": "^5.3.0",
+    "@fontsource/pacifico": "^5.3.0",
+    "@fontsource/permanent-marker": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
+    "@fontsource/press-start-2p": "^5.3.0",
+    "@fontsource/space-mono": "^5.3.0",
+    "@huggingface/transformers": "^4.3.1",
+    "@mediapipe/tasks-vision": "^1.1.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
+    "lucide-react": "^1.61.0",
+    "mediabunny": "^1.62.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  },
+  "desktopName": "lumiar.desktop",
+  "build": {
+    "appId": "com.lumiar.editor",
+    "productName": "Lumiar",
+    "directories": {
+      "output": "release",
+      "buildResources": "electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/main.cjs",
+      "electron/icon.png",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lumiar",
+      "artifactName": "Lumiar-${version}-Windows-Setup.${ext}"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/icon.png",
+      "category": "AudioVideo",
+      "synopsis": "Editor de vídeo com efeitos e transições na GPU",
+      "artifactName": "Lumiar-${version}-Linux-x86_64.${ext}",
+      "syncDesktopName": true
+    }
+  }
+}

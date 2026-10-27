@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "shift",
+      "label": "Deslocamento",
+      "type": "float",
+      "default": 0.25,
+      "min": 0,
+      "max": 1,
+      "step": 0.01
+    }
+  ],
+  "name": "Girar cores",
+  "description": "Desloca todas as cores pelo círculo cromático.",
+  "category": "Criativos"
+}

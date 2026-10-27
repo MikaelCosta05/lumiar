@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "cycles",
+      "label": "Voltas de cor",
+      "type": "float",
+      "default": 1,
+      "min": 0.25,
+      "max": 3
+    }
+  ],
+  "name": "Loop cromático",
+  "description": "As cores giram pelo arco-íris durante a troca.",
+  "category": "Suaves"
+}

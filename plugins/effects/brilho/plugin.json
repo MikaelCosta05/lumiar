@@ -1,0 +1,31 @@
+{
+  "name": "Brilho (glow)",
+  "description": "As partes claras ganham um brilho suave em volta.",
+  "category": "Luz",
+  "params": [
+    {
+      "id": "threshold",
+      "label": "A partir de",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "intensity",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    },
+    {
+      "id": "radius",
+      "label": "Tamanho (px)",
+      "type": "float",
+      "default": 15,
+      "min": 0,
+      "max": 40
+    }
+  ]
+}

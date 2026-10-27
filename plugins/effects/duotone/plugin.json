@@ -1,0 +1,27 @@
+{
+  "params": [
+    {
+      "id": "dark",
+      "label": "Sombras",
+      "type": "color",
+      "default": "#23155b"
+    },
+    {
+      "id": "light",
+      "label": "Luzes",
+      "type": "color",
+      "default": "#ff8a5c"
+    },
+    {
+      "id": "contrast",
+      "label": "Contraste",
+      "type": "float",
+      "default": 1.2,
+      "min": 0.5,
+      "max": 2
+    }
+  ],
+  "name": "Duotone",
+  "description": "A imagem pintada com duas cores à sua escolha.",
+  "category": "Cor"
+}

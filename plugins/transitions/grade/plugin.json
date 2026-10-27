@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "size",
+      "label": "Linhas",
+      "type": "float",
+      "default": 5,
+      "min": 2,
+      "max": 12,
+      "step": 1
+    }
+  ],
+  "name": "Azulejos",
+  "description": "Os quadrados viram um a um, da esquerda para a direita.",
+  "category": "Formas"
+}

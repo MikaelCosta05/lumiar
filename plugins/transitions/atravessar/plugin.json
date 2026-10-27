@@ -1,0 +1,6 @@
+{
+  "params": [],
+  "name": "Atravessar",
+  "description": "A câmera entra no clipe atual e sai dentro do próximo.",
+  "category": "Câmera"
+}

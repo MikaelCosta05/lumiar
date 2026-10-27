@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "cells",
+      "label": "Hexágonos",
+      "type": "float",
+      "default": 20,
+      "min": 5,
+      "max": 60,
+      "step": 1
+    }
+  ],
+  "name": "Hexágonos",
+  "description": "A imagem vira uma colmeia, troca e volta.",
+  "category": "Formas"
+}

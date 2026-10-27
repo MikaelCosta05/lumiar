@@ -1,0 +1,26 @@
+{
+  "name": "Desfoque radial",
+  "description": "Desfoque de zoom saindo de um ponto (sensação de velocidade).",
+  "category": "Movimento",
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "center",
+      "label": "Centro",
+      "type": "vec2",
+      "default": [
+        0.5,
+        0.5
+      ],
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

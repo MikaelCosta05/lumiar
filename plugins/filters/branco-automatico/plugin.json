@@ -1,0 +1,6 @@
+{
+  "params": [],
+  "name": "Branco automático",
+  "description": "Corrige a cor da luz pela média da cena.",
+  "category": "Ferramentas"
+}

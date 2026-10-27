@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Debaixo d’água",
+  "description": "Tom azul, ondulação e luz refletida no fundo.",
+  "category": "Clima"
+}

@@ -1,0 +1,34 @@
+{
+  "params": [
+    {
+      "id": "amount",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 0.7,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "speed",
+      "label": "Velocidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 3
+    },
+    {
+      "id": "slant",
+      "label": "Inclinação",
+      "type": "float",
+      "default": 0.1,
+      "min": -0.5,
+      "max": 0.5
+    }
+  ],
+  "name": "Chuva",
+  "description": "Gotas de chuva caindo por cima da cena.",
+  "category": "Clima",
+  "preview": {
+    "amount": 1
+  }
+}

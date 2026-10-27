@@ -1,0 +1,23 @@
+{
+  "name": "Ondulação",
+  "description": "Ondas saem do centro como uma gota na água.",
+  "category": "Movimento",
+  "params": [
+    {
+      "id": "amplitude",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 0.08,
+      "min": 0,
+      "max": 0.2
+    },
+    {
+      "id": "frequency",
+      "label": "Frequência",
+      "type": "float",
+      "default": 30,
+      "min": 10,
+      "max": 60
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "params": [
+    {
+      "id": "amount",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 0.7,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "speed",
+      "label": "Velocidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 3
+    }
+  ],
+  "name": "Luz vazada",
+  "description": "Manchas de luz quente passando pela lente (light leak).",
+  "category": "Luz"
+}

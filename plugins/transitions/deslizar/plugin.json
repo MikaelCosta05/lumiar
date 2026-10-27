@@ -1,0 +1,18 @@
+{
+  "name": "Deslizar",
+  "description": "O próximo clipe desliza por cima do atual.",
+  "category": "Movimento",
+  "params": [
+    {
+      "id": "direction",
+      "label": "Direção",
+      "type": "vec2",
+      "default": [
+        1,
+        0
+      ],
+      "min": -1,
+      "max": 1
+    }
+  ]
+}

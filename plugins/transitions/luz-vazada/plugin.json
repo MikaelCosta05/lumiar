@@ -1,0 +1,13 @@
+{
+  "params": [
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#ffa040"
+    }
+  ],
+  "name": "Luz vazada",
+  "description": "Manchas de luz quente atravessam a troca.",
+  "category": "Suaves"
+}

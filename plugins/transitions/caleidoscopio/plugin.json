@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "segments",
+      "label": "Fatias",
+      "type": "float",
+      "default": 6,
+      "min": 3,
+      "max": 12,
+      "step": 1
+    }
+  ],
+  "name": "Caleidoscópio",
+  "description": "A imagem se dobra em espelhos e desdobra no próximo clipe.",
+  "category": "Criativas"
+}

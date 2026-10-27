@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "pieces",
+      "label": "Cacos",
+      "type": "float",
+      "default": 8,
+      "min": 3,
+      "max": 20,
+      "step": 1
+    }
+  ],
+  "name": "Estilhaçar",
+  "description": "O clipe trinca como vidro e os cacos somem.",
+  "category": "Criativas"
+}

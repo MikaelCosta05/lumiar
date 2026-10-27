@@ -1,0 +1,19 @@
+{
+  "name": "Espelho",
+  "description": "Espelha metade da imagem (ou os quatro cantos).",
+  "category": "Distorção",
+  "params": [
+    {
+      "id": "mode",
+      "label": "Modo (0 lados · 1 cima · 2 quatro)",
+      "type": "float",
+      "default": 0,
+      "min": 0,
+      "max": 2,
+      "step": 1
+    }
+  ],
+  "preview": {
+    "mode": 2
+  }
+}

@@ -1,0 +1,127 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter Variable', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+
+  --color-bg: #0c0d11;
+  --color-panel: #13151b;
+  --color-panel-2: #1a1d25;
+  --color-panel-3: #232733;
+  --color-line: #262a36;
+  --color-line-strong: #343a4a;
+  --color-fg: #e9ebf1;
+  --color-dim: #9aa0b2;
+  --color-faint: #636a7e;
+  --color-accent: #6f7dff;
+  --color-accent-2: #b36bff;
+  --color-pink: #ff6bb5;
+  --color-amber: #ffb547;
+  --color-danger: #ff5c72;
+  --color-success: #3ddc97;
+  --color-playhead: #ff4d6d;
+
+  --animate-toast-in: toast-in 0.25s ease-out;
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-pop-in: pop-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg font-sans text-[13px] text-fg antialiased;
+    overflow: hidden;
+    color-scheme: dark;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  ::selection {
+    @apply bg-accent/40;
+  }
+
+  /* Barras de rolagem discretas */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+}
+
+@layer components {
+  /* Slider com trilha preenchida até o valor (--fill vem do componente). */
+  .range {
+    @apply h-4 w-full cursor-pointer appearance-none bg-transparent;
+  }
+  .range::-webkit-slider-runnable-track {
+    @apply h-1 rounded-full;
+    background: linear-gradient(
+      to right,
+      var(--color-accent) 0%,
+      var(--color-accent-2) var(--fill, 0%),
+      var(--color-panel-3) var(--fill, 0%)
+    );
+  }
+  .range::-webkit-slider-thumb {
+    @apply -mt-[5px] size-3.5 appearance-none rounded-full border-2 border-white bg-accent shadow-md transition-transform;
+  }
+  .range:hover::-webkit-slider-thumb {
+    @apply scale-125;
+  }
+  .range:focus-visible {
+    @apply outline-none;
+  }
+  .range:focus-visible::-webkit-slider-thumb {
+    @apply ring-4 ring-accent/40;
+  }
+
+  .field {
+    @apply h-8 rounded-lg border border-line bg-panel-2 px-2.5 text-fg outline-none transition-colors hover:border-line-strong focus:border-accent;
+  }
+  .field::placeholder {
+    @apply text-faint;
+  }
+
+  /* Listas de opções com a mesma cara dos outros campos (sem a seta padrão do sistema). */
+  select.field {
+    @apply appearance-none truncate pr-8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239aa0b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.55rem center;
+    background-size: 14px;
+  }
+  select.field option,
+  select.field optgroup {
+    background: var(--color-panel-2);
+    color: var(--color-fg);
+  }
+
+  /* Linhas que rolam para o lado (chips, miniaturas) sem barra aparente. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Chicote (whip pan)",
+  "description": "Movimento rápido de câmera com desfoque de movimento.",
+  "category": "Movimento",
+  "params": [
+    {
+      "id": "direction",
+      "label": "Direção",
+      "type": "vec2",
+      "default": [
+        1,
+        0
+      ],
+      "min": -1,
+      "max": 1
+    },
+    {
+      "id": "blur",
+      "label": "Desfoque",
+      "type": "float",
+      "default": 0.7,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

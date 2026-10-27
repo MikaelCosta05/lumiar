@@ -1,0 +1,27 @@
+{
+  "params": [
+    {
+      "id": "size",
+      "label": "Tamanho das letras",
+      "type": "float",
+      "default": 10,
+      "min": 6,
+      "max": 24,
+      "step": 1
+    },
+    {
+      "id": "colorful",
+      "label": "Colorido",
+      "type": "float",
+      "default": 0,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "name": "Arte ASCII",
+  "description": "A imagem desenhada com letras e símbolos.",
+  "category": "Arte",
+  "preview": {
+    "size": 16
+  }
+}

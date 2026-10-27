@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "amount",
+      "label": "Quantidade",
+      "type": "float",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "name": "Estática de TV",
+  "description": "Chuvisco de TV fora do ar.",
+  "category": "Retrô"
+}

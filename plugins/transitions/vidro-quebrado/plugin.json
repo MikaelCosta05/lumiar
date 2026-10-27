@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "pieces",
+      "label": "Cacos",
+      "type": "float",
+      "default": 9,
+      "min": 4,
+      "max": 20,
+      "step": 1
+    }
+  ],
+  "name": "Vidro quebrado",
+  "description": "A tela trinca do centro para fora e os cacos voam.",
+  "category": "Impacto"
+}

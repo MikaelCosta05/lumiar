@@ -1,0 +1,21 @@
+{
+  "params": [
+    {
+      "id": "intensity",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    },
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#ffffff"
+    }
+  ],
+  "name": "Varredura de luz",
+  "description": "Um feixe de luz atravessa a tela trocando o clipe.",
+  "category": "Criativas"
+}

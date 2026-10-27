@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Redemoinho",
+  "description": "A imagem gira como água no ralo e volta no próximo clipe.",
+  "category": "Criativas"
+}

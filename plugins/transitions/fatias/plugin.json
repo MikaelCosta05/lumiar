@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "count",
+      "label": "Faixas",
+      "type": "float",
+      "default": 8,
+      "min": 3,
+      "max": 30,
+      "step": 1
+    }
+  ],
+  "name": "Fatias",
+  "description": "Faixas horizontais deslizam em direções alternadas.",
+  "category": "Movimento"
+}

@@ -1,0 +1,31 @@
+{
+  "params": [
+    {
+      "id": "grid",
+      "label": "Divisões",
+      "type": "float",
+      "default": 2,
+      "min": 1,
+      "max": 5,
+      "step": 1
+    },
+    {
+      "id": "gap",
+      "label": "Espaço (px)",
+      "type": "float",
+      "default": 6,
+      "min": 0,
+      "max": 30,
+      "step": 1
+    },
+    {
+      "id": "tint",
+      "label": "Cor do espaço",
+      "type": "color",
+      "default": "#000000"
+    }
+  ],
+  "name": "Várias telas",
+  "description": "Repete o vídeo numa grade (2×2, 3×3…).",
+  "category": "Estilizar"
+}

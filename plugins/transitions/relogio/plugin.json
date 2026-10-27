@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "smoothness",
+      "label": "Suavidade",
+      "type": "float",
+      "default": 0.03,
+      "min": 0.01,
+      "max": 0.3
+    }
+  ],
+  "name": "Relógio",
+  "description": "Um ponteiro gira revelando o próximo clipe.",
+  "category": "Formas"
+}

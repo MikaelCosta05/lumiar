@@ -1,0 +1,15 @@
+{
+  "name": "Preto e branco",
+  "description": "Clássico P&B com contraste ajustável.",
+  "category": "Mono",
+  "params": [
+    {
+      "id": "contrast",
+      "label": "Contraste",
+      "type": "float",
+      "default": 1.15,
+      "min": 0.5,
+      "max": 2
+    }
+  ]
+}

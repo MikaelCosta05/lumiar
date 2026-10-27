@@ -1,0 +1,37 @@
+{
+  "name": "Vinheta",
+  "description": "Escurece (ou colore) as bordas da imagem.",
+  "category": "Cor",
+  "params": [
+    {
+      "id": "intensity",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "size",
+      "label": "Tamanho",
+      "type": "float",
+      "default": 0.45,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "softness",
+      "label": "Suavidade",
+      "type": "float",
+      "default": 0.45,
+      "min": 0.01,
+      "max": 1
+    },
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#000000"
+    }
+  ]
+}

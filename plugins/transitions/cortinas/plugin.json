@@ -1,0 +1,13 @@
+{
+  "params": [
+    {
+      "id": "tint",
+      "label": "Cor do tecido",
+      "type": "color",
+      "default": "#9b1c2c"
+    }
+  ],
+  "name": "Cortinas de teatro",
+  "description": "Cortinas de veludo fecham e abrem no próximo clipe.",
+  "category": "Formas"
+}

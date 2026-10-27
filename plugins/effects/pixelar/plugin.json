@@ -1,0 +1,16 @@
+{
+  "name": "Pixelar",
+  "description": "Transforma a imagem em blocos (mosaico).",
+  "category": "Estilizar",
+  "params": [
+    {
+      "id": "size",
+      "label": "Tamanho do bloco (px)",
+      "type": "float",
+      "default": 16,
+      "min": 1,
+      "max": 100,
+      "step": 1
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "params": [
+    {
+      "id": "zoom",
+      "label": "Zoom",
+      "type": "float",
+      "default": 1,
+      "min": 0.5,
+      "max": 2
+    },
+    {
+      "id": "spin",
+      "label": "Giro",
+      "type": "float",
+      "default": 0.05,
+      "min": -0.5,
+      "max": 0.5
+    }
+  ],
+  "name": "Pequeno planeta",
+  "description": "Enrola a paisagem num planetinha redondo.",
+  "category": "Distorção"
+}

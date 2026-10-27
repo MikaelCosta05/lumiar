@@ -1,0 +1,16 @@
+{
+  "params": [
+    {
+      "id": "columns",
+      "label": "Colunas",
+      "type": "float",
+      "default": 40,
+      "min": 10,
+      "max": 120,
+      "step": 1
+    }
+  ],
+  "name": "Derreter",
+  "description": "O clipe escorre para baixo em colunas (estilo Doom).",
+  "category": "Criativas"
+}

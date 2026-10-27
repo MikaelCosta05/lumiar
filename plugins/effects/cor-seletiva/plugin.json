@@ -1,0 +1,29 @@
+{
+  "params": [
+    {
+      "id": "keep",
+      "label": "Manter a cor",
+      "type": "color",
+      "default": "#d42020"
+    },
+    {
+      "id": "range",
+      "label": "Tolerância",
+      "type": "float",
+      "default": 0.07,
+      "min": 0.01,
+      "max": 0.3
+    }
+  ],
+  "name": "Cor seletiva",
+  "description": "Tudo preto e branco, menos a cor escolhida.",
+  "category": "Cor",
+  "preview": {
+    "keep": [
+      1,
+      0.82,
+      0.35
+    ],
+    "range": 0.06
+  }
+}

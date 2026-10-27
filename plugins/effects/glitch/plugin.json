@@ -1,0 +1,32 @@
+{
+  "name": "Glitch",
+  "description": "Faixas deslocadas, canais separados e blocos invertidos.",
+  "category": "Distorção",
+  "params": [
+    {
+      "id": "intensity",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "speed",
+      "label": "Velocidade",
+      "type": "float",
+      "default": 3,
+      "min": 0,
+      "max": 10
+    },
+    {
+      "id": "bands",
+      "label": "Faixas",
+      "type": "float",
+      "default": 14,
+      "min": 2,
+      "max": 60,
+      "step": 1
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "RGB Split",
+  "description": "Separa os canais de cor (aberração cromática).",
+  "category": "Distorção",
+  "params": [
+    {
+      "id": "amount",
+      "label": "Intensidade",
+      "type": "float",
+      "default": 0.01,
+      "min": 0,
+      "max": 0.05,
+      "step": 0.001
+    },
+    {
+      "id": "angle",
+      "label": "Ângulo",
+      "type": "float",
+      "default": 0,
+      "min": 0,
+      "max": 360,
+      "step": 1
+    }
+  ]
+}

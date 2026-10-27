@@ -1,0 +1,44 @@
+{
+  "name": "Ajuste de cor",
+  "description": "Brilho, contraste, saturação e temperatura.",
+  "category": "Cor",
+  "params": [
+    {
+      "id": "brightness",
+      "label": "Brilho",
+      "type": "float",
+      "default": 0,
+      "min": -0.5,
+      "max": 0.5
+    },
+    {
+      "id": "contrast",
+      "label": "Contraste",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    },
+    {
+      "id": "saturation",
+      "label": "Saturação",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    },
+    {
+      "id": "temperature",
+      "label": "Temperatura",
+      "type": "float",
+      "default": 0,
+      "min": -1,
+      "max": 1
+    }
+  ],
+  "preview": {
+    "contrast": 1.35,
+    "saturation": 1.7,
+    "temperature": 0.8
+  }
+}

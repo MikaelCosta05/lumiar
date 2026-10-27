@@ -1,0 +1,19 @@
+{
+  "params": [
+    {
+      "id": "pixels",
+      "label": "Linhas de pixels",
+      "type": "float",
+      "default": 144,
+      "min": 72,
+      "max": 288,
+      "step": 1
+    }
+  ],
+  "name": "Game Boy",
+  "description": "Quatro tons de verde e resolução de console portátil.",
+  "category": "Retrô",
+  "preview": {
+    "pixels": 72
+  }
+}

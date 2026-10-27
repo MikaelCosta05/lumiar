@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "size",
+      "label": "Fiapos",
+      "type": "float",
+      "default": 0.2,
+      "min": 0.05,
+      "max": 0.5
+    }
+  ],
+  "name": "Vento",
+  "description": "O clipe é levado pelo vento em fiapos.",
+  "category": "Movimento"
+}

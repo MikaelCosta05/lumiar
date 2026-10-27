@@ -1,0 +1,24 @@
+{
+  "name": "Quadrados",
+  "description": "Blocos aleatórios trocam para o próximo clipe.",
+  "category": "Formas",
+  "params": [
+    {
+      "id": "size",
+      "label": "Blocos",
+      "type": "float",
+      "default": 12,
+      "min": 4,
+      "max": 40,
+      "step": 1
+    },
+    {
+      "id": "smoothness",
+      "label": "Suavidade",
+      "type": "float",
+      "default": 0.2,
+      "min": 0.01,
+      "max": 0.5
+    }
+  ]
+}

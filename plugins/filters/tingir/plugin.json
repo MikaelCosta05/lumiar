@@ -1,0 +1,13 @@
+{
+  "params": [
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#ff4d8d"
+    }
+  ],
+  "name": "Tingir",
+  "description": "Pinta a imagem toda de uma cor só, mantendo luz e sombra.",
+  "category": "Criativos"
+}

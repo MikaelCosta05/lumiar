@@ -1,0 +1,15 @@
+{
+  "params": [
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 2
+    }
+  ],
+  "name": "Terremoto",
+  "description": "A tela treme com ecos e troca no pico.",
+  "category": "Impacto"
+}

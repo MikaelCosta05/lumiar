@@ -1,0 +1,31 @@
+{
+  "params": [
+    {
+      "id": "speed",
+      "label": "Velocidade",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 3
+    },
+    {
+      "id": "twist",
+      "label": "Giro",
+      "type": "float",
+      "default": 1,
+      "min": -3,
+      "max": 3
+    },
+    {
+      "id": "depth",
+      "label": "Profundidade",
+      "type": "float",
+      "default": 0.25,
+      "min": 0.05,
+      "max": 1
+    }
+  ],
+  "name": "Túnel infinito",
+  "description": "A imagem vira as paredes de um túnel girando.",
+  "category": "Distorção"
+}

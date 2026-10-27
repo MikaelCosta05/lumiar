@@ -1,0 +1,15 @@
+{
+  "name": "Losango",
+  "description": "Um losango cresce do centro revelando o próximo clipe.",
+  "category": "Formas",
+  "params": [
+    {
+      "id": "smoothness",
+      "label": "Suavidade",
+      "type": "float",
+      "default": 0.05,
+      "min": 0.01,
+      "max": 0.4
+    }
+  ]
+}
