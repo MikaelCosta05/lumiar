@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  Activity,
   Clapperboard,
   Mic,
   SlidersVertical,
@@ -40,6 +41,14 @@ import {
   Volume2,
   VolumeX,
   WandSparkles,
+  Eye,
+  EyeOff,
+  Package,
+  PackagePlus,
+  Stamp,
+  Music,
+  MicOff,
+  Smartphone,
 } from 'lucide-react';
 import { getPlugin } from '../engine/registry';
 import type { ShaderPlugin } from '../engine/types';
@@ -83,6 +92,20 @@ import {
   type TimelineLayout,
 } from '../project/model';
 import { addTextTrack, findTextClip, removeTextClip, updateTextClip } from '../project/text';
+import {
+  addPackTrack,
+  createPackClip,
+  placePackClip,
+  bakePack,
+  findPackClip,
+  deletePack,
+  setSlowMuted,
+  templateFromClip,
+  updatePackClip,
+  updatePackTrack,
+  type PackTemplate,
+} from '../project/packs';
+import { removeUserPack, saveUserPack } from './packStore';
 import { VOICE_EFFECTS } from '../media/voiceFx';
 import type { MenuEntry } from './ContextMenu';
 import type { Selection } from './selection';
@@ -95,6 +118,7 @@ export interface EditorApi {
   time: number;
   playing: boolean;
   clipboard: CopiedItem | null;
+  selection: Selection;
   edit: (update: (p: Project) => Project) => void;
   apply: (result: EditResult | null, fail?: string) => void;
   select: (selection: Selection) => void;
@@ -116,6 +140,31 @@ export interface EditorApi {
   dub: (target: { kind: 'clip' | 'overlay'; id: string }) => void;
   /** Ajusta o volume do clipe de áudio para o pico ficar em -1 dB */
   normalize: (clipId: string) => void;
+  /** Aplica um pacote de edição no instante t */
+  addPack: (pack: PackTemplate, t: number) => void;
+  /** Detecta as batidas da música no instante t */
+  markBeats: (t: number) => void;
+  /** Corta as pausas dos clipes da trilha principal */
+  cutSilences: (clipIds: string[]) => void;
+  /** Corta os clipes da trilha principal nas batidas (a cada `every` batidas) */
+  beatMontage: (every: number, fill: boolean, t: number) => void;
+  /** Projeto vertical, com a câmera seguindo os rostos */
+  reframeVertical: () => void;
+}
+
+/** Montar os clipes no ritmo da música. */
+function montageMenu(api: EditorApi, t: number): MenuEntry {
+  return {
+    label: 'Montar os clipes no ritmo',
+    icon: <Music size={14} />,
+    items: [
+      { label: 'Um corte a cada batida', onClick: () => api.beatMontage(1, false, t) },
+      { label: 'Um corte a cada 2 batidas', onClick: () => api.beatMontage(2, false, t) },
+      { label: 'Um corte a cada 4 batidas', onClick: () => api.beatMontage(4, false, t) },
+      'separator',
+      { label: 'Repetir os clipes até o fim da música (2 batidas)', onClick: () => api.beatMontage(2, true, t) },
+    ],
+  };
 }
 
 /** Girar 90° e espelhar, para clipes da trilha principal ou sobrepostos. */
@@ -185,7 +234,33 @@ function lookEntries(api: EditorApi, selection: Selection): MenuEntry[] {
   if (!clip) return [];
   const hasLook = !!clip.filter || clip.effects.length > 0;
   const { clipboard } = api;
+  const media = api.project.media.find((m) => m.id === clip.mediaId);
+  const length = selection?.kind === 'clip'
+    ? (api.timeline.clips.find((l) => l.clip.id === clip.id)?.length ?? clipLength(clip))
+    : clipLength(clip);
+  const hasMove = !!clip.camera && Object.keys(clip.camera.keyframes).length > 0;
   return [
+    (hasLook || hasMove) && {
+      label: 'Salvar visual como pacote',
+      icon: <PackagePlus size={14} />,
+      onClick: () => {
+        saveUserPack(
+          templateFromClip({
+            name: `Visual de ${media?.name.replace(/.[^.]+$/, '') ?? 'clipe'}`,
+            color: '#6f7dff',
+            duration: length,
+            intensity: 1,
+            fadeIn: 0,
+            fadeOut: 0,
+            effects: clip.effects,
+            filter: clip.filter,
+            camera: clip.camera ?? null,
+            timing: 'edges',
+          }),
+        );
+        api.notify('Salvo em Pacotes → Meus pacotes.');
+      },
+    },
     hasLook && {
       label: 'Copiar filtro e efeitos',
       icon: <WandSparkles size={14} />,
@@ -249,6 +324,16 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
           onClick: () => api.edit((p) => updateClip(p, clip.id, (c) => ({ ...c, volume: c.volume > 0 ? 0 : 1 }))),
         },
       media.hasAudio && !clip.audioDetached && { label: 'Separar áudio', icon: <Unlink size={14} />, onClick: () => api.detach(clip.id) },
+      media.hasAudio && !clip.audioDetached && { label: 'Detectar batidas do som', icon: <Activity size={14} />, onClick: () => api.markBeats(layout.start + 0.01) },
+      media.hasAudio &&
+        !clip.audioDetached && {
+          label: 'Cortar as pausas (silêncios)',
+          icon: <MicOff size={14} />,
+          items: [
+            { label: 'Só deste clipe', onClick: () => api.cutSilences([clip.id]) },
+            { label: 'De todos os clipes da trilha principal', onClick: () => api.cutSilences(project.clips.map((c) => c.id)) },
+          ],
+        },
       transformMenu(clip, (fn) => api.edit((p) => updateClip(p, clip.id, fn))),
       media.kind === 'video' && { label: 'Dublar este clipe (gravar voz)', icon: <Clapperboard size={14} />, onClick: () => api.dub({ kind: 'clip', id: clip.id }) },
       media.kind === 'video' && {
@@ -361,12 +446,15 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
         items: VOICE_EFFECTS.map((v) => ({ label: v.label, checked: (clip.voice ?? 'none') === v.id, onClick: () => set({ voice: v.id }) })),
       },
       { label: 'Normalizar volume', icon: <SlidersVertical size={14} />, onClick: () => api.normalize(clip.id) },
+      { label: 'Detectar batidas da música', icon: <Activity size={14} />, onClick: () => api.markBeats(clip.start + 0.01) },
+      project.clips.length > 0 && montageMenu(api, clip.start + 0.01),
       {
         label: 'Esta trilha é…',
         icon: <AudioLines size={14} />,
         items: [
           { label: 'Música (abaixa quando há voz)', checked: track.kind === 'music', onClick: () => api.edit((p) => updateAudioTrack(p, track.id, (t) => ({ ...t, kind: 'music' }))) },
           { label: 'Voz (narração/dublagem)', checked: track.kind === 'voice', onClick: () => api.edit((p) => updateAudioTrack(p, track.id, (t) => ({ ...t, kind: 'voice' }))) },
+          { label: 'Efeitos sonoros', checked: track.kind === 'sfx', onClick: () => api.edit((p) => updateAudioTrack(p, track.id, (t) => ({ ...t, kind: 'sfx' }))) },
           { label: 'Outro som', checked: !track.kind || track.kind === 'other', onClick: () => api.edit((p) => updateAudioTrack(p, track.id, (t) => ({ ...t, kind: 'other' }))) },
         ],
       },
@@ -407,6 +495,54 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
           onClick: () => api.edit((p) => updateTextClip(p, clip.id, (c) => ({ ...c, x: 0.5, y: y as number }))),
         })),
       },
+      sep,
+      { label: 'Excluir', icon: <Trash size={14} />, shortcut: 'Delete', danger: true, onClick: remove },
+    ];
+  }
+
+  if (target.kind === 'pack') {
+    const found = findPackClip(project, target.id);
+    if (!found) return [];
+    const { clip, track } = found;
+    const set = (patch: Partial<typeof clip>) => api.edit((p) => updatePackClip(p, clip.id, (c) => ({ ...c, ...patch })));
+    const remove = () => {
+      api.edit((p) => deletePack(p, clip.id));
+      api.select(null);
+    };
+    return [
+      { header: clip.name },
+      ...clipboardEntries(api, target, remove),
+      sep,
+      {
+        label: 'Intensidade',
+        icon: <Gauge size={14} />,
+        items: [0.25, 0.5, 0.75, 1].map((v) => ({ label: `${v * 100}%`, checked: Math.abs(clip.intensity - v) < 0.01, onClick: () => set({ intensity: v }) })),
+      },
+      { label: 'Entrada suave (0,5s)', checked: clip.fadeIn > 0, onClick: () => set({ fadeIn: clip.fadeIn > 0 ? 0 : Math.min(0.5, clip.duration / 2) }) },
+      clip.speed?.speeds.some((v) => v < 1) && {
+        label: 'Silenciar o som no trecho lento',
+        icon: <VolumeX size={14} />,
+        checked: !!clip.speed.muted,
+        onClick: () => api.edit((p) => setSlowMuted(p, clip.id, !clip.speed?.muted)),
+      },
+      { label: 'Saída suave (0,5s)', checked: clip.fadeOut > 0, onClick: () => set({ fadeOut: clip.fadeOut > 0 ? 0 : Math.min(0.5, clip.duration / 2) }) },
+      {
+        label: 'Salvar como meu pacote',
+        icon: <PackagePlus size={14} />,
+        onClick: () => {
+          saveUserPack(templateFromClip(clip, 'cursor', api.project));
+          api.notify(`"${clip.name}" salvo em Pacotes → Meus pacotes.`);
+        },
+      },
+      {
+        label: track.hidden ? `Mostrar a trilha ${track.name}` : `Esconder a trilha ${track.name}`,
+        icon: track.hidden ? <Eye size={14} /> : <EyeOff size={14} />,
+        onClick: () => api.edit((p) => updatePackTrack(p, track.id, (t) => ({ ...t, hidden: !t.hidden }))),
+      },
+      sep,
+      clip.speed && { label: 'Ir para o momento da câmera lenta', icon: <Gauge size={14} />, onClick: () => api.seek(clip.start + (clip.speed?.moment ?? 0)) },
+      { label: 'Ir para o início do bloco', icon: <SkipBack size={14} />, onClick: () => api.seek(clip.start) },
+      { label: 'Ir para o fim do bloco', icon: <SkipForward size={14} />, onClick: () => api.seek(clip.start + clip.duration - 0.01) },
       sep,
       { label: 'Excluir', icon: <Trash size={14} />, shortcut: 'Delete', danger: true, onClick: remove },
     ];
@@ -482,6 +618,7 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
     ];
   }
 
+  if (target.kind !== 'empty') return [];
   // Área vazia da timeline
   const { clipboard } = api;
   return [
@@ -493,11 +630,26 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
       },
     { label: 'Mover o cursor para cá', icon: <SkipForward size={14} />, onClick: () => api.seek(target.time) },
     { label: 'Adicionar marcador aqui', icon: <Bookmark size={14} />, shortcut: 'M', onClick: () => api.addMarker(target.time) },
+    { label: 'Detectar batidas da música aqui', icon: <Activity size={14} />, onClick: () => api.markBeats(target.time) },
+    project.clips.length > 1 && montageMenu(api, target.time),
+    project.clips.length > 0 && {
+      label: 'Cortar as pausas de todos os clipes',
+      icon: <MicOff size={14} />,
+      onClick: () => api.cutSilences(project.clips.map((c) => c.id)),
+    },
+    project.width > project.height &&
+      project.clips.length > 0 && { label: 'Converter para vertical (seguindo rostos)', icon: <Smartphone size={14} />, onClick: api.reframeVertical },
+    (project.beats?.length ?? 0) > 0 && {
+      label: `Limpar as ${project.beats!.length} batidas marcadas`,
+      icon: <Eraser size={14} />,
+      onClick: () => api.edit((p) => ({ ...p, beats: [] })),
+    },
     { label: 'Dividir no cursor', icon: <Scissors size={14} />, shortcut: 'S', onClick: api.split },
     sep,
     { label: 'Nova trilha de vídeo', icon: <Film size={14} />, onClick: () => api.edit(addVideoTrack) },
     { label: 'Nova trilha de áudio', icon: <AudioLines size={14} />, onClick: () => api.edit(addAudioTrack) },
     { label: 'Nova trilha de texto', icon: <Type size={14} />, onClick: () => api.edit(addTextTrack) },
+    { label: 'Nova trilha de pacotes', icon: <Package size={14} />, onClick: () => api.edit(addPackTrack) },
     sep,
     { label: 'Importar mídia…', icon: <Upload size={14} />, onClick: api.openImport },
   ];
@@ -579,5 +731,52 @@ export function previewMenu(api: EditorApi): MenuEntry[] {
     sep,
     { label: 'Salvar quadro atual (PNG)', icon: <ImageDown size={14} />, onClick: api.saveFrame },
     { label: 'Copiar quadro atual', icon: <Camera size={14} />, onClick: api.copyFrame },
+  ];
+}
+
+/** Clique direito num pacote da biblioteca. */
+export function packMenu(api: EditorApi, template: PackTemplate): MenuEntry[] {
+  const selected = api.selection;
+  const clip = visualClip(api.project, selected);
+  const layout = selected?.kind === 'clip' ? api.timeline.clips.find((l) => l.clip.id === selected.id) : null;
+  return [
+    { header: template.name },
+    {
+      label: 'Aplicar no cursor',
+      icon: <Package size={14} />,
+      onClick: () => api.addPack(template, api.time),
+    },
+    template.timing === 'stretch' &&
+      template.anchor === 'cursor' && {
+        label: (api.project.beats?.length ?? 0) > 0 ? 'Repetir em cada batida marcada' : 'Repetir em cada batida (detecta antes)',
+        icon: <Activity size={14} />,
+        disabled: (api.project.beats?.length ?? 0) === 0,
+        onClick: () => {
+          // No trecho do clipe selecionado ou em todas as batidas.
+          const span = layout ? { start: layout.start, end: layout.start + layout.length } : null;
+          const beats = (api.project.beats ?? []).filter((b) => !span || (b >= span.start && b < span.end)).slice(0, 300);
+          api.edit((p) => beats.reduce((acc, b) => placePackClip(acc, createPackClip(template, b)), p));
+          api.notify(`"${template.name}" repetido em ${beats.length} batidas.`);
+        },
+      },
+    {
+      label: 'Fixar direto no clipe selecionado',
+      icon: <Stamp size={14} />,
+      disabled: !clip,
+      onClick: () => {
+        if (!clip || !selected || (selected.kind !== 'clip' && selected.kind !== 'overlay')) return;
+        const length = layout?.length ?? clipLength(clip);
+        if (selected.kind === 'clip') api.edit((p) => updateClip(p, selected.id, (c) => bakePack(template, c, length)));
+        else api.edit((p) => updateOverlayClip(p, selected.id, (c) => bakePack(template, c, length)));
+        api.notify(`"${template.name}" fixado no clipe (filtro, efeitos e câmera agora são do clipe).`);
+      },
+    },
+    template.custom && sep,
+    template.custom && {
+      label: 'Excluir dos meus pacotes',
+      icon: <Trash size={14} />,
+      danger: true,
+      onClick: () => removeUserPack(template.id),
+    },
   ];
 }

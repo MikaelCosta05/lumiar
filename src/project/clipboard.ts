@@ -16,6 +16,7 @@ import {
   type Project,
   type VideoClip,
 } from './model';
+import { findPackClip, placePackClip, type PackClip } from './packs';
 import { findTextClip, placeTextClip, type TextClip } from './text';
 
 /** O que está copiado (Ctrl+C). "look" = só o filtro e os efeitos de um clipe. */
@@ -24,6 +25,7 @@ export type CopiedItem =
   | { kind: 'overlay'; clip: OverlayClip }
   | { kind: 'audio'; clip: AudioClip }
   | { kind: 'text'; clip: TextClip }
+  | { kind: 'pack'; clip: PackClip }
   | { kind: 'look'; filter: FilterInstance | null; effects: EffectInstance[] };
 
 export interface EditResult {
@@ -47,6 +49,10 @@ export function copySelection(project: Project, selection: Selection): CopiedIte
   if (selection?.kind === 'text') {
     const found = findTextClip(project, selection.id);
     return found ? { kind: 'text', clip: found.clip } : null;
+  }
+  if (selection?.kind === 'pack') {
+    const found = findPackClip(project, selection.id);
+    return found ? { kind: 'pack', clip: found.clip } : null;
   }
   return null;
 }
@@ -92,6 +98,12 @@ export function pasteAt(project: Project, item: CopiedItem, t: number): EditResu
     }
     case 'text':
       return { project: placeTextClip(project, { ...item.clip, id, start: t }), selection: { kind: 'text', id } };
+    case 'pack': {
+      // A cópia leva só o visual: textos, sons e a câmera lenta continuam com o bloco original.
+      const clip: PackClip = { ...item.clip, id, start: t, effects: freshEffects(item.clip.effects), attached: undefined, speed: undefined };
+      const track = findPackClip(project, item.clip.id)?.trackIndex ?? 0;
+      return { project: placePackClip(project, clip, track), selection: { kind: 'pack', id } };
+    }
     default:
       return null;
   }
@@ -108,7 +120,7 @@ export function duplicate(project: Project, selection: Selection): EditResult | 
     return { project: insertVideoClips(project, [clip], index + 1), selection: { kind: 'clip', id } };
   }
   const end =
-    item.kind === 'text' ? item.clip.start + item.clip.duration : item.kind === 'look' ? 0 : item.clip.start + clipLength(item.clip);
+    item.kind === 'text' || item.kind === 'pack' ? item.clip.start + item.clip.duration : item.kind === 'look' ? 0 : item.clip.start + clipLength(item.clip);
   return pasteAt(project, item, end);
 }
 

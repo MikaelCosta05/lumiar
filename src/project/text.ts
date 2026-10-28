@@ -19,7 +19,20 @@ export type TextAnimation =
   | 'stretch';
 
 /** Animação contínua enquanto o texto está na tela. */
-export type TextLoop = 'none' | 'wave' | 'pulse' | 'shake' | 'float' | 'rainbow' | 'flicker' | 'swing' | 'glow';
+export type TextLoop =
+  | 'none'
+  | 'wave'
+  | 'pulse'
+  | 'shake'
+  | 'float'
+  | 'rainbow'
+  | 'flicker'
+  | 'swing'
+  | 'glow'
+  | 'bounce'
+  | 'spin'
+  | 'nudge'
+  | 'heartbeat';
 
 export interface TextStyle {
   font: string;
@@ -114,6 +127,10 @@ export const LOOPS: { id: TextLoop; label: string }[] = [
   { id: 'flicker', label: 'Neon falhando' },
   { id: 'swing', label: 'Balançar' },
   { id: 'glow', label: 'Brilho pulsando' },
+  { id: 'bounce', label: 'Quicar' },
+  { id: 'spin', label: 'Girar sem parar' },
+  { id: 'nudge', label: 'Apontar (vai e volta)' },
+  { id: 'heartbeat', label: 'Batida de coração' },
 ];
 
 const BASE_STYLE: TextStyle = {
@@ -441,6 +458,109 @@ export const TEXT_PRESETS: TextPreset[] = [
     loop: 'pulse',
   },
 ];
+
+/** Sticker: um emoji grande e animado (é um texto, então dá para mover, girar e mudar o tamanho igual). */
+export interface StickerPreset extends TextPreset {
+  category: StickerCategory;
+}
+
+export type StickerCategory = 'Reações' | 'Apontar e destacar' | 'Efeitos' | 'Símbolos';
+export const STICKER_CATEGORIES: StickerCategory[] = ['Reações', 'Apontar e destacar', 'Efeitos', 'Símbolos'];
+
+const STICKER_STYLE: Partial<TextStyle> = { font: 'Inter Variable', weight: 400, size: 0.17, shadow: 0.35, outlineWidth: 0 };
+
+function sticker(
+  id: string,
+  emoji: string,
+  name: string,
+  category: StickerCategory,
+  loop: TextLoop,
+  extra: Partial<Omit<StickerPreset, 'id' | 'sample' | 'name' | 'category' | 'loop'>> = {},
+): StickerPreset {
+  return {
+    id: `sticker/${id}`,
+    name,
+    sample: emoji,
+    category,
+    loop,
+    animIn: 'pop',
+    animOut: 'zoom',
+    animDuration: 0.35,
+    ...extra,
+    style: { ...STICKER_STYLE, ...extra.style },
+  };
+}
+
+/** Stickers prontos da aba "Stickers". */
+export const STICKERS: StickerPreset[] = [
+  sticker('caveira', '💀', 'Caveira (morri)', 'Reações', 'shake'),
+  sticker('rindo', '😂', 'Chorando de rir', 'Reações', 'bounce'),
+  sticker('rolando', '🤣', 'Rolando de rir', 'Reações', 'swing'),
+  sticker('chorando', '😭', 'Chorando', 'Reações', 'shake'),
+  sticker('grito', '😱', 'Grito', 'Reações', 'shake', { animIn: 'zoom' }),
+  sticker('mente', '🤯', 'Mente explodida', 'Reações', 'pulse'),
+  sticker('olhos', '👀', 'Olhos (suspeito)', 'Reações', 'nudge'),
+  sticker('pensando', '🤔', 'Pensando', 'Reações', 'float'),
+  sticker('oculos', '😎', 'Estiloso', 'Reações', 'swing', { animIn: 'drop' }),
+  sticker('palhaco', '🤡', 'Palhaço', 'Reações', 'bounce'),
+  sticker('moai', '🗿', 'Moai (sério)', 'Reações', 'none', { animIn: 'zoom', animOut: 'fade' }),
+  sticker('congelado', '🥶', 'Congelado', 'Reações', 'shake'),
+  sticker('calor', '🥵', 'Com calor', 'Reações', 'pulse'),
+  sticker('silencio', '🤫', 'Segredo', 'Reações', 'float'),
+  sticker('sobrancelha', '🤨', 'Desconfiado', 'Reações', 'none', { animIn: 'zoom' }),
+  sticker('apaixonado', '😍', 'Apaixonado', 'Reações', 'heartbeat'),
+  sticker('palmas', '👏', 'Palmas', 'Reações', 'bounce'),
+  sticker('joinha', '👍', 'Joinha', 'Reações', 'bounce', { animIn: 'drop' }),
+  sticker('rezando', '🙏', 'Por favor', 'Reações', 'pulse'),
+  sticker('cem', '💯', 'Cem', 'Reações', 'pulse', { rotation: -8 }),
+
+  sticker('apontar-direita', '👉', 'Apontando (direita)', 'Apontar e destacar', 'nudge', { x: 0.3 }),
+  sticker('apontar-esquerda', '👈', 'Apontando (esquerda)', 'Apontar e destacar', 'nudge', { x: 0.7 }),
+  sticker('apontar-baixo', '👇', 'Apontando (baixo)', 'Apontar e destacar', 'bounce', { y: 0.25 }),
+  sticker('seta-direita', '➡️', 'Seta', 'Apontar e destacar', 'nudge', { x: 0.3 }),
+  sticker('seta-baixo', '⬇️', 'Seta para baixo', 'Apontar e destacar', 'bounce', { y: 0.25 }),
+  sticker('circulo', '⭕', 'Círculo vermelho', 'Apontar e destacar', 'pulse', { style: { size: 0.3, shadow: 0 } }),
+  sticker('xis', '❌', 'Errado', 'Apontar e destacar', 'shake'),
+  sticker('certo', '✅', 'Certo', 'Apontar e destacar', 'pulse'),
+  sticker('alvo', '🎯', 'Alvo', 'Apontar e destacar', 'spin'),
+  sticker('lupa', '🔍', 'Lupa', 'Apontar e destacar', 'float'),
+  sticker('interrogacao', '❓', 'Interrogação', 'Apontar e destacar', 'swing'),
+  sticker('exclamacao', '❗', 'Exclamação', 'Apontar e destacar', 'shake'),
+  sticker('sirene', '🚨', 'Sirene', 'Apontar e destacar', 'flicker'),
+
+  sticker('fogo', '🔥', 'Fogo', 'Efeitos', 'pulse'),
+  sticker('explosao', '💥', 'Explosão', 'Efeitos', 'shake', { animIn: 'zoom' }),
+  sticker('raio', '⚡', 'Raio', 'Efeitos', 'flicker'),
+  sticker('brilho', '✨', 'Brilhos', 'Efeitos', 'glow'),
+  sticker('estrela', '⭐', 'Estrela', 'Efeitos', 'spin'),
+  sticker('estrelas', '💫', 'Tonto', 'Efeitos', 'spin'),
+  sticker('festa', '🎉', 'Festa', 'Efeitos', 'bounce', { animIn: 'drop' }),
+  sticker('coracao', '❤️', 'Coração', 'Efeitos', 'heartbeat'),
+  sticker('coracao-partido', '💔', 'Coração partido', 'Efeitos', 'shake'),
+  sticker('dinheiro', '💸', 'Dinheiro voando', 'Efeitos', 'float'),
+  sticker('suor', '💦', 'Suor', 'Efeitos', 'bounce', { style: { size: 0.12 } }),
+  sticker('zzz', '💤', 'Dormindo', 'Efeitos', 'float'),
+  sticker('balao', '💬', 'Balão de fala', 'Efeitos', 'float'),
+  sticker('perigo', '☠️', 'Perigo', 'Efeitos', 'shake'),
+
+  sticker('trofeu', '🏆', 'Troféu', 'Símbolos', 'bounce', { animIn: 'drop' }),
+  sticker('coroa', '👑', 'Coroa', 'Símbolos', 'float', { y: 0.2 }),
+  sticker('musica', '🎵', 'Música', 'Símbolos', 'float'),
+  sticker('microfone', '🎤', 'Microfone', 'Símbolos', 'swing'),
+  sticker('camera', '📸', 'Câmera', 'Símbolos', 'none'),
+  sticker('ideia', '💡', 'Ideia', 'Símbolos', 'glow'),
+  sticker('relogio', '⏰', 'Despertador', 'Símbolos', 'shake'),
+  sticker('foguete', '🚀', 'Foguete', 'Símbolos', 'float', { animIn: 'slide-up', animOut: 'slide-up' }),
+  sticker('pipoca', '🍿', 'Pipoca', 'Símbolos', 'bounce'),
+  sticker('cafe', '☕', 'Café', 'Símbolos', 'float'),
+  sticker('ok', '🆗', 'OK', 'Símbolos', 'pulse'),
+  sticker('novo', '🆕', 'Novo', 'Símbolos', 'pulse'),
+];
+
+/** Estilo de texto ou sticker pelo id. */
+export function findTextPreset(id: string): TextPreset | undefined {
+  return TEXT_PRESETS.find((p) => p.id === id) ?? STICKERS.find((p) => p.id === id);
+}
 
 export function createTextClip(preset: TextPreset, start: number, duration = 4): TextClip {
   return {

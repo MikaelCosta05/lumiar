@@ -1,8 +1,9 @@
 {
   "name": "lumiar",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Lumiar — editor de vídeo focado em efeitos e transições na GPU",
+  "homepage": "https://github.com/MikaelCosta05/lumiar",
   "author": {
     "name": "Lumiar"
   },
@@ -16,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "app": "npm run build && electron .",
     "dist:win": "npm run build && electron-builder --win nsis --x64",
-    "dist:linux": "npm run build && electron-builder --linux AppImage --x64"
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -87,13 +88,21 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "electron/icon.png",
       "category": "AudioVideo",
       "synopsis": "Editor de vídeo com efeitos e transições na GPU",
       "artifactName": "Lumiar-${version}-Linux-x86_64.${ext}",
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "maintainer": "Lumiar",
+      "executableName": "lumiar"
     }
   }
 }

@@ -7,20 +7,28 @@ import {
   Film,
   Image as ImageIcon,
   Mic,
-  MousePointerClick,
+  Info,
+  Music2,
+  Package,
+  Play,
+  Smile,
+  Square,
+  Timer,
   Palette,
   Plus,
   Search,
   Sparkles,
   Type,
   Upload,
+  Download,
   X,
 } from 'lucide-react';
 import { useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { effectPlugins, filterPlugins, transitionPlugins } from '../engine/registry';
 import type { PluginKind, ShaderPlugin } from '../engine/types';
 import type { MediaItem, MediaKind, Project } from '../project/model';
-import { TEXT_PRESETS, type TextPreset } from '../project/text';
+import { STICKER_CATEGORIES, STICKERS, TEXT_PRESETS, type TextPreset } from '../project/text';
+import { SOUND_CATEGORIES, SOUNDS, soundUrl, type SoundEffect } from '../media/sfx';
 import { formatTime } from './format';
 import { CaptionsPanel } from './CaptionsPanel';
 import { VoicePanel, type VoicePanelProps } from './VoicePanel';
@@ -28,18 +36,24 @@ import { cx } from './kit';
 import { LivePreview } from './LivePreview';
 import { sortCategories } from './PluginPicker';
 import { Waveform } from './MediaVisuals';
-import { usePluginPreviews } from './previews';
-import { MEDIA_MIME, PLUGIN_MIME, TEXT_PRESET_MIME } from './selection';
+import { getPackPreview, usePluginPreviews, usePreviewVersion } from './previews';
+import { MEDIA_MIME, PACK_MIME, PLUGIN_MIME, SOUND_MIME, TEXT_PRESET_MIME } from './selection';
+import { PACK_CATEGORIES, PACKS } from '../project/packLibrary';
+import type { PackTemplate } from '../project/packs';
+import { exportUserPacks, importUserPacks, useUserPacks } from './packStore';
 import { TextPresetThumb } from './TextPresetThumb';
 
-export type LibraryTab = 'media' | 'text' | 'captions' | 'voice' | PluginKind;
+export type LibraryTab = 'media' | 'text' | 'stickers' | 'sounds' | 'captions' | 'voice' | 'packs' | PluginKind;
 
 const TABS: { id: LibraryTab; label: string; icon: ReactNode }[] = [
   { id: 'media', label: 'Mídia', icon: <Film size={19} /> },
   { id: 'filter', label: 'Filtros', icon: <Palette size={19} /> },
   { id: 'effect', label: 'Efeitos', icon: <Sparkles size={19} /> },
   { id: 'transition', label: 'Transições', icon: <Blend size={19} /> },
+  { id: 'packs', label: 'Pacotes', icon: <Package size={19} /> },
   { id: 'text', label: 'Textos', icon: <Type size={19} /> },
+  { id: 'stickers', label: 'Stickers', icon: <Smile size={19} /> },
+  { id: 'sounds', label: 'Sons', icon: <Music2 size={19} /> },
   { id: 'captions', label: 'Legendas', icon: <Captions size={19} /> },
   { id: 'voice', label: 'Voz', icon: <Mic size={19} /> },
 ];
@@ -77,10 +91,15 @@ interface LibraryProps {
   /** Clique direito numa mídia ou num filtro/efeito/transição */
   onMediaMenu: (e: ReactMouseEvent, media: MediaItem) => void;
   onPluginMenu: (e: ReactMouseEvent, plugin: ShaderPlugin) => void;
+  /** Pacotes de edição: clique aplica no cursor */
+  onAddPack: (pack: PackTemplate) => void;
+  onPackMenu: (e: ReactMouseEvent, pack: PackTemplate) => void;
   /** Painel de voz (narração, dublagem, voz sintética) */
   voice: VoicePanelProps;
   onRemoveMedia: (media: MediaItem) => void;
   onAddText: (preset: TextPreset) => void;
+  /** Efeito sonoro: clique põe no cursor */
+  onAddSound: (sound: SoundEffect) => void;
   onLoadSamples: () => void;
   /** Para o painel de legendas */
   time: number;
@@ -102,8 +121,14 @@ export function Library(props: LibraryProps) {
           onLoadSamples={onLoadSamples}
           onMenu={props.onMediaMenu}
         />
+      ) : tab === 'packs' ? (
+        <PackList onAdd={props.onAddPack} onMenu={props.onPackMenu} notify={props.notify} />
       ) : tab === 'text' ? (
         <TextList onAdd={onAddText} />
+      ) : tab === 'stickers' ? (
+        <StickerList onAdd={onAddText} />
+      ) : tab === 'sounds' ? (
+        <SoundList onAdd={props.onAddSound} />
       ) : tab === 'voice' ? (
         <VoicePanel {...props.voice} project={project} />
       ) : tab === 'captions' ? (
@@ -115,17 +140,195 @@ export function Library(props: LibraryProps) {
   );
 }
 
+// ---------------------------------------------------------------- Pacotes de edição
+
+const ANCHOR_HINT: Record<PackTemplate['anchor'], string> = {
+  clip: 'Cobre o clipe selecionado (ou o que está no cursor)',
+  cursor: 'Começa no cursor: ponha o cursor na batida',
+  cut: 'Fica centralizado no corte mais perto do cursor',
+  'clip-start': 'Entra no começo do clipe do cursor',
+  'clip-end': 'Termina no fim do clipe do cursor',
+  beats: 'Cobre a música (ou o clipe selecionado) e pulsa em cada batida',
+};
+
+function PackList({
+  onAdd,
+  onMenu,
+  notify,
+}: {
+  onAdd: (pack: PackTemplate) => void;
+  onMenu: (e: ReactMouseEvent, pack: PackTemplate) => void;
+  notify: (text: string, error?: boolean) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const mine = useUserPacks();
+  // Muda quando as fotos de exemplo chegam: as miniaturas são refeitas com elas.
+  const version = usePreviewVersion();
+  const rows = useMemo(
+    () => [
+      ...(mine.length ? [{ title: 'Meus pacotes', items: mine }] : []),
+      ...PACK_CATEGORIES.map((c) => ({ title: c, items: PACKS.filter((p) => p.category === c) })),
+    ],
+    [mine],
+  );
+  const all = rows.flatMap((r) => r.items);
+  const query = search.trim().toLowerCase();
+  const inCategory = rows.find((r) => r.title === category)?.items;
+  const list = (inCategory ?? all).filter((p) => `${p.name} ${p.description} ${p.category}`.toLowerCase().includes(query));
+  const showRows = !query && !category;
+
+  const card = (pack: PackTemplate, inRow: boolean) => {
+    const thumb = version >= 0 ? getPackPreview(pack) : null;
+    return (
+      <button
+        key={pack.id}
+        title={`${pack.description}\n${ANCHOR_HINT[pack.anchor]}`}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(PACK_MIME, pack.id);
+          e.dataTransfer.effectAllowed = 'copy';
+        }}
+        onClick={() => onAdd(pack)}
+        onContextMenu={(e) => onMenu(e, pack)}
+        onMouseEnter={() => setHovered(pack.id)}
+        onMouseLeave={() => setHovered((h) => (h === pack.id ? null : h))}
+        className={cx('group animate-fade-in text-left', inRow && 'w-28 shrink-0 snap-start')}
+      >
+        <div className="relative aspect-video overflow-hidden rounded-lg bg-panel-3 ring-1 ring-line transition-all group-hover:ring-2 group-hover:ring-accent">
+          {thumb && <img src={thumb} alt="" draggable={false} className="size-full object-cover" />}
+          {hovered === pack.id && <LivePreview pack={pack} className="absolute inset-0" />}
+          <span className="absolute inset-x-0 bottom-0 h-1" style={{ background: pack.color }} />
+          <span className="absolute left-1 top-1 flex items-center gap-0.5 rounded bg-black/70 px-1 py-px font-mono text-[9px] text-white/90">
+            {pack.timing === 'stretch' ? <Timer size={9} /> : <Package size={9} />}
+            {pack.duration < 10 ? `${pack.duration.toFixed(1)}s` : `${Math.round(pack.duration)}s`}
+          </span>
+          <span className="absolute bottom-1.5 right-1 flex size-6 scale-75 items-center justify-center rounded-full bg-accent text-white opacity-0 shadow-lg transition-all group-hover:scale-100 group-hover:opacity-100">
+            <Plus size={14} />
+          </span>
+        </div>
+        <p className="mt-1.5 truncate text-xs font-medium text-dim group-hover:text-fg">{pack.name}</p>
+      </button>
+    );
+  };
+
+  return (
+    <>
+      <PanelHeader
+        title="Pacotes de edição"
+        count={all.length}
+        actions={
+          <>
+            <button
+              title="Importar pacotes (.lumiarpack)"
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.lumiarpack,application/json';
+                input.onchange = async () => {
+                  const file = input.files?.[0];
+                  if (!file) return;
+                  try {
+                    const count = await importUserPacks(file);
+                    notify(count ? `${count} pacote(s) importado(s) para "Meus pacotes".` : 'O arquivo não tinha pacotes.', count === 0);
+                  } catch (error) {
+                    notify(error instanceof Error ? error.message : String(error), true);
+                  }
+                };
+                input.click();
+              }}
+              className="text-faint transition-colors hover:text-accent"
+            >
+              <Upload size={14} />
+            </button>
+            {mine.length > 0 && (
+              <button
+                title={`Exportar meus ${mine.length} pacote(s) para um arquivo`}
+                onClick={() => {
+                  const url = URL.createObjectURL(exportUserPacks());
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'meus-pacotes.lumiarpack';
+                  a.click();
+                  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+                  notify('Pacotes exportados. Abra o arquivo em outro Lumiar com o botão de importar.');
+                }}
+                className="text-faint transition-colors hover:text-accent"
+              >
+                <Download size={14} />
+              </button>
+            )}
+          </>
+        }
+        hint={'Edições prontas: filtro, efeitos, câmera, velocidade e até batidas da música de uma vez.\nCada pacote vira um bloco na timeline que vale para tudo o que está embaixo dele.\n\nClique para aplicar no cursor, arraste até a trilha de pacotes ou use o botão direito para fixar direto num clipe.'}
+      />
+      <div className="space-y-2.5 px-4 pb-3">
+        <label className="relative block">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
+          <input className="field w-full pl-8" placeholder="Buscar…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        <Chips
+          value={category}
+          onChange={setCategory}
+          options={[{ value: null, label: 'Todos' }, ...rows.map((r) => ({ value: r.title, label: r.title }))]}
+        />
+      </div>
+
+      {showRows ? (
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-4">
+          {rows.map((row) => (
+            <section key={row.title}>
+              <div className="mb-2 flex items-center justify-between px-4">
+                <h3 className="flex items-center gap-1.5 text-xs font-semibold text-fg">
+                  {row.items[0] && <span className="size-2 rounded-full" style={{ background: row.items[0].color }} />}
+                  {row.title} <span className="font-normal text-faint">{row.items.length}</span>
+                </h3>
+                <button
+                  onClick={() => setCategory(row.title)}
+                  className="flex items-center text-[11px] text-faint transition-colors hover:text-accent"
+                >
+                  Ver todos
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+              <div className="flex snap-x gap-2.5 overflow-x-auto scroll-px-4 px-4 pb-1">{row.items.map((p) => card(p, true))}</div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {category && (
+            <button
+              onClick={() => setCategory(null)}
+              className="mx-4 mb-2 flex items-center gap-1 self-start text-xs font-semibold text-fg transition-colors hover:text-accent"
+            >
+              <ChevronLeft size={15} />
+              {category}
+              <span className="font-normal text-faint">{list.length}</span>
+            </button>
+          )}
+          <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto px-4 pb-4">
+            {list.map((p) => card(p, false))}
+            {list.length === 0 && <p className="col-span-2 py-8 text-center text-xs text-faint">Nada encontrado.</p>}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------- Textos
 
 function TextList({ onAdd }: { onAdd: (preset: TextPreset) => void }) {
   const [hovered, setHovered] = useState<string | null>(null);
   return (
     <>
-      <PanelHeader title="Textos" count={TEXT_PRESETS.length} />
-      <p className="flex items-start gap-1.5 px-4 pb-3 text-[11px] leading-snug text-faint">
-        <MousePointerClick size={13} className="mt-px shrink-0" />
-        Clique para pôr no cursor, ou arraste até uma trilha de texto. Passe o mouse para ver a animação.
-      </p>
+      <PanelHeader
+        title="Textos"
+        count={TEXT_PRESETS.length}
+        hint="Clique para pôr no cursor, ou arraste até uma trilha de texto. Passe o mouse para ver a animação."
+      />
       <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto px-4 pb-4">
         {TEXT_PRESETS.map((preset) => (
           <button
@@ -154,11 +357,156 @@ function TextList({ onAdd }: { onAdd: (preset: TextPreset) => void }) {
   );
 }
 
-function PanelHeader({ title, count }: { title: string; count: number }) {
+// ---------------------------------------------------------------- Stickers
+
+function StickerList({ onAdd }: { onAdd: (preset: TextPreset) => void }) {
+  const [category, setCategory] = useState<string | null>(null);
+  const list = STICKERS.filter((s) => !category || s.category === category);
   return (
-    <div className="flex items-baseline gap-2 px-4 pb-3 pt-4">
+    <>
+      <PanelHeader
+        title="Stickers"
+        count={STICKERS.length}
+        hint={'Emojis grandes e animados. Clique para pôr no cursor ou arraste até uma trilha de texto.\nDepois, arraste no vídeo para posicionar; no painel da direita dá para mudar o tamanho, girar e trocar a animação.'}
+      />
+      <div className="px-4 pb-3">
+        <Chips
+          value={category}
+          onChange={setCategory}
+          options={[{ value: null, label: 'Todos' }, ...STICKER_CATEGORIES.map((c) => ({ value: c, label: c }))]}
+        />
+      </div>
+      <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-4 gap-2 overflow-y-auto px-4 pb-4">
+        {list.map((sticker) => (
+          <button
+            key={sticker.id}
+            title={sticker.name}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(TEXT_PRESET_MIME, sticker.id);
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
+            onClick={() => onAdd(sticker)}
+            className="group flex aspect-square animate-fade-in items-center justify-center rounded-lg bg-panel-3 text-3xl ring-1 ring-line transition-all hover:bg-panel-2 hover:ring-2 hover:ring-accent"
+          >
+            <span className="transition-transform group-hover:scale-125 group-hover:animate-bounce">{sticker.sample}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- Efeitos sonoros
+
+/** Um só player para ouvir os sons da biblioteca. */
+let listening: HTMLAudioElement | null = null;
+
+function SoundList({ onAdd }: { onAdd: (sound: SoundEffect) => void }) {
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const query = search.trim().toLowerCase();
+  const list = SOUNDS.filter(
+    (s) => (!category || s.category === category) && `${s.name} ${s.description} ${s.category}`.toLowerCase().includes(query),
+  );
+
+  const listen = async (sound: SoundEffect) => {
+    listening?.pause();
+    if (playing === sound.id) {
+      setPlaying(null);
+      return;
+    }
+    setPlaying(sound.id);
+    const audio = new Audio(await soundUrl(sound.id));
+    listening = audio;
+    audio.onended = () => setPlaying((p) => (p === sound.id ? null : p));
+    void audio.play().catch(() => setPlaying(null));
+  };
+
+  return (
+    <>
+      <PanelHeader
+        title="Efeitos sonoros"
+        count={SOUNDS.length}
+        hint={'Sons criados pelo próprio Lumiar, sem internet. ▶ ouve, clique no nome para pôr no cursor ou arraste até uma trilha de áudio.\nOs sons vão para a trilha "Efeitos sonoros".'}
+      />
+      <div className="space-y-2.5 px-4 pb-3">
+        <label className="relative block">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
+          <input className="field w-full pl-8" placeholder="Buscar…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        <Chips
+          value={category}
+          onChange={setCategory}
+          options={[{ value: null, label: 'Todos' }, ...SOUND_CATEGORIES.map((c) => ({ value: c, label: c }))]}
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        {SOUND_CATEGORIES.map((c) => {
+          const items = list.filter((s) => s.category === c);
+          if (items.length === 0) return null;
+          return (
+            <section key={c} className="mb-3">
+              <h3 className="mb-1 px-1 text-xs font-semibold text-fg">
+                {c} <span className="font-normal text-faint">{items.length}</span>
+              </h3>
+              {items.map((sound) => (
+                <div
+                  key={sound.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(SOUND_MIME, sound.id);
+                    e.dataTransfer.effectAllowed = 'copy';
+                  }}
+                  title={`${sound.description}\nClique para pôr no cursor · arraste até uma trilha de áudio`}
+                  className="group flex animate-fade-in cursor-grab items-center gap-2 rounded-lg px-1 py-1 transition-colors hover:bg-panel-2 active:cursor-grabbing"
+                >
+                  <button
+                    title={playing === sound.id ? 'Parar' : 'Ouvir'}
+                    onClick={() => void listen(sound)}
+                    className={cx(
+                      'flex size-7 shrink-0 items-center justify-center rounded-full transition-colors',
+                      playing === sound.id ? 'bg-accent text-white' : 'bg-panel-3 text-dim hover:bg-accent/30 hover:text-fg',
+                    )}
+                  >
+                    {playing === sound.id ? <Square size={10} fill="currentColor" /> : <Play size={11} fill="currentColor" className="ml-px" />}
+                  </button>
+                  <button onClick={() => onAdd(sound)} className="min-w-0 flex-1 text-left">
+                    <p className="truncate text-xs font-medium text-dim group-hover:text-fg">{sound.name}</p>
+                  </button>
+                  <span className="font-mono text-[10px] text-faint">{sound.duration.toFixed(1)}s</span>
+                  <button
+                    title="Pôr no cursor"
+                    onClick={() => onAdd(sound)}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <Plus size={13} />
+                  </button>
+                </div>
+              ))}
+            </section>
+          );
+        })}
+        {list.length === 0 && <p className="py-8 text-center text-xs text-faint">Nada encontrado.</p>}
+      </div>
+    </>
+  );
+}
+
+function PanelHeader({ title, count, hint, actions }: { title: string; count: number; hint?: string; actions?: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 px-4 pb-3 pt-4">
       <h2 className="text-[15px] font-semibold">{title}</h2>
       <span className="text-xs text-faint">{count}</span>
+      <span className="ml-auto flex items-center gap-2.5">
+        {actions}
+        {hint && (
+          <span title={hint} className="cursor-help text-faint transition-colors hover:text-accent">
+            <Info size={14} />
+          </span>
+        )}
+      </span>
     </div>
   );
 }
@@ -411,8 +759,8 @@ function PluginList({
 
   return (
     <>
-      <PanelHeader title={title} count={all.length} />
-      <div className="space-y-3 px-4 pb-3">
+      <PanelHeader title={title} count={all.length} hint={hint} />
+      <div className="space-y-2.5 px-4 pb-3">
         <label className="relative block">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
           <input className="field w-full pl-8" placeholder="Buscar…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -422,10 +770,6 @@ function PluginList({
           onChange={setCategory}
           options={[{ value: null, label: 'Todos' }, ...rows.map((r) => ({ value: r.title, label: r.title }))]}
         />
-        <p className="flex items-start gap-1.5 text-[11px] leading-snug text-faint">
-          <MousePointerClick size={13} className="mt-px shrink-0" />
-          {hint}
-        </p>
       </div>
 
       {showRows ? (

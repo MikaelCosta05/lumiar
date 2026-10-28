@@ -18,6 +18,8 @@ class AssetStore {
   readonly bitmaps = new Map<string, ImageBitmap>();
   readonly filmstrips = new Map<string, Filmstrip>();
   readonly peaks = new Map<string, Float32Array>();
+  /** Cópias leves dos vídeos (prévia leve), por id da mídia */
+  readonly proxies = new Map<string, string>();
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);

@@ -1,0 +1,30 @@
+{
+  "name": "Flash de cor",
+  "description": "Cobre a imagem com uma cor. Animado, vira flash branco, piscada ou entrada/saída do preto.",
+  "category": "Luz",
+  "params": [
+    {
+      "id": "amount",
+      "label": "Quantidade",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#ffffff"
+    },
+    {
+      "id": "glow",
+      "label": "Estourar luzes",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "preview": { "amount": 0.55 }
+}

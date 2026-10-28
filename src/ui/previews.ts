@@ -3,6 +3,8 @@ import { assetUrl } from '../assetUrl';
 import { defaultParams, plugins } from '../engine/registry';
 import { Renderer, type LayerInput } from '../engine/renderer';
 import type { ShaderPlugin } from '../engine/types';
+import { createProject, layoutProject, resolveFrame, toFrameInput } from '../project/model';
+import { createPackClip, type PackTemplate } from '../project/packs';
 
 const WIDTH = 256;
 const HEIGHT = 144;
@@ -183,6 +185,7 @@ export async function loadSamplePhotos(): Promise<void> {
       bitmap.close();
     }
     cache = null;
+    packCache.clear();
     version++;
     listeners.forEach((l) => l());
   } catch (error) {
@@ -205,6 +208,82 @@ function getSampleVideo(): HTMLVideoElement | null {
   }
   if (sampleVideo.paused) sampleVideo.play().catch(() => {});
   return sampleVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? sampleVideo : null;
+}
+
+/** Clipe selecionado na timeline: as prévias ao passar o mouse mostram o vídeo da pessoa. */
+interface PreviewClip {
+  key: string;
+  url: string;
+  image: ImageBitmap | null;
+  from: number;
+  to: number;
+  width: number;
+  height: number;
+}
+
+let previewClip: PreviewClip | null = null;
+let clipVideo: HTMLVideoElement | null = null;
+let lastUse = 0;
+
+/** Troca o vídeo das prévias pelo trecho do clipe selecionado (null volta ao vídeo de exemplo). */
+export function setPreviewClip(clip: PreviewClip | null): void {
+  if (clip?.key === previewClip?.key && clip?.url === previewClip?.url) {
+    previewClip = clip;
+    return;
+  }
+  previewClip = clip;
+  if (clipVideo) {
+    clipVideo.pause();
+    clipVideo.removeAttribute('src');
+    clipVideo.load();
+  }
+  if (clip && !clip.image) {
+    clipVideo ??= hiddenVideo();
+    clipVideo.src = clip.url;
+    clipVideo.currentTime = clip.from;
+  }
+}
+
+function hiddenVideo(): HTMLVideoElement {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none';
+  // Toca só o trecho do clipe, em loop.
+  video.addEventListener('timeupdate', () => {
+    const clip = previewClip;
+    if (clip && (video.currentTime >= clip.to - 0.05 || video.currentTime < clip.from - 0.5)) video.currentTime = clip.from;
+  });
+  document.body.appendChild(video);
+  return video;
+}
+
+/** A imagem do clipe selecionado agora (ou null para usar o exemplo). */
+function clipSource(): { source: TexImageSource; width: number; height: number } | null {
+  const clip = previewClip;
+  if (!clip) return null;
+  if (clip.image) return { source: clip.image, width: clip.width, height: clip.height };
+  const video = clipVideo;
+  if (!video) return null;
+  lastUse = performance.now();
+  if (video.paused) {
+    video.play().catch(() => {});
+    // Sem prévia na tela por um tempo: pausa para não gastar processamento.
+    const check = () => {
+      if (performance.now() - lastUse > 400) video.pause();
+      else setTimeout(check, 400);
+    };
+    setTimeout(check, 400);
+  }
+  return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? { source: video, width: clip.width, height: clip.height } : null;
+}
+
+/** Vídeo das prévias: o clipe selecionado ou o vídeo de exemplo. */
+function liveSource(): { source: TexImageSource; width: number; height: number } {
+  const clip = clipSource();
+  if (clip) return clip;
+  const video = getSampleVideo();
+  return video ? { source: video, width: 854, height: 480 } : { source: sceneCanvas(0), width: WIDTH, height: HEIGHT };
 }
 
 let cache: Map<string, string> | null = null;
@@ -239,8 +318,8 @@ export function drawLivePreview(plugin: ShaderPlugin, seconds: number, target: C
     plugin.kind === 'transition'
       ? smoothstep(0.15, 0.85, phase)
       : smoothstep(0.1, 0.9, 1 - Math.abs(phase * 2 - 1));
-  const video = getSampleVideo();
-  drawPlugin(stage, plugin, 1.3 + seconds, value, video ?? sceneCanvas(0), video ? 854 : WIDTH, video ? 480 : HEIGHT);
+  const live = liveSource();
+  drawPlugin(stage, plugin, 1.3 + seconds, value, live.source, live.width, live.height);
   target.drawImage(stage.canvas, 0, 0, target.canvas.width, target.canvas.height);
 }
 
@@ -307,8 +386,72 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+// ---------------------------------------------------------------- Pacotes de edição
+
+const packCache = new Map<string, string>();
+
+/**
+ * Desenha o pacote sobre uma cena de exemplo no instante `time` do bloco,
+ * pelo mesmo caminho do player (modelo → quadro → renderizador).
+ */
+function drawPack(stage: Stage, template: PackTemplate, time: number, source: TexImageSource, w: number, h: number): void {
+  const clip = createPackClip(template, 0);
+  const project = { ...createProject(), packTracks: [{ id: 'preview', name: '', hidden: false, clips: [clip] }] };
+  const local = Math.min(time, clip.duration - 0.001);
+  const frame = toFrameInput(resolveFrame(project, layoutProject(project), local), () => ({ source: null }));
+  frame.a = {
+    key: 'a',
+    source,
+    width: w,
+    height: h,
+    time,
+    duration: clip.duration,
+    effects: [],
+    filter: null,
+    camera: { zoom: 1, x: 0.5, y: 0.5, rotation: 0, fill: true },
+  };
+  stage.renderer.render(frame);
+}
+
+/** Miniatura parada de um pacote, no momento em que ele mais aparece. */
+export function getPackPreview(template: PackTemplate): string | null {
+  const cached = packCache.get(template.id);
+  if (cached) return cached;
+  const stage = getStage();
+  if (!stage) return null;
+  // Batidas têm o pico logo no começo; passagens, no meio; os visuais, em qualquer ponto do meio.
+  // Pacotes de velocidade: no meio do trecho lento, longe do flash de entrada.
+  const at = template.speed
+    ? template.duration * 0.6
+    : template.timing === 'stretch'
+      ? template.duration * (template.anchor === 'cut' ? 0.5 : 0.12)
+      : template.duration * 0.5;
+  // Metade dos pacotes aparece sobre a paisagem e metade sobre a cidade à noite, para variar as miniaturas.
+  const variant = [...template.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 2 === 0 ? 0 : 1;
+  drawPack(stage, template, at, sceneCanvas(variant), WIDTH, HEIGHT);
+  const url = stage.canvas.toDataURL('image/jpeg', 0.85);
+  packCache.set(template.id, url);
+  return url;
+}
+
+/** Quadro animado do pacote (ao passar o mouse): toca o bloco inteiro em loop. */
+export function drawPackLive(template: PackTemplate, seconds: number, target: CanvasRenderingContext2D): void {
+  const stage = getStage();
+  if (!stage) return;
+  // Uma pausa no fim do loop dá tempo de ver o efeito de novo.
+  const cycle = Math.max(1.6, template.duration + (template.timing === 'stretch' ? 0.8 : 0.4));
+  const live = liveSource();
+  drawPack(stage, template, seconds % cycle, live.source, live.width, live.height);
+  target.drawImage(stage.canvas, 0, 0, target.canvas.width, target.canvas.height);
+}
+
 /** Miniaturas dos plugins, atualizadas quando as fotos reais terminam de carregar. */
 export function usePluginPreviews(): Map<string, string> {
   const v = useSyncExternalStore(previewStore.subscribe, previewStore.getVersion);
   return useMemo(() => getPluginPreviews(), [v]);
+}
+
+/** Muda quando as fotos reais de exemplo chegam (para refazer as miniaturas). */
+export function usePreviewVersion(): number {
+  return useSyncExternalStore(previewStore.subscribe, previewStore.getVersion);
 }

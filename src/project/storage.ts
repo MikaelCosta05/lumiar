@@ -181,6 +181,7 @@ export function hasContent(project: Project): boolean {
     project.media.length > 0 ||
     project.textTracks.some((t) => t.clips.length > 0) ||
     project.videoTracks.some((t) => t.clips.length > 0) ||
+    (project.packTracks ?? []).some((t) => t.clips.length > 0) ||
     (project.captions?.captions.length ?? 0) > 0
   );
 }

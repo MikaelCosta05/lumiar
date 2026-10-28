@@ -27,6 +27,8 @@ export function useHistory<T>(initial: () => T) {
     setState(next);
   }, []);
 
+  const getCurrent = useCallback(() => current.current, []);
+
   const undo = useCallback(() => {
     const prev = past.current.pop();
     if (prev === undefined) return;
@@ -63,6 +65,8 @@ export function useHistory<T>(initial: () => T) {
   }, []);
 
   return {
+    /** Estado mais recente, mesmo dentro de funções antigas (depois de um await). */
+    current: getCurrent,
     state,
     update,
     undo,

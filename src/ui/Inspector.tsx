@@ -59,7 +59,10 @@ import {
   type TransitionInstance,
   type VideoClip,
 } from '../project/model';
+import { createCamera } from '../project/camera';
+import { deletePack, findPackClip, setSlowMuted, updatePackClip } from '../project/packs';
 import { formatTime } from './format';
+import { PackInspector, type PackTab } from './PackInspector';
 import { Button, cx, IconButton, Kbd, SectionTitle, Segmented, Slider, Switch, Tabs, type TabItem } from './kit';
 import { CameraPanel } from './CameraPanel';
 import { bindKeyframes, type KeyframeContext } from './keyframeUi';
@@ -90,6 +93,7 @@ interface Props {
   onNormalize: (clipId: string) => void;
   /** Clipe esperando o clique no vídeo para escolher o ponto a seguir */
   picking: string | null;
+  notify: (text: string) => void;
 }
 
 /** Painel da direita: propriedades do que está selecionado. */
@@ -100,6 +104,7 @@ export function Inspector(props: Props) {
   const [clipTab, setClipTab] = useState<ClipTab>('basic');
   const [textTab, setTextTab] = useState<TextTab>('text');
   const [overlayTab, setOverlayTab] = useState<OverlayTab>('place');
+  const [packTab, setPackTab] = useState<PackTab>('pack');
   let content: ReactNode = <EmptyInspector />;
 
   if (selection?.kind === 'clip') {
@@ -158,6 +163,34 @@ export function Inspector(props: Props) {
           onToMain={() => props.onToMain(clip.id)}
           onRemove={() => {
             onChange((p) => removeOverlayClip(p, clip.id));
+            onSelect(null);
+          }}
+        />
+      );
+    }
+  } else if (selection?.kind === 'pack') {
+    const found = findPackClip(project, selection.id);
+    if (found) {
+      const clip = found.clip;
+      const ctx: KeyframeContext = {
+        clipTime: Math.min(Math.max(0, time - clip.start), clip.duration),
+        seek: (t) => onSeek(clip.start + t),
+      };
+      content = (
+        <PackInspector
+          key={clip.id}
+          clip={clip}
+          trackName={found.track.name}
+          ctx={ctx}
+          tab={packTab}
+          onTab={setPackTab}
+          notify={props.notify}
+          onChange={(update) => onChange((p) => updatePackClip(p, clip.id, update))}
+          onMuteSlow={(muted) => onChange((p) => setSlowMuted(p, clip.id, muted))}
+          attachedCount={clip.attached?.length ?? 0}
+          project={project}
+          onRemove={() => {
+            onChange((p) => deletePack(p, clip.id));
             onSelect(null);
           }}
         />
@@ -287,7 +320,7 @@ function EmptyInspector() {
   );
 }
 
-function Chip({ children }: { children: ReactNode }) {
+export function Chip({ children }: { children: ReactNode }) {
   return (
     <span className="inline-flex h-5 items-center gap-1 rounded bg-panel-3 px-1.5 font-mono text-[10px] text-dim">
       {children}
@@ -295,7 +328,7 @@ function Chip({ children }: { children: ReactNode }) {
   );
 }
 
-function LabeledSlider({
+export function LabeledSlider({
   label,
   value,
   display,
@@ -473,13 +506,11 @@ function ClipInspector({
 
       {current === 'camera' && (
         <CameraPanel
-          clip={clip}
+          camera={clip.camera}
           ctx={ctx}
           clipLength={length}
-          onChange={onChange}
-          onFollowFace={onFollowFace}
-          onPickPoint={onPickPoint}
-          picking={picking}
+          onCamera={(update) => onChange((c) => ({ ...c, camera: update(c.camera ?? createCamera()) }))}
+          follow={{ onFollowFace, onPickPoint, picking }}
         />
       )}
 
@@ -558,7 +589,7 @@ function QuickAdjust({ effects, onChange }: { effects: EffectInstance[]; onChang
   );
 }
 
-function Tip({ children }: { children: ReactNode }) {
+export function Tip({ children }: { children: ReactNode }) {
   return (
     <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-panel-2 px-2.5 py-2 text-[11px] leading-snug text-faint">
       <Lightbulb size={12} className="mt-px shrink-0 text-amber/80" />
@@ -567,13 +598,15 @@ function Tip({ children }: { children: ReactNode }) {
   );
 }
 
-function EffectsPanel({
+export function EffectsPanel({
   ctx,
   effects,
   onChange,
+  title = 'Neste clipe',
 }: {
   ctx: KeyframeContext;
   effects: EffectInstance[];
+  title?: string;
   onChange: (update: (effects: EffectInstance[]) => EffectInstance[]) => void;
 }) {
   const [adding, setAdding] = useState(false);
@@ -582,7 +615,7 @@ function EffectsPanel({
     <>
       {effects.length > 0 && (
         <>
-          <SectionTitle extra={<span className="text-[11px] text-faint">aplicados em ordem</span>}>Neste clipe</SectionTitle>
+          <SectionTitle extra={<span className="text-[11px] text-faint">aplicados em ordem</span>}>{title}</SectionTitle>
           <div className="space-y-2">
             {effects.map((effect, i) => (
               <EffectCard
@@ -745,7 +778,7 @@ function TrimRow({ label, value, max, onChange }: { label: string; value: number
 }
 
 /** Aba "Cor": ajustes do filtro escolhido e a grade para trocar. */
-function FilterPanel({
+export function FilterPanel({
   ctx,
   filter,
   onChange,

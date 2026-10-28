@@ -93,12 +93,29 @@ export interface TransitionInput {
   progress: number;
 }
 
+/**
+ * Pacote de edição: filtro, efeitos e câmera aplicados sobre a imagem já montada
+ * (trilha principal + sobreposições), só no trecho em que o bloco está.
+ */
+export interface AdjustInput {
+  /** Tempo desde o início do bloco e duração dele (para efeitos animados). */
+  time: number;
+  duration: number;
+  effects: EffectInstance[];
+  filter: FilterInstance | null;
+  camera: LayerCamera | null;
+  /** 0 a 1: mistura com a imagem sem o pacote (intensidade e entrada/saída suaves). */
+  amount: number;
+}
+
 export interface FrameInput {
   a: LayerInput | null;
   b: LayerInput | null;
   transition: TransitionInput | null;
   /** Trilhas de vídeo extras, desenhadas por cima da principal na ordem da lista. */
   layers?: PlacedLayer[];
+  /** Pacotes de edição, aplicados em ordem depois das camadas e antes dos textos. */
+  adjust?: AdjustInput[];
   /** Imagem transparente desenhada por cima de tudo (textos). */
   overlay?: TexImageSource | null;
 }
@@ -110,7 +127,7 @@ const SLOT = 3;
 /**
  * Pipeline de cada quadro, todo na GPU:
  *   mídia A → câmera/encaixe → (quadro intermediário) → efeitos → filtro ─┐
- *                                                                         ├→ transição → texto → tela
+ *                                                                         ├→ transição → camadas → pacotes → texto → tela
  *   mídia B → câmera/encaixe → (quadro intermediário) → efeitos → filtro ─┘
  * Cada camada usa framebuffers em "ping-pong" para empilhar efeitos.
  */
@@ -134,6 +151,10 @@ export class Renderer {
   private readonly staticSources = new Map<string, TexImageSource>();
   /** 3 por camada: [A0, A1, A2, B0, B1, B2] */
   private targets: RenderTarget[] = [];
+  /** Imagem montada antes dos pacotes de edição (duas, em ping-pong). */
+  private compose: RenderTarget[] = [];
+  /** Onde a montagem é desenhada: a tela (null) ou compose, quando há pacotes no quadro. */
+  private screen: RenderTarget | null = null;
   /** Imagens reduzidas para o fluxo de movimento: [anterior, atual, fluxo] */
   private small: RenderTarget[] = [];
   /** null = shader com erro (não tenta compilar de novo). */
@@ -182,8 +203,10 @@ export class Renderer {
     this.canvas.width = width;
     this.canvas.height = height;
     this.targets.forEach((t) => deleteTarget(gl, t));
+    this.compose.forEach((t) => deleteTarget(gl, t));
     this.small.forEach((t) => deleteTarget(gl, t));
     this.targets = Array.from({ length: SLOT * 2 }, () => createTarget(gl, width, height));
+    this.compose = Array.from({ length: 2 }, () => createTarget(gl, width, height));
     this.small = Array.from({ length: 3 }, () => createTarget(gl, this.smallWidth, this.smallHeight));
     for (const t of this.small.slice(0, 2)) {
       gl.bindTexture(gl.TEXTURE_2D, t.texture);
@@ -201,11 +224,24 @@ export class Renderer {
 
   render(frame: FrameInput): void {
     this.gl.bindVertexArray(this.vao);
+    const adjust = (frame.adjust ?? []).filter((a) => a.amount > 0.001);
+    // Com pacotes, a montagem vai para uma imagem intermediária em vez de direto para a tela.
+    this.screen = adjust.length ? this.compose[0] : null;
     this.drawBase(frame);
-    // A trilha principal já está na tela: os alvos podem ser reaproveitados pelas camadas.
+    // A trilha principal já está desenhada: os alvos podem ser reaproveitados pelas camadas.
     for (const layer of frame.layers ?? []) {
       if (layer.place.opacity <= 0.001 || layer.place.scale <= 0) continue;
       this.drawPlaced(this.renderLayer(layer, 0), layer);
+    }
+    if (adjust.length) {
+      let current = this.compose[0];
+      for (const a of adjust) current = this.drawAdjust(a, current, current === this.compose[0] ? this.compose[1] : this.compose[0]);
+      this.screen = null;
+      this.bindOutput(null);
+      this.gl.useProgram(this.copyProgram.program);
+      this.bindTexture(0, current.texture);
+      setUniform(this.gl, this.copyProgram, 'uTexture', 0);
+      this.draw();
     }
     if (frame.overlay) this.drawOverlay(frame.overlay);
   }
@@ -228,8 +264,10 @@ export class Renderer {
     this.previousTextures.clear();
     this.staticSources.clear();
     this.targets.forEach((t) => deleteTarget(gl, t));
+    this.compose.forEach((t) => deleteTarget(gl, t));
     this.small.forEach((t) => deleteTarget(gl, t));
     this.targets = [];
+    this.compose = [];
     this.small = [];
     this.plugins.forEach((p) => p && gl.deleteProgram(p.program));
     this.plugins.clear();
@@ -244,8 +282,7 @@ export class Renderer {
   private drawBase(frame: FrameInput): void {
     const gl = this.gl;
     if (!frame.a) {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, this.width, this.height);
+      this.bindOutput(this.screen);
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       return;
@@ -258,7 +295,7 @@ export class Renderer {
       // Shader da transição com erro: faz um corte seco no meio.
       if (frame.transition.progress >= 0.5) output = b;
     }
-    this.bindOutput(null);
+    this.bindOutput(this.screen);
     gl.useProgram(this.copyProgram.program);
     this.bindTexture(0, output.texture);
     setUniform(gl, this.copyProgram, 'uTexture', 0);
@@ -289,7 +326,7 @@ export class Renderer {
     const gl = this.gl;
     const { place } = layer;
     const [fitW, fitH] = this.fitScale(layer.width, layer.height);
-    this.bindOutput(null);
+    this.bindOutput(this.screen);
     gl.useProgram(this.placeProgram.program);
     this.bindTexture(0, source.texture);
     const p = this.placeProgram;
@@ -314,12 +351,9 @@ export class Renderer {
   }
 
   private renderLayer(layer: LayerInput, base: number): RenderTarget {
-    const gl = this.gl;
     const texture = this.uploadSource(layer);
     const [t0, t1, t2] = this.targets.slice(base, base + SLOT);
 
-    let current = t0;
-    let spare = t1;
     const interp = layer.interpolation;
     const previous = this.previousTextures.get(layer.key);
     if (interp && previous && interp.alpha > 0.001 && interp.alpha < 0.999) {
@@ -334,7 +368,16 @@ export class Renderer {
     } else {
       this.drawSource(layer, texture, t0);
     }
+    return this.drawLook(layer, t0, t1);
+  }
 
+  /** Empilha os efeitos e depois o filtro, alternando entre os dois alvos. Devolve o alvo com o resultado. */
+  private drawLook(
+    layer: Pick<LayerInput, 'effects' | 'filter' | 'time' | 'duration'>,
+    current: RenderTarget,
+    spare: RenderTarget,
+  ): RenderTarget {
+    const gl = this.gl;
     for (const effect of layer.effects) {
       if (!effect.enabled) continue;
       const plugin = getPlugin(effect.pluginId);
@@ -370,6 +413,33 @@ export class Renderer {
       current = spare;
     }
     return current;
+  }
+
+  /**
+   * Pacote de edição: câmera (zoom, giro…) → efeitos → filtro sobre a imagem montada,
+   * misturado com ela pela intensidade. O resultado vai para `out`.
+   */
+  private drawAdjust(adjust: AdjustInput, input: RenderTarget, out: RenderTarget): RenderTarget {
+    const [t0, t1] = this.targets;
+    // A imagem montada já está na orientação do GL (linha 0 embaixo): flipY desfaz a inversão
+    // que o shader de origem faz para as mídias.
+    const view: LayerInput = {
+      key: '',
+      source: null,
+      width: this.width,
+      height: this.height,
+      time: adjust.time,
+      duration: adjust.duration,
+      effects: [],
+      filter: null,
+      camera: adjust.camera && { ...adjust.camera, fill: false },
+      stretch: true,
+      flipY: true,
+    };
+    this.drawSource(view, input.texture, t0);
+    const result = this.drawLook(adjust, t0, t1);
+    this.drawBlend(input, result, Math.min(1, adjust.amount), out);
+    return out;
   }
 
   /** Desenha a mídia com encaixe e câmera no alvo indicado. */
@@ -454,7 +524,7 @@ export class Renderer {
     const compiled = plugin && this.getProgram(plugin);
     if (!plugin || !compiled) return false;
 
-    this.bindOutput(null);
+    this.bindOutput(this.screen);
     gl.useProgram(compiled.program);
     this.bindTexture(0, from.texture);
     this.bindTexture(1, to.texture);

@@ -1,9 +1,10 @@
 import { defaultParams, getPlugin } from '../engine/registry';
-import type { FrameInput, LayerInput, PlacedLayer } from '../engine/renderer';
+import type { AdjustInput, FrameInput, LayerInput, PlacedLayer } from '../engine/renderer';
 import { resolveParams, shiftKeyframes } from '../engine/keyframes';
 import type { EffectInstance, FilterInstance, ParamValues } from '../engine/types';
 import { evaluateCamera, type Camera } from './camera';
 import type { CaptionTrack } from './captions';
+import { createPackTrack, packsAt, type ActivePack, type PackTrack } from './packs';
 import { createTextTrack, type TextTrack } from './text';
 
 export type MediaKind = 'video' | 'audio' | 'image';
@@ -25,6 +26,8 @@ export interface MediaItem {
   width: number;
   height: number;
   hasAudio: boolean;
+  /** Efeito sonoro gerado pelo Lumiar (id do som), para não gerar o mesmo duas vezes */
+  sfx?: string;
 }
 
 /** Clipe da trilha de vídeo principal (vídeo ou imagem). */
@@ -98,8 +101,8 @@ export type VoiceEffect =
   | 'deep'
   | 'chipmunk';
 
-/** music = abaixa sozinha quando há voz; voice = narração/dublagem. */
-export type AudioTrackKind = 'other' | 'music' | 'voice';
+/** music = abaixa sozinha quando há voz; voice = narração/dublagem; sfx = efeitos sonoros. */
+export type AudioTrackKind = 'other' | 'music' | 'voice' | 'sfx';
 
 export interface AudioTrack {
   id: string;
@@ -176,12 +179,16 @@ export interface Project {
   textTracks: TextTrack[];
   /** Trilhas de vídeo por cima da principal (a primeira fica logo acima dela). */
   videoTracks: VideoTrack[];
+  /** Pacotes de edição: aplicados por cima de todo o vídeo, abaixo dos textos. */
+  packTracks: PackTrack[];
   background: Background;
   markers: Marker[];
   /** Volume da música enquanto há voz (0 a 1). */
   duckLevel: number;
   /** Roteiro do teleprompter */
   script: string;
+  /** Batidas da música detectadas (tempo da timeline): aparecem na régua e servem de ímã */
+  beats?: number[];
   /** Legendas (ausente em projetos antigos) */
   captions?: CaptionTrack;
 }
@@ -204,6 +211,7 @@ export function createProject(): Project {
     audioTracks: [createAudioTrack(1)],
     textTracks: [createTextTrack(1)],
     videoTracks: [],
+    packTracks: [createPackTrack(1)],
     background: { kind: 'black', color: '#000000' },
     markers: [],
     duckLevel: 0.3,
@@ -241,6 +249,7 @@ export function editPoints(project: Project, timeline: TimelineLayout): number[]
     ...timeline.overlays.flatMap((l) => [l.start, l.start + l.length]),
     ...project.audioTracks.flatMap((t) => t.clips.flatMap((c) => [c.start, c.start + clipLength(c)])),
     ...project.textTracks.flatMap((t) => t.clips.flatMap((c) => [c.start, c.start + c.duration])),
+    ...(project.packTracks ?? []).flatMap((t) => t.clips.flatMap((c) => [c.start, c.start + c.duration])),
     ...project.markers.map((m) => m.time),
   ];
   return [...new Set(points.map((p) => Math.round(p * 1000) / 1000))].sort((a, b) => a - b);
@@ -382,6 +391,100 @@ export function splitVideoClip(project: Project, clipId: string, t: number): { p
 }
 
 /**
+ * Deixa só os trechos `keep` (segundos dentro do arquivo) de um clipe da trilha principal:
+ * o resto sai e a trilha se fecha sozinha (corte de silêncios, cortes no ritmo).
+ * Devolve quantos segundos da timeline saíram.
+ */
+export function keepRanges(project: Project, clipId: string, keep: [number, number][]): { project: Project; removed: number } | null {
+  const index = project.clips.findIndex((c) => c.id === clipId);
+  const clip = project.clips[index];
+  if (!clip) return null;
+  const speed = speedOf(clip);
+  const ranges = keep
+    .map(([a, b]): [number, number] => [Math.max(clip.trimIn, a), Math.min(clip.trimOut, b)])
+    .filter(([a, b]) => b - a >= MIN_LENGTH);
+  if (ranges.length === 0) return null;
+  const pieces = ranges.map(([a, b], k): VideoClip => {
+    // O tempo de cada pedaço recomeça do zero: os keyframes andam junto.
+    const offset = (a - clip.trimIn) / speed;
+    return {
+      ...clip,
+      id: k === 0 ? clip.id : uid(),
+      trimIn: a,
+      trimOut: b,
+      effects: clip.effects.map((e) => ({ ...e, uid: k === 0 ? e.uid : uid(), keyframes: shiftKeyframes(e.keyframes, -offset) })),
+      filter: clip.filter && { ...clip.filter, keyframes: shiftKeyframes(clip.filter.keyframes, -offset) },
+      camera: clip.camera && { ...clip.camera, keyframes: shiftKeyframes(clip.camera.keyframes, -offset) ?? {} },
+    };
+  });
+  const clips = [...project.clips];
+  clips.splice(index, 1, ...pieces);
+  const transitions = [...project.transitions];
+  // Cortes secos entre os pedaços; as transições de antes e depois do clipe continuam.
+  transitions.splice(index, 0, ...pieces.slice(1).map(() => null));
+  const removed = (clip.trimOut - clip.trimIn - ranges.reduce((sum, [a, b]) => sum + b - a, 0)) / speed;
+  return { project: { ...project, clips, transitions }, removed };
+}
+
+/**
+ * Monta a trilha principal no ritmo da música: cada clipe dura `every` batidas e os cortes caem
+ * exatamente nas batidas (sem transições). Clipes curtos demais ficam com menos batidas.
+ * `fill` repete os clipes (pegando outros trechos dos vídeos) até a última batida.
+ */
+export function fitToBeats(project: Project, beats: number[], every: number, fill: boolean): { project: Project; cuts: number } | null {
+  const media = new Map(project.media.map((m) => [m.id, m]));
+  const source = project.clips.filter((c) => media.has(c.mediaId));
+  const grid = [...beats].sort((a, b) => a - b).filter((b) => b > 0.15);
+  if (source.length === 0 || grid.length === 0) return null;
+  const cursor = new Map<string, number>();
+  const used = new Set<string>();
+  const result: VideoClip[] = [];
+  let start = 0;
+  let j = 0;
+  for (let k = 0; ; k++) {
+    if (!fill && k >= source.length) break;
+    while (j < grid.length && grid[j] <= start + MIN_LENGTH) j++;
+    if (j >= grid.length) {
+      // Acabaram as batidas: os clipes que sobraram entram como estão.
+      if (!fill) result.push(...source.slice(k));
+      break;
+    }
+    const clip = source[k % source.length];
+    const image = media.get(clip.mediaId)!.kind === 'image';
+    const speed = speedOf(clip);
+    let from = image ? 0 : (cursor.get(clip.id) ?? clip.trimIn);
+    const room = () => (image ? IMAGE_MAX_DURATION : (clip.trimOut - from) / speed);
+    // Volta para o começo do clipe se o que sobrou não cabe nem uma batida.
+    if (!image && grid[j] - start > room() && from > clip.trimIn) from = clip.trimIn;
+    let steps = Math.max(1, every);
+    while (steps > 1 && (j + steps - 1 >= grid.length || grid[j + steps - 1] - start > room())) steps--;
+    const end = grid[j] - start <= room() ? grid[j + steps - 1] : start + room();
+    const length = end - start;
+    if (length < MIN_LENGTH) break;
+    const offset = image ? 0 : (from - clip.trimIn) / speed;
+    const first = !used.has(clip.id);
+    used.add(clip.id);
+    result.push({
+      ...clip,
+      id: first ? clip.id : uid(),
+      trimIn: from,
+      trimOut: from + length * (image ? 1 : speed),
+      effects: clip.effects.map((e) => ({ ...e, uid: first ? e.uid : uid(), keyframes: shiftKeyframes(e.keyframes, -offset) })),
+      filter: clip.filter && { ...clip.filter, keyframes: shiftKeyframes(clip.filter.keyframes, -offset) },
+      camera: clip.camera && { ...clip.camera, keyframes: shiftKeyframes(clip.camera.keyframes, -offset) ?? {} },
+    });
+    if (!image) cursor.set(clip.id, from + length * speed);
+    start = end;
+    if (fill && j + steps >= grid.length) break;
+  }
+  if (result.length === 0) return null;
+  return {
+    project: { ...project, clips: result, transitions: result.slice(1).map(() => null) },
+    cuts: result.length,
+  };
+}
+
+/**
  * Congela o quadro do instante t: divide o clipe ali e põe a imagem parada (still) no meio,
  * com o mesmo filtro, efeitos, giro e espelhamento do clipe.
  */
@@ -439,6 +542,18 @@ export function placeVoiceClip(project: Project, clip: AudioClip): Project {
   }
   const voices = project.audioTracks.filter((t) => t.kind === 'voice').length;
   const track: AudioTrack = { id: uid(), name: voices ? `Narração ${voices + 1}` : 'Narração', muted: false, kind: 'voice', clips: [clip] };
+  return { ...project, audioTracks: [...project.audioTracks, track] };
+}
+
+/** Coloca um efeito sonoro numa trilha "Efeitos sonoros" livre (cria uma se precisar). */
+export function placeSfxClip(project: Project, clip: AudioClip): Project {
+  const end = clip.start + clipLength(clip);
+  const free = project.audioTracks.findIndex((t) => t.kind === 'sfx' && !overlaps(t, clip.start, end));
+  if (free >= 0) {
+    return { ...project, audioTracks: project.audioTracks.map((t, i) => (i === free ? { ...t, clips: [...t.clips, clip] } : t)) };
+  }
+  const count = project.audioTracks.filter((t) => t.kind === 'sfx').length;
+  const track: AudioTrack = { id: uid(), name: count ? `Efeitos sonoros ${count + 1}` : 'Efeitos sonoros', muted: false, kind: 'sfx', clips: [clip] };
   return { ...project, audioTracks: [...project.audioTracks, track] };
 }
 
@@ -852,7 +967,8 @@ export function layoutProject(project: Project): TimelineLayout {
   const audioEnd = Math.max(0, ...project.audioTracks.flatMap((t) => t.clips.map((c) => c.start + clipLength(c))));
   const textEnd = Math.max(0, ...project.textTracks.flatMap((t) => t.clips.map((c) => c.start + c.duration)));
   const captionEnd = Math.max(0, ...(project.captions?.captions.map((c) => c.end) ?? []));
-  return { clips, overlays, videoDuration, duration: Math.max(videoDuration, overlayEnd, audioEnd, textEnd, captionEnd) };
+  const packEnd = Math.max(0, ...(project.packTracks ?? []).flatMap((t) => t.clips.map((c) => c.start + c.duration)));
+  return { clips, overlays, videoDuration, duration: Math.max(videoDuration, overlayEnd, audioEnd, textEnd, captionEnd, packEnd) };
 }
 
 export interface ActiveClip {
@@ -875,6 +991,8 @@ export interface FrameState {
   b: ActiveClip | null;
   transition: { instance: TransitionInstance; progress: number } | null;
   overlays: ActiveOverlay[];
+  /** Pacotes de edição que valem neste instante */
+  packs: ActivePack[];
 }
 
 function activeAt(layout: ClipLayout, t: number): ActiveClip {
@@ -894,10 +1012,10 @@ function overlaysAt(timeline: TimelineLayout, t: number): ActiveOverlay[] {
 
 /** O que aparece na tela no instante t. */
 export function resolveFrame(project: Project, timeline: TimelineLayout, t: number): FrameState {
-  return { ...resolveMain(project, timeline, t), overlays: overlaysAt(timeline, t) };
+  return { ...resolveMain(project, timeline, t), overlays: overlaysAt(timeline, t), packs: packsAt(project, t) };
 }
 
-function resolveMain(project: Project, timeline: TimelineLayout, t: number): Omit<FrameState, 'overlays'> {
+function resolveMain(project: Project, timeline: TimelineLayout, t: number): Omit<FrameState, 'overlays' | 'packs'> {
   const { clips } = timeline;
   for (let i = 0; i < clips.length; i++) {
     const current = clips[i];
@@ -998,19 +1116,24 @@ export function fadeGain(
 /** O que o player/exportador fornece para cada clipe visível: o quadro (e o anterior, na câmera lenta suave). */
 export type SourceProvider = (active: ActiveClip) => Pick<LayerInput, 'source' | 'interpolation'>;
 
+/** Efeitos e filtro com os keyframes resolvidos no instante t: o renderizador só recebe valores prontos. */
+function resolveLook(source: { effects: EffectInstance[]; filter: FilterInstance | null }, t: number) {
+  const effects = source.effects.map((e) => (e.keyframes ? { ...e, params: resolveParams(e.params, e.keyframes, t) } : e));
+  let filter = source.filter;
+  if (filter?.keyframes) {
+    const values = resolveParams({ ...filter.params, intensity: filter.intensity }, filter.keyframes, t);
+    const { intensity, ...params } = values;
+    filter = { ...filter, intensity: typeof intensity === 'number' ? intensity : filter.intensity, params };
+  }
+  return { effects, filter };
+}
+
 export function toFrameInput(state: FrameState, provide: SourceProvider, background: Background | null = null): FrameInput {
   const layer = (active: ActiveClip | null): LayerInput | null => {
     if (!active) return null;
     const { clip, media, length } = active.layout;
     const t = active.clipTime;
-    // Keyframes resolvidos aqui: o renderizador só recebe valores prontos.
-    const effects = clip.effects.map((e) => (e.keyframes ? { ...e, params: resolveParams(e.params, e.keyframes, t) } : e));
-    let filter = clip.filter;
-    if (filter?.keyframes) {
-      const values = resolveParams({ ...filter.params, intensity: filter.intensity }, filter.keyframes, t);
-      const { intensity, ...params } = values;
-      filter = { ...filter, intensity: typeof intensity === 'number' ? intensity : filter.intensity, params };
-    }
+    const { effects, filter } = resolveLook(clip, t);
     const camera = clip.camera ? { ...evaluateCamera(clip.camera, t, active.sourceTime), fill: clip.camera.fill } : null;
     const sideways = clip.turn === 90 || clip.turn === 270;
     return {
@@ -1037,6 +1160,13 @@ export function toFrameInput(state: FrameState, provide: SourceProvider, backgro
       // A camada é processada "esticada" (a mídia ocupa o quadro todo) e depois posicionada.
       stretch: true,
       place: { ...o.transform, opacity: o.opacity },
+    })),
+    adjust: state.packs.map(({ clip, local, amount }): AdjustInput => ({
+      ...resolveLook(clip, local),
+      time: local,
+      duration: clip.duration,
+      camera: clip.camera ? { ...evaluateCamera(clip.camera, local, local), fill: false } : null,
+      amount,
     })),
     transition: state.transition && {
       pluginId: state.transition.instance.pluginId,

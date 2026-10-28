@@ -1,5 +1,6 @@
 import {
   AudioLines,
+  BellRing,
   Blend,
   Bookmark,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   Layers,
   Headphones,
   Mic,
+  Package,
   Square,
   Captions as CaptionsIcon,
   Film,
@@ -63,11 +65,22 @@ import {
   type TimelineLayout,
 } from '../project/model';
 import { addTextTrack, moveTextClip, removeTextTrack, resizeTextClip } from '../project/text';
+import {
+  addPackTrack,
+  movePackClip,
+  moveSpeedPack,
+  packTracksOf,
+  syncSpeedPack,
+  removePackTrack,
+  resizePackClip,
+  updatePackTrack,
+  type PackClip,
+} from '../project/packs';
 import { formatTime } from './format';
 import { Button, cx, IconButton, Slider } from './kit';
 import { Filmstrip, Waveform } from './MediaVisuals';
 import { MicPicker } from './MicPicker';
-import { MEDIA_MIME, PLUGIN_MIME, TEXT_PRESET_MIME, type Selection } from './selection';
+import { MEDIA_MIME, PACK_MIME, PLUGIN_MIME, SOUND_MIME, TEXT_PRESET_MIME, type Selection } from './selection';
 
 export type MediaDropTarget =
   | { row: 'video'; index: number }
@@ -97,6 +110,10 @@ interface Props {
   onDropPlugin: (target: NonNullable<Selection>, pluginId: string) => void;
   onDropMedia: (mediaId: string, target: MediaDropTarget) => void;
   onDropTextPreset: (presetId: string, track: number, time: number) => void;
+  /** Pacote de edição solto numa trilha de pacotes */
+  onDropPack: (packId: string, track: number, time: number) => void;
+  /** Efeito sonoro solto numa trilha de áudio */
+  onDropSound: (soundId: string, track: number, time: number) => void;
   onContextMenu: (e: ReactMouseEvent, target: TimelineTarget) => void;
   onAddMarker: () => void;
   /** Segundos gravados da narração (null = não está gravando) */
@@ -114,11 +131,15 @@ const MAX_ZOOM = 300;
 const SNAP_PX = 8;
 
 const TEXT_H = 44;
+const PACK_H = 38;
 const OVERLAY_H = 56;
 
 type Drag =
   | { type: 'video-in' | 'video-out'; id: string; x0: number; trimIn: number; trimOut: number; speed: number }
-  | { type: 'audio-move' | 'text-move' | 'overlay-move'; id: string; x0: number; y0: number; start: number; length: number; track: number }
+  | { type: 'audio-move' | 'text-move' | 'overlay-move' | 'pack-move'; id: string; x0: number; y0: number; start: number; length: number; track: number }
+  | { type: 'pack-in' | 'pack-out'; id: string; x0: number; original: PackClip }
+  /** Alça do momento da câmera lenta (onde começa a parte mais lenta) */
+  | { type: 'pack-moment'; id: string; x0: number; at: number }
   | {
       type: 'audio-in' | 'audio-out' | 'text-in' | 'text-out' | 'overlay-in' | 'overlay-out';
       id: string;
@@ -165,6 +186,7 @@ export function Timeline(props: Props) {
     time,
     ...timeline.clips.flatMap((l) => [l.start, l.start + l.length]),
     ...project.markers.map((m) => m.time),
+    ...(project.beats ?? []),
     ...project.videoTracks.flatMap((t) =>
       t.clips.filter((c) => c.id !== ignoreId).flatMap((c) => [c.start, c.start + clipLength(c)]),
     ),
@@ -172,6 +194,9 @@ export function Timeline(props: Props) {
       t.clips.filter((c) => c.id !== ignoreId).flatMap((c) => [c.start, c.start + clipLength(c)]),
     ),
     ...project.textTracks.flatMap((t) =>
+      t.clips.filter((c) => c.id !== ignoreId).flatMap((c) => [c.start, c.start + c.duration]),
+    ),
+    ...packTracksOf(project).flatMap((t) =>
       t.clips.filter((c) => c.id !== ignoreId).flatMap((c) => [c.start, c.start + c.duration]),
     ),
   ];
@@ -189,17 +214,35 @@ export function Timeline(props: Props) {
     e.stopPropagation();
     e.preventDefault();
     const points = snapPoints(drag.id);
+    let momentAt: number | null = null;
     const move = (ev: PointerEvent) => {
       const dt = (ev.clientX - drag.x0) / pxPerSecond;
       switch (drag.type) {
+        case 'pack-moment': {
+          // Só mostra a linha; a câmera lenta é refeita ao soltar.
+          const raw = Math.max(0, drag.at + dt);
+          momentAt = snapTo(raw, points) ?? raw;
+          setSnapLine(momentAt);
+          break;
+        }
         case 'video-in':
           onEdit((p) => trimVideoClip(p, drag.id, 'in', drag.trimIn + dt * drag.speed));
           break;
         case 'video-out':
           onEdit((p) => trimVideoClip(p, drag.id, 'out', drag.trimOut + dt * drag.speed));
           break;
+        case 'pack-in':
+        case 'pack-out': {
+          const edge = drag.type === 'pack-in' ? 'in' : 'out';
+          const raw = (edge === 'in' ? drag.original.start : drag.original.start + drag.original.duration) + dt;
+          const snapped = snapTo(raw, points);
+          setSnapLine(snapped);
+          onEdit((p) => resizePackClip(p, drag.original, edge, snapped ?? raw));
+          break;
+        }
         case 'audio-move':
         case 'overlay-move':
+        case 'pack-move':
         case 'text-move': {
           let start = Math.max(0, drag.start + dt);
           const a = snapTo(start, points);
@@ -216,6 +259,10 @@ export function Timeline(props: Props) {
           if (drag.type === 'audio-move') {
             const track = drag.track + Math.round((ev.clientY - drag.y0) / AUDIO_H);
             onEdit((p) => moveAudioClip(p, drag.id, track, start));
+          } else if (drag.type === 'pack-move') {
+            // Trilhas de pacotes aparecem de baixo para cima, como as de vídeo.
+            const track = drag.track - Math.round((ev.clientY - drag.y0) / PACK_H);
+            onEdit((p) => movePackClip(p, drag.id, track, start));
           } else if (drag.type === 'overlay-move') {
             // Trilhas de vídeo extras também aparecem de baixo para cima.
             const track = drag.track - Math.round((ev.clientY - drag.y0) / OVERLAY_H);
@@ -253,6 +300,12 @@ export function Timeline(props: Props) {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       setSnapLine(null);
+      if (drag.type === 'pack-moment' && momentAt !== null && Math.abs(momentAt - drag.at) > 0.01) {
+        const at = momentAt;
+        onEdit((p) => moveSpeedPack(p, drag.id, at));
+      }
+      // Bloco de câmera lenta arrastado: a velocidade é refeita no novo lugar.
+      if (drag.type === 'pack-move') onEdit((p) => syncSpeedPack(p, drag.id));
       document.body.style.cursor = '';
     };
     document.body.style.cursor = drag.type.endsWith('move') ? 'grabbing' : 'ew-resize';
@@ -263,7 +316,8 @@ export function Timeline(props: Props) {
   // ------------------------------------------------ Soltar mídia e plugins
   const mediaDrop = (row: string, resolve: (e: DragEvent<HTMLDivElement>) => MediaDropTarget) => ({
     onDragOver: (e: DragEvent<HTMLDivElement>) => {
-      if (!e.dataTransfer.types.includes(MEDIA_MIME)) return;
+      const types = e.dataTransfer.types;
+      if (!types.includes(MEDIA_MIME) && !(types.includes(SOUND_MIME) && row.startsWith('audio'))) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
       setDropHint({ row, x: timeAt(e) * pxPerSecond });
@@ -271,10 +325,17 @@ export function Timeline(props: Props) {
     onDragLeave: () => setDropHint(null),
     onDrop: (e: DragEvent<HTMLDivElement>) => {
       const mediaId = e.dataTransfer.getData(MEDIA_MIME);
+      const soundId = e.dataTransfer.getData(SOUND_MIME);
       setDropHint(null);
+      const target = resolve(e);
+      if (soundId && target.row === 'audio') {
+        e.preventDefault();
+        props.onDropSound(soundId, target.track, target.time);
+        return;
+      }
       if (!mediaId) return;
       e.preventDefault();
-      props.onDropMedia(mediaId, resolve(e));
+      props.onDropMedia(mediaId, target);
     },
   });
 
@@ -422,6 +483,15 @@ export function Timeline(props: Props) {
           <Type size={13} className="text-fuchsia-300" />
           Trilha
         </button>
+        <button
+          onClick={() => onEdit(addPackTrack)}
+          title="Nova trilha de pacotes de edição"
+          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-dim transition-colors hover:bg-panel-3 hover:text-fg"
+        >
+          <Plus size={13} />
+          <Package size={13} className="text-orange-300" />
+          Trilha
+        </button>
         <span className="flex-1" />
         <IconButton label="Diminuir zoom" onClick={() => setPxPerSecond((z) => Math.max(MIN_ZOOM, z / 1.4))}>
           <ZoomOut size={15} />
@@ -465,6 +535,14 @@ export function Timeline(props: Props) {
                 >
                   {formatTime(t).replace(/\.\d+$/, '')}
                 </span>
+              ))}
+              {/* Batidas da música: pontinhos na base da régua */}
+              {(project.beats ?? []).map((b, i) => (
+                <span
+                  key={`beat-${i}`}
+                  className="pointer-events-none absolute bottom-0.5 -ml-[2px] size-[5px] rounded-full bg-amber/80"
+                  style={{ left: b * pxPerSecond }}
+                />
               ))}
               {project.markers.map((m) => (
                 <button
@@ -639,6 +717,160 @@ export function Timeline(props: Props) {
                   );
                 })}
                 {dropHint?.row === `text:${trackIndex}` && <DropLine x={dropHint.x} />}
+              </Row>
+            );
+          })}
+
+          {/* Trilhas de pacotes de edição (valem para todo o vídeo embaixo delas) */}
+          {[...packTracksOf(project)].reverse().map((track) => {
+            const trackIndex = packTracksOf(project).indexOf(track);
+            const tracks = packTracksOf(project);
+            return (
+              <Row
+                key={track.id}
+                height={PACK_H}
+                className={cx('bg-orange-400/[0.03]', track.hidden && 'opacity-40')}
+                header={
+                  <TrackHeader
+                    icon={<Package size={13} />}
+                    name={track.name}
+                    accent="orange"
+                    actions={
+                      <>
+                        <IconButton
+                          label={track.hidden ? 'Mostrar pacotes desta trilha' : 'Desligar pacotes desta trilha'}
+                          active={track.hidden}
+                          onClick={() => onEdit((p) => updatePackTrack(p, track.id, (t) => ({ ...t, hidden: !t.hidden })))}
+                        >
+                          {track.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+                        </IconButton>
+                        {tracks.length > 1 && track.clips.length === 0 && (
+                          <IconButton label="Remover trilha" onClick={() => onEdit((p) => removePackTrack(p, track.id))}>
+                            <X size={13} />
+                          </IconButton>
+                        )}
+                      </>
+                    }
+                  />
+                }
+                contentProps={{
+                  onPointerDown: (e) => {
+                    if (e.target !== e.currentTarget) return;
+                    onSelect(null);
+                    onSeek(timeAt(e));
+                  },
+                  onContextMenu: (e) => {
+                    if (e.target === e.currentTarget) props.onContextMenu(e, { kind: 'empty', time: timeAt(e) });
+                  },
+                  onDragOver: (e) => {
+                    if (!e.dataTransfer.types.includes(PACK_MIME)) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'copy';
+                    setDropHint({ row: `pack:${trackIndex}`, x: timeAt(e) * pxPerSecond });
+                  },
+                  onDragLeave: () => setDropHint(null),
+                  onDrop: (e) => {
+                    const packId = e.dataTransfer.getData(PACK_MIME);
+                    setDropHint(null);
+                    if (!packId) return;
+                    e.preventDefault();
+                    const t = timeAt(e);
+                    props.onDropPack(packId, trackIndex, snapTo(t, snapPoints()) ?? t);
+                  },
+                }}
+              >
+                {tracks.every((t) => t.clips.length === 0) && trackIndex === 0 && (
+                  <div className="pointer-events-none absolute inset-y-1 left-3 flex w-96 items-center justify-center rounded-lg border border-dashed border-line-strong text-xs text-faint">
+                    Arraste pacotes de edição da aba “Pacotes” para cá
+                  </div>
+                )}
+                {track.clips.map((clip) => {
+                  const selected = selection?.kind === 'pack' && selection.id === clip.id;
+                  const width = Math.max(6, clip.duration * pxPerSecond);
+                  return (
+                    <div
+                      key={clip.id}
+                      title={`${clip.name} · ${formatTime(clip.duration)}\nArraste para mover · puxe as bordas para encaixar`}
+                      className={cx(
+                        'group absolute inset-y-1 cursor-grab overflow-hidden rounded-md ring-2 transition-shadow active:cursor-grabbing',
+                        selected ? 'z-10 ring-white shadow-lg shadow-black/40' : 'ring-black/50 hover:ring-white/40',
+                      )}
+                      style={{
+                        left: clip.start * pxPerSecond,
+                        width,
+                        background: `linear-gradient(90deg, ${clip.color}, ${clip.color}cc)`,
+                      }}
+                      onContextMenu={(e) => {
+                        onSelect({ kind: 'pack', id: clip.id });
+                        props.onContextMenu(e, { kind: 'pack', id: clip.id });
+                      }}
+                      onPointerDown={(e) => {
+                        onSelect({ kind: 'pack', id: clip.id });
+                        startDrag(e, {
+                          type: 'pack-move',
+                          id: clip.id,
+                          x0: e.clientX,
+                          y0: e.clientY,
+                          start: clip.start,
+                          length: clip.duration,
+                          track: trackIndex,
+                        });
+                      }}
+                    >
+                      {/* Entrada e saída suaves, como rampas nas pontas */}
+                      {clip.fadeIn > 0 && (
+                        <span
+                          className="pointer-events-none absolute inset-y-0 left-0 bg-gradient-to-r from-black/45 to-transparent"
+                          style={{ width: clip.fadeIn * pxPerSecond }}
+                        />
+                      )}
+                      {clip.fadeOut > 0 && (
+                        <span
+                          className="pointer-events-none absolute inset-y-0 right-0 bg-gradient-to-l from-black/45 to-transparent"
+                          style={{ width: clip.fadeOut * pxPerSecond }}
+                        />
+                      )}
+                      {clip.speed && (
+                        <span
+                          title={'Momento da câmera lenta: arraste para o instante exato (o tombo, o susto…).\nO vídeo é refeito ao soltar.'}
+                          className="absolute inset-y-0 z-10 w-3 -translate-x-1/2 cursor-ew-resize"
+                          style={{ left: clip.speed.moment * pxPerSecond }}
+                          onPointerDown={(e) => {
+                            onSelect({ kind: 'pack', id: clip.id });
+                            startDrag(e, { type: 'pack-moment', id: clip.id, x0: e.clientX, at: clip.start + (clip.speed?.moment ?? 0) });
+                          }}
+                        >
+                          <span className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-white/90 shadow-[0_0_6px_rgba(0,0,0,0.8)]" />
+                          <span className="absolute left-1/2 top-0 size-2.5 -translate-x-1/2 rotate-45 rounded-[2px] bg-white shadow" />
+                        </span>
+                      )}
+                      <div className="pointer-events-none relative flex h-full items-center gap-1.5 px-2 text-[11px] text-white">
+                        <Package size={12} className="shrink-0 opacity-80" />
+                        {width > 40 && <span className="truncate font-medium">{clip.name}</span>}
+                        {width > 140 && clip.intensity < 0.995 && (
+                          <span className="shrink-0 rounded bg-black/30 px-1 font-mono text-[9px]">{Math.round(clip.intensity * 100)}%</span>
+                        )}
+                      </div>
+                      <TrimHandle
+                        side="left"
+                        visible={selected}
+                        onPointerDown={(e) => {
+                          onSelect({ kind: 'pack', id: clip.id });
+                          startDrag(e, { type: 'pack-in', id: clip.id, x0: e.clientX, original: clip });
+                        }}
+                      />
+                      <TrimHandle
+                        side="right"
+                        visible={selected}
+                        onPointerDown={(e) => {
+                          onSelect({ kind: 'pack', id: clip.id });
+                          startDrag(e, { type: 'pack-out', id: clip.id, x0: e.clientX, original: clip });
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+                {dropHint?.row === `pack:${trackIndex}` && <DropLine x={dropHint.x} />}
               </Row>
             );
           })}
@@ -955,7 +1187,7 @@ export function Timeline(props: Props) {
               height={AUDIO_H}
               header={
                 <TrackHeader
-                  icon={track.kind === 'voice' ? <Mic size={13} /> : track.kind === 'music' ? <Headphones size={13} /> : <AudioLines size={13} />}
+                  icon={track.kind === 'voice' ? <Mic size={13} /> : track.kind === 'music' ? <Headphones size={13} /> : track.kind === 'sfx' ? <BellRing size={13} /> : <AudioLines size={13} />}
                   name={track.name}
                   accent="teal"
                   actions={
@@ -1135,7 +1367,7 @@ function TrackHeader({
 }: {
   icon: ReactNode;
   name: string;
-  accent: 'accent' | 'teal' | 'violet' | 'amber';
+  accent: 'accent' | 'teal' | 'violet' | 'amber' | 'orange';
   actions?: ReactNode;
 }) {
   return (
@@ -1147,6 +1379,7 @@ function TrackHeader({
           accent === 'teal' && 'bg-teal-400/15 text-teal-300',
           accent === 'violet' && 'bg-fuchsia-400/15 text-fuchsia-300',
           accent === 'amber' && 'bg-amber/15 text-amber',
+          accent === 'orange' && 'bg-orange-400/15 text-orange-300',
         )}
       >
         {icon}

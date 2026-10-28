@@ -282,6 +282,29 @@ export function drawTextClip(ctx: Ctx, clip: TextClip, local: number, W: number,
     case 'glow':
       s.glow = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(local * 4));
       break;
+    case 'bounce': {
+      // Quica: sobe e desce, achatando um pouco ao tocar o "chão".
+      const phase = (local * 1.8) % 1;
+      const height = 4 * phase * (1 - phase);
+      s.dy -= height * 0.05 * H;
+      s.scaleX *= 1 + (1 - height) * 0.08;
+      s.scale *= 1 - (1 - height) * 0.04;
+      break;
+    }
+    case 'spin':
+      s.rotate += local * Math.PI * 0.9;
+      break;
+    case 'nudge':
+      // Vai e volta na direção para onde aponta (ponteiro, seta).
+      s.dx += Math.abs(Math.sin(local * 4.5)) * 0.025 * W * (clip.x > 0.5 ? -1 : 1);
+      break;
+    case 'heartbeat': {
+      // "Tum-tum": duas batidas e uma pausa.
+      const phase = (local * 1.2) % 1;
+      const pulse = (from: number) => Math.max(0, Math.sin(Math.min(1, Math.max(0, phase - from) / 0.15) * Math.PI));
+      s.scale *= 1 + (pulse(0) + 0.6 * pulse(0.2)) * 0.12;
+      break;
+    }
   }
   if (s.alpha <= 0.001 || s.scale <= 0.001) return;
 

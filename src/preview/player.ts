@@ -44,6 +44,8 @@ export class Player {
   private timeAtStart = 0;
   private frameRequest = 0;
   private renderQueued = false;
+  /** Tocar as cópias leves (proxies) em vez dos arquivos originais */
+  private proxies = false;
 
   onTime?: (time: number) => void;
   onPlayingChange?: (playing: boolean) => void;
@@ -54,6 +56,18 @@ export class Player {
       'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden';
     document.body.appendChild(this.container);
     this.master.connect(this.audioContext.destination);
+  }
+
+  /** Prévia leve: troca os vídeos pelas cópias em 540p (as que já existem). */
+  setProxies(enabled: boolean): void {
+    if (this.proxies === enabled) return;
+    this.proxies = enabled;
+    this.refreshSources();
+  }
+
+  /** Recarrega os vídeos (uma cópia leve acabou de ficar pronta). */
+  refreshSources(): void {
+    if (this.project) this.setProject(this.project);
   }
 
   /** Liga/desliga o som do projeto (o preview continua tocando). */
@@ -75,7 +89,8 @@ export class Player {
     this.renderer.setSize(project.width, project.height);
 
     const videoClips = [...this.timeline.clips, ...this.timeline.overlays].filter((l) => l.media.kind === 'video');
-    this.syncElements(this.videos, new Map(videoClips.map((l) => [l.clip.id, l.media.url])), 'video');
+    const url = (media: { id: string; url: string }) => (this.proxies && assets.proxies.get(media.id)) || media.url;
+    this.syncElements(this.videos, new Map(videoClips.map((l) => [l.clip.id, url(l.media)])), 'video');
     const audioClips = project.audioTracks.flatMap((t) => t.clips);
     const urls = new Map(project.media.map((m) => [m.id, m.url]));
     this.syncElements(

@@ -3,6 +3,7 @@ export type Selection =
   | { kind: 'audio'; id: string }
   | { kind: 'text'; id: string }
   | { kind: 'overlay'; id: string }
+  | { kind: 'pack'; id: string }
   | { kind: 'transition'; index: number }
   | null;
 
@@ -12,3 +13,7 @@ export const PLUGIN_MIME = 'application/x-lumiar-plugin';
 export const MEDIA_MIME = 'application/x-lumiar-media';
 /** Tipo usado ao arrastar um estilo de texto da biblioteca para a timeline. */
 export const TEXT_PRESET_MIME = 'application/x-lumiar-text';
+/** Tipo usado ao arrastar um pacote de edição da biblioteca para a timeline. */
+export const PACK_MIME = 'application/x-lumiar-pack';
+/** Tipo usado ao arrastar um efeito sonoro da biblioteca para a timeline. */
+export const SOUND_MIME = 'application/x-lumiar-sound';
