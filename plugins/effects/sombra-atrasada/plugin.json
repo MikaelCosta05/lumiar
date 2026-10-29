@@ -1,0 +1,15 @@
+{
+  "name": "Sombra atrasada",
+  "description": "A sombra da pessoa aparece na parede atrás dela, mas não acompanha direito: se mexe um pouco depois, como se tivesse vontade própria. Funciona tocando.",
+  "category": "Pessoa",
+  "params": [
+    { "id": "atraso", "label": "Atraso (s)", "type": "float", "default": 0.4, "min": 0.05, "max": 1 },
+    { "id": "ladoX", "label": "Deslocar para o lado", "type": "float", "default": 0.06, "min": -0.3, "max": 0.3 },
+    { "id": "ladoY", "label": "Deslocar para cima", "type": "float", "default": 0.02, "min": -0.3, "max": 0.3 },
+    { "id": "escuridao", "label": "Escuridão", "type": "float", "default": 0.75, "min": 0, "max": 1 },
+    { "id": "difusa", "label": "Sombra difusa", "type": "float", "default": 0.3, "min": 0, "max": 1 },
+    { "id": "cor", "label": "Cor da sombra", "type": "color", "default": "#06040c" }
+  ],
+  "previewMedia": "movimento",
+  "preview": { "atraso": 0.6, "ladoX": 0.09, "escuridao": 0.85 }
+}

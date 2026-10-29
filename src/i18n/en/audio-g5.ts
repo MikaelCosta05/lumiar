@@ -1,0 +1,46 @@
+export default {
+  // Música gerada
+  'Compondo a música… {n}%': 'Composing the music… {n}%',
+  'Música de {seconds}s ({bpm} BPM) na trilha de música, com as batidas marcadas. Foi composta pelo Lumiar: é sua, sem direitos autorais.':
+    '{seconds}s of music ({bpm} BPM) on the music track, with the beats marked. Lumiar composed it: it is yours, copyright-free.',
+  'Não foi possível gerar a música: {error}': 'Could not generate the music: {error}',
+  'Lo-fi': 'Lo-fi',
+  'Tensão / suspense': 'Tension / suspense',
+  'Épico / trailer': 'Epic / trailer',
+  'Alegre / vlog': 'Upbeat / vlog',
+  'Eletrônico': 'Electronic',
+  'Música {style} {n}': 'Music {style} {n}',
+  'Música {n}': 'Music {n}',
+  'Piano elétrico, bateria preguiçosa e chiado de vinil.': 'Electric piano, lazy drums and vinyl crackle.',
+  'Cordas pulsando, relógio e coração acelerando.': 'Pulsing strings, a ticking clock and a racing heartbeat.',
+  'Cordas, tambores e metais graves de trailer.': 'Strings, drums and deep trailer brass.',
+  'Drones graves, metal raspando e fita lenta.': 'Low drones, scraping metal and slowed-down tape.',
+  'Ukulele, palmas e sininhos para vlog.': 'Ukulele, claps and little bells for vlogs.',
+  'Bumbo reto, sintetizador bombeando e arpejo.': 'Four-on-the-floor kick, pumping synths and an arpeggio.',
+  'Gerar música': 'Generate music',
+  'sem direitos autorais': 'copyright-free',
+  'do trecho': 'use the selection',
+  'do vídeo': 'use the video',
+  'Trecho selecionado: {from} a {to}': 'Selected range: {from} to {to}',
+  'Começa em {from} e termina junto com o vídeo.': 'Starts at {from} and ends with the video.',
+  'Andamento': 'Tempo',
+  'Variação': 'Variation',
+  'Outra melodia, outros acordes e outro ritmo no mesmo estilo': 'Another melody, other chords and another rhythm in the same style',
+  'Gerar outra': 'Generate another',
+  'Pôr na timeline': 'Add to timeline',
+  'Composta na hora pelo próprio Lumiar, sem internet e sem trechos de músicas de ninguém. Vai para a trilha de música, que abaixa sozinha quando alguém fala.':
+    "Composed on the spot by Lumiar itself, offline and without pieces of anyone else's songs. It goes to the music track, which ducks by itself when someone speaks.",
+  // Vento e estalos
+  'Tirar o vento': 'Remove wind',
+  'Tirar estalos de boca': 'Remove mouth clicks',
+  'Tirar ruído, vento e estalos': 'Remove noise, wind and clicks',
+  // Nome na tela
+  '{n} nome(s) na tela, na primeira fala de cada pessoa. Cada um é um texto comum: clique nele na timeline para mudar.':
+    "{n} name(s) on screen, at each person's first line. Each one is a regular text: click it on the timeline to change it.",
+  'Pôr o nome de cada pessoa na tela': "Put each person's name on screen",
+  'Como se chama cada voz? O nome aparece embaixo, na primeira vez que a pessoa fala.': 'What is each voice called? The name shows at the bottom the first time that person speaks.',
+  'Nome (vazio = sem nome na tela)': 'Name (empty = no name on screen)',
+  'Cargo ou @perfil (opcional)': 'Role or @handle (optional)',
+  'Cores e fonte do Kit da marca': 'Brand Kit colors and font',
+  'Criar os nomes': 'Create the names',
+};

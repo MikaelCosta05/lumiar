@@ -1,0 +1,12 @@
+{
+  "name": "Passar pela pessoa",
+  "description": "A pessoa do clipe atual vira uma janela para o próximo: o corpo dela varre a tela e deixa o próximo clipe por onde passa (a IA encontra a pessoa).",
+  "category": "Criativas",
+  "params": [
+    { "id": "direcao", "label": "Direção (0 = para a direita, 1 = para a esquerda)", "type": "float", "default": 0, "min": 0, "max": 1, "step": 1 },
+    { "id": "abrir", "label": "Abrir para cima e para baixo", "type": "float", "default": 0.7, "min": 0, "max": 1 },
+    { "id": "borda", "label": "Cor da borda", "type": "color", "default": "#ffffff" },
+    { "id": "brilho", "label": "Brilho da borda", "type": "float", "default": 0.5, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "movimento"
+}

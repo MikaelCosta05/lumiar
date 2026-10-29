@@ -141,7 +141,8 @@ vec4 transition(vec2 uv) {
 ```
 
 Disponível: `getFromColor(uv)`, `getToColor(uv)`, `progress` (0 → 1), `ratio`, `resolution`, `PI` e os parâmetros.
-Também: `getFromPerson(uv)` e `getToPerson(uv)` (onde está a pessoa em cada clipe), `getMotion(uv)` (movimento do
+Também: `getFromPerson(uv)` e `getToPerson(uv)` (onde está a pessoa em cada clipe), `getFromDepth(uv)` e
+`getToDepth(uv)` (a profundidade de cada clipe, 1 = perto), `getMotion(uv)` (movimento do
 próximo clipe) e `state` / `getPrevious` / `firstFrame()`, como nos efeitos.
 
 ## Criando um filtro

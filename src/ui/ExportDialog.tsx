@@ -20,12 +20,14 @@ export interface BatchJob {
   width: number;
   height: number;
   settings: ExportSettings;
+  /** O que vai no fim do nome do arquivo ("9x16", "gif"…) */
+  suffix?: string;
 }
 
 interface Props {
   state: ExportState;
   /** Exportar vários formatos de uma vez (um arquivo depois do outro) */
-  onStartBatch: (jobs: BatchJob[]) => void;
+  onStartBatch: (jobs: BatchJob[], reframe: boolean) => void;
   project: Project;
   duration: number;
   /** Posição do cursor (para marcar o trecho) */
@@ -56,7 +58,7 @@ function loadSettings(): ExportSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null') as Partial<ExportSettings> | null;
     // O trecho depende do projeto: não é lembrado.
-    return { ...DEFAULTS, ...saved, range: null };
+    return { ...DEFAULTS, ...saved, range: null, loop: undefined };
   } catch {
     return DEFAULTS;
   }
@@ -64,7 +66,8 @@ function loadSettings(): ExportSettings {
 
 function saveSettings(settings: ExportSettings): void {
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, range: null }));
+    // O loop vale só para aquela exportação (um GIF em boomerang não deve virar o padrão).
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, range: null, loop: undefined }));
   } catch {
     // Sem armazenamento: só não lembra da próxima vez.
   }
@@ -166,6 +169,8 @@ function ExportSetup({
 }: Pick<Props, 'project' | 'duration' | 'time' | 'onStart' | 'onStartBatch' | 'onSnapshot' | 'onClose'>) {
   const [settings, setSettings] = useState(loadSettings);
   const [batch, setBatch] = useState<Set<string>>(() => new Set());
+  /** Exportação em vários formatos: seguir o rosto em cada formato (corta) ou mostrar tudo com as sobras desfocadas */
+  const [reframe, setReframe] = useState(true);
   const [custom, setCustom] = useState(false);
   const [range, setRange] = useState({ start: 0, end: duration });
   const set = (patch: Partial<ExportSettings>) => setSettings((s) => ({ ...s, ...patch }));
@@ -302,6 +307,28 @@ function ExportSetup({
         </>
       )}
 
+      {info.video && (
+        <>
+          <Label>{t('Loop')}</Label>
+          <Segmented
+            options={[
+              { value: 'none', label: t('Normal') },
+              { value: 'seamless', label: t('Loop perfeito'), title: t('O fim dissolve no começo: repetindo, não dá para ver a emenda') },
+              { value: 'boomerang', label: t('Boomerang'), title: t('Vai e volta: o trecho toca para frente e depois de trás para frente') },
+            ]}
+            value={settings.loop ?? 'none'}
+            onChange={(loop) => set({ loop })}
+          />
+          {(settings.loop ?? 'none') !== 'none' && (
+            <p className="mt-1 text-[11px] leading-snug text-faint">
+              {settings.loop === 'seamless'
+                ? t('Bom para GIFs e Reels, que repetem sozinhos: o arquivo fica meio segundo mais curto e o fim emenda no começo.')
+                : t('O arquivo fica com quase o dobro da duração do trecho (ida e volta).')}
+            </p>
+          )}
+        </>
+      )}
+
       <Label>{t('Trecho')}</Label>
       <Segmented
         options={[
@@ -339,8 +366,17 @@ function ExportSetup({
       <details className="mt-3 rounded-lg border border-line px-3 py-2">
         <summary className="cursor-pointer text-xs font-medium text-dim">{t('Exportar em vários formatos de uma vez')}</summary>
         <p className="mt-1.5 text-[11px] leading-snug text-faint">
-          {t('Um arquivo depois do outro. Quando a proporção muda (ex.: deitado → vertical), as sobras ficam com a própria imagem desfocada.')}
+          {t('Um arquivo depois do outro, com o formato no fim do nome (ex.: "{name} - 9x16.mp4").', { name: project.name || 'lumiar' })}
         </p>
+        <p className="mb-1 mt-2 text-[11px] text-dim">{t('Quando a proporção muda (ex.: deitado → vertical)')}</p>
+        <Segmented
+          options={[
+            { value: 'follow', label: t('Seguir o rosto'), title: t('Cada clipe preenche a tela e a câmera acompanha quem aparece (como "Converter para vertical")') },
+            { value: 'blur', label: t('Mostrar tudo'), title: t('A imagem inteira, com as sobras desfocadas') },
+          ]}
+          value={reframe ? 'follow' : 'blur'}
+          onChange={(v) => setReframe(v === 'follow')}
+        />
         <div className="mt-2 space-y-1">
           {batchJobs(project, time, duration).map((job) => (
             <label key={job.label} className="flex cursor-pointer items-center gap-2 text-xs">
@@ -369,7 +405,7 @@ function ExportSetup({
           className="mt-2 h-8 w-full text-xs"
           icon={<Download size={13} />}
           disabled={batch.size === 0}
-          onClick={() => onStartBatch(batchJobs(project, time, duration).filter((j) => batch.has(j.label)))}
+          onClick={() => onStartBatch(batchJobs(project, time, duration).filter((j) => batch.has(j.label)), reframe)}
         >
           {batch.size === 0 ? t('Exportar arquivos') : batch.size === 1 ? t('Exportar 1 arquivo') : t('Exportar {n} arquivos', { n: batch.size })}
         </Button>
@@ -426,15 +462,16 @@ function batchJobs(project: Project, time: number, duration: number): BatchJob[]
   const gifH = Math.round((ratio >= 1 ? 360 : 360 / ratio) / 2) * 2;
   const gifStart = Math.min(Math.max(0, time), Math.max(0, duration - 5));
   return [
-    { label: 'YouTube (16:9, 1080p, MP4)', width: 1920, height: 1080, settings: video() },
-    { label: t('Reels, TikTok e Shorts (9:16, MP4)'), width: 1080, height: 1920, settings: video() },
-    { label: t('Feed do Instagram (4:5, MP4)'), width: 1080, height: 1350, settings: video() },
-    { label: t('Quadrado (1:1, MP4)'), width: 1080, height: 1080, settings: video() },
+    { label: 'YouTube (16:9, 1080p, MP4)', width: 1920, height: 1080, settings: video(), suffix: '16x9' },
+    { label: t('Reels, TikTok e Shorts (9:16, MP4)'), width: 1080, height: 1920, settings: video(), suffix: '9x16' },
+    { label: t('Feed do Instagram (4:5, MP4)'), width: 1080, height: 1350, settings: video(), suffix: '4x5' },
+    { label: t('Quadrado (1:1, MP4)'), width: 1080, height: 1080, settings: video(), suffix: '1x1' },
     {
       label: t('GIF curto (5 s a partir do cursor)'),
       width: gifW,
       height: gifH,
       settings: { format: 'gif', height: null, fps: 15, quality: 'medium', range: { start: gifStart, end: Math.min(duration, gifStart + 5) } },
+      suffix: 'gif',
     },
   ];
 }

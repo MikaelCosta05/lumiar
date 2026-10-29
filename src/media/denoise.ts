@@ -1,6 +1,7 @@
 import { ALL_FORMATS, AudioBufferSink, BlobSource, Input } from 'mediabunny';
 import { t } from '../i18n';
 import type { MediaItem } from '../project/model';
+import { removeClicks, removeWind } from './windClicks';
 
 /**
  * Limpar o áudio: tira o ruído de fundo constante (chiado, ventilador, ar-condicionado, vento leve).
@@ -195,20 +196,33 @@ function encodeWav(channels: Float32Array[], sampleRate: number): ArrayBuffer {
   return buffer;
 }
 
-/** Limpa o trecho [from, to] do áudio da mídia. strength: 0.3 leve, 0.6 médio, 1 forte. */
+/** O que mais tirar além do ruído de fundo (0 a 1 cada; ausente = não mexe). */
+export interface CleanExtra {
+  wind?: number;
+  clicks?: number;
+}
+
+/**
+ * Limpa o trecho [from, to] do áudio da mídia. strength: 0.3 leve, 0.6 médio, 1 forte (0 = não tira o
+ * ruído de fundo, só o que `extra` pedir: vento e/ou estalos de boca).
+ */
 export async function denoiseMedia(
   media: MediaItem,
   from: number,
   to: number,
   strength: number,
   onProgress: (fraction: number) => void,
+  extra: CleanExtra = {},
 ): Promise<File> {
   onProgress(0);
   const { channels, sampleRate } = await readChannels(media.file, from, to);
   const cleaned: Float32Array[] = [];
   for (const [c, data] of channels.entries()) {
-    highpass(data, sampleRate);
-    cleaned.push(denoiseChannel(data, strength, (f) => onProgress((c + f) / channels.length)));
+    // Estalos primeiro: são mais fáceis de achar no som original.
+    if (extra.clicks) removeClicks(data, sampleRate, extra.clicks);
+    if (extra.wind) removeWind(data, sampleRate, extra.wind);
+    else highpass(data, sampleRate);
+    cleaned.push(strength > 0 ? denoiseChannel(data, strength, (f) => onProgress((c + f) / channels.length)) : data);
     // Deixa a interface respirar entre os canais.
     await new Promise((r) => setTimeout(r, 0));
   }

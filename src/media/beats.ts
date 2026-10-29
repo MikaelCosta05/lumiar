@@ -10,6 +10,14 @@ export interface BeatAnalysis {
 /** Resolução da análise: um valor a cada 10 ms. */
 const RATE = 100;
 
+/** Batidas que o Lumiar já sabe sem ouvir (a música que ele mesmo compôs). */
+const known = new WeakMap<File, BeatAnalysis>();
+
+/** Guarda as batidas exatas de um arquivo: detectBeats devolve essas em vez de adivinhar. */
+export function rememberBeats(file: File, analysis: BeatAnalysis): void {
+  known.set(file, analysis);
+}
+
 /**
  * Encontra as batidas da música no trecho [from, to] do arquivo.
  * 1. Mede a energia a cada 10 ms (graves pesam mais: bumbo e baixo marcam o ritmo).
@@ -19,6 +27,8 @@ const RATE = 100;
  *    (a música pode acelerar ou atrasar um pouco).
  */
 export async function detectBeats(file: File, from: number, to: number): Promise<BeatAnalysis> {
+  const exact = known.get(file);
+  if (exact) return { beats: exact.beats.filter((b) => b >= from - 1e-6 && b <= to + 1e-6), bpm: exact.bpm };
   const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
   const length = Math.max(1, Math.ceil((to - from) * RATE));
   const low = new Float32Array(length);

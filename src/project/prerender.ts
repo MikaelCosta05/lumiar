@@ -197,6 +197,8 @@ export function prerenderFingerprint(
   const to = span.end;
   const hits = (start: number, end: number) => start < to && end > from;
   const parts: string[] = [stable(['v1', project.width, project.height, project.fps, project.background, span.start, span.end])];
+  // Desfoque de movimento do projeto (ausente nos antigos: o resumo deles não muda).
+  if (project.motionBlur) parts.push(`desfoque:${stable(project.motionBlur)}`);
   const plugins = new Set<string>();
   const luts = new Set<string>();
   const useLook = (look: { effects?: { pluginId: string }[]; filter?: { pluginId: string } | null }) => {

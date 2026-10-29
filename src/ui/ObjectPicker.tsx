@@ -4,6 +4,8 @@ import { t, tc } from '../i18n';
 import { maskForPoints, objectFrame, propagateObject } from '../media/objectSelect';
 import { speedOf, updateClip, updateOverlayClip, type Project, type TimelineLayout, type VideoClip } from '../project/model';
 import { maskSize, maskStats, togglePoint, type ObjectPoint } from '../project/objectMask';
+import { objectActionEffect, type ObjectAction } from '../project/objectActions';
+import { getPlugin } from '../engine/registry';
 import { Button, cx, SectionTitle, Segmented } from './kit';
 import { startObjectPick, stopObjectPick, useObjectPick, type ObjectPickTarget } from './objectPick';
 
@@ -57,6 +59,9 @@ function Picker({
   const [mask, setMask] = useState<Uint8Array | null>(null);
   const [status, setStatus] = useState<{ stage: string; fraction: number | null } | null>(null);
   const [working, setWorking] = useState(false);
+  /** O que fazer com o objeto depois de aplicar (e a cor nova, para trocar a cor) */
+  const [action, setAction] = useState<ObjectAction>('person');
+  const [color, setColor] = useState('#d8342c');
   const abort = useRef<AbortController | null>(null);
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
@@ -185,12 +190,18 @@ function Picker({
         (stage, fraction) => setStatus({ stage, fraction }),
         controller.signal,
       );
-      const set = <T extends VideoClip>(c: T): T => ({ ...c, object: selection });
+      const effect = objectActionEffect(action, color);
+      const set = <T extends VideoClip>(c: T): T => ({ ...c, object: selection, effects: effect ? [...c.effects, effect] : c.effects });
       setProject((p) => (target.kind === 'clip' ? updateClip(p, target.id, set) : updateOverlayClip(p, target.id, set)));
       notify(
-        t('Objeto selecionado ({n} quadro(s)). Os efeitos de pessoa deste clipe agora usam o objeto: fundo, contorno, recorte, texto atrás… Troque em Recorte, no painel do clipe.', {
-          n: selection.frames.length,
-        }),
+        effect
+          ? t('Objeto selecionado ({n} quadro(s)) e efeito "{effect}" no clipe. Ajuste a cor e a força no painel do clipe, em Efeitos.', {
+              n: selection.frames.length,
+              effect: getPlugin(effect.pluginId)?.name ?? '',
+            })
+          : t('Objeto selecionado ({n} quadro(s)). Os efeitos de pessoa deste clipe agora usam o objeto: fundo, contorno, recorte, texto atrás… Troque em Recorte, no painel do clipe.', {
+              n: selection.frames.length,
+            }),
       );
       stopObjectPick();
     } catch (error) {
@@ -264,6 +275,24 @@ function Picker({
         <Button className="h-7 text-xs" icon={<X size={12} />} onClick={close}>
           {working ? t('Parar') : t('Cancelar')}
         </Button>
+        {!working && (
+          <label className="flex items-center gap-1.5 text-dim">
+            {t('O que fazer com o objeto:')}
+            <select
+              className="h-7 rounded-md border border-line bg-panel-3 px-1.5 text-xs text-white"
+              value={action}
+              onChange={(e) => setAction(e.target.value as ObjectAction)}
+            >
+              <option value="person">{t('Só selecionar (para os efeitos de pessoa)')}</option>
+              <option value="color">{t('Trocar a cor do objeto')}</option>
+              <option value="blur">{t('Desfocar o objeto')}</option>
+              <option value="erase">{t('Apagar o objeto')}</option>
+            </select>
+            {action === 'color' && (
+              <input type="color" className="h-7 w-8 cursor-pointer rounded border border-line bg-transparent" value={color} title={t('Cor nova')} onChange={(e) => setColor(e.target.value)} />
+            )}
+          </label>
+        )}
         {!working && (
           <Button variant="primary" className="h-7 text-xs" icon={<Check size={12} />} disabled={!hasMask || !!status} onClick={() => void apply()}>
             {t('Aplicar')}

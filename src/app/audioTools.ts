@@ -1,9 +1,11 @@
 import { separateVoice } from '../media/ai';
 import { assets, PEAKS_PER_SECOND } from '../media/assets';
 import { findOffset, loudness } from '../media/audioSync';
-import { detectBeats } from '../media/beats';
-import { denoiseMedia } from '../media/denoise';
+import { detectBeats, rememberBeats } from '../media/beats';
+import { denoiseMedia, type CleanExtra } from '../media/denoise';
+import { generateMusic } from '../media/generatedMusic';
 import { analyzeMedia, importMedia } from '../media/importer';
+import type { MusicOptions } from '../media/musicGen';
 import { getSound, soundFile, type SoundEffect } from '../media/sfx';
 import { findSpeech } from '../media/silence';
 import { spectrumFor } from '../media/spectrum';
@@ -31,6 +33,8 @@ import {
   updateClip,
 } from '../project/model';
 import { beatFeatures, planMusicFit } from '../project/musicFit';
+import { placeGeneratedMusic } from '../project/musicPlace';
+import { findTextClip } from '../project/text';
 import { removeSilences } from '../project/recipes';
 import { t } from '../i18n';
 import type { EditorContext } from './context';
@@ -217,8 +221,11 @@ export function audioTools({ history, project, selection, setProject, setSelecti
     }
   };
 
-  /** Tira o ruído de fundo: gera um áudio limpo e troca no clipe (vídeos: o áudio é separado antes). */
-  const cleanAudio = async (target: { kind: 'audio' | 'clip'; id: string }, strength: number) => {
+  /**
+   * Tira o ruído de fundo: gera um áudio limpo e troca no clipe (vídeos: o áudio é separado antes).
+   * `extra` também tira o vento e/ou os estalos de boca (com strength 0, só eles).
+   */
+  const cleanAudio = async (target: { kind: 'audio' | 'clip'; id: string }, strength: number, extra?: CleanExtra) => {
     let p = history.current();
     let audioId = target.id;
     if (target.kind === 'clip') {
@@ -236,7 +243,7 @@ export function audioTools({ history, project, selection, setProject, setSelecti
     if (!found || !media) return;
     try {
       setBusy(t('Limpando o áudio… {n}%', { n: 0 }));
-      const file = await denoiseMedia(media, found.clip.trimIn, found.clip.trimOut, strength, (f) => setBusy(t('Limpando o áudio… {n}%', { n: Math.round(f * 100) })));
+      const file = await denoiseMedia(media, found.clip.trimIn, found.clip.trimOut, strength, (f) => setBusy(t('Limpando o áudio… {n}%', { n: Math.round(f * 100) })), extra);
       const cleaned = await importMedia(file);
       void analyzeMedia(cleaned);
       setProject((q) =>
@@ -392,5 +399,49 @@ export function audioTools({ history, project, selection, setProject, setSelecti
     }
   };
 
-  return { normalizeAudio, fitMusic, splitVoice, syncAudioClip, cleanAudio, cutSilences, musicAt, markBeats, beatMontage, addSound };
+  /** Trecho da música gerada: o item selecionado na timeline (se tiver 2 s ou mais) ou o vídeo inteiro. */
+  const musicRange = (): { start: number; duration: number; selected: boolean } => {
+    const tl = layoutProject(project);
+    let span: { start: number; length: number } | null = null;
+    if (selection?.kind === 'clip') {
+      const l = tl.clips.find((c) => c.clip.id === selection.id);
+      if (l) span = { start: l.start, length: l.length };
+    } else if (selection?.kind === 'audio') {
+      const found = findAudioClip(project, selection.id);
+      if (found) span = { start: found.clip.start, length: clipLength(found.clip) };
+    } else if (selection?.kind === 'text') {
+      const found = findTextClip(project, selection.id);
+      if (found) span = { start: found.clip.start, length: found.clip.duration };
+    }
+    if (span && span.length >= 2) return { start: span.start, duration: span.length, selected: true };
+    const total = tl.videoDuration || tl.duration;
+    return { start: 0, duration: total >= 2 ? total : 30, selected: false };
+  };
+
+  /** Compõe a música (sem direitos autorais) e põe na trilha de música, com as batidas já marcadas. */
+  const addGeneratedMusic = async (options: MusicOptions, start: number) => {
+    try {
+      setBusy(t('Compondo a música… {n}%', { n: 0 }));
+      const music = await generateMusic(options, (f) => setBusy(t('Compondo a música… {n}%', { n: Math.round(f * 100) })));
+      const media = await importMedia(music.file);
+      void analyzeMedia(media);
+      // O Lumiar compôs a música: "Marcar as batidas" e "Encaixar a música" usam as batidas exatas.
+      rememberBeats(media.file, { beats: music.plan.beats, bpm: music.plan.bpm });
+      const clip = createAudioClip(media, start);
+      setProject((p) => placeGeneratedMusic(p, media, start, music.plan.beats, clip));
+      setSelection({ kind: 'audio', id: clip.id });
+      notify(
+        t('Música de {seconds}s ({bpm} BPM) na trilha de música, com as batidas marcadas. Foi composta pelo Lumiar: é sua, sem direitos autorais.', {
+          seconds: options.duration.toFixed(1),
+          bpm: Math.round(music.plan.bpm),
+        }),
+      );
+    } catch (error) {
+      notify(t('Não foi possível gerar a música: {error}', { error: error instanceof Error ? error.message : String(error) }), true);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return { normalizeAudio, fitMusic, splitVoice, syncAudioClip, cleanAudio, cutSilences, musicAt, markBeats, beatMontage, addSound, musicRange, addGeneratedMusic };
 }

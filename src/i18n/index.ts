@@ -47,6 +47,8 @@ const files = {
 export async function loadLanguage(): Promise<void> {
   // Programa instalado: os avisos e o menu do Mac, que vêm do próprio programa, seguem o mesmo idioma.
   (globalThis as { lumiarDesktop?: { setLanguage?(lang: Lang): void } }).lumiarDesktop?.setLanguage?.(lang);
+  // O index.html vem com lang="pt-BR": leitores de tela e o corretor do sistema precisam do idioma de verdade.
+  if (globalThis.document) document.documentElement.lang = locale();
   if (lang === 'pt') return;
   const parts = await Promise.all(Object.values(files[lang]).map((load) => load().then((m) => m.default)));
   dictionary = Object.assign({}, ...parts);

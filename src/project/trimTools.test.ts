@@ -228,6 +228,21 @@ describe('roll', () => {
     expect(duration(r.project)).toBe(35);
   });
 
+  it('o corte antes de uma imagem anda para a esquerda (a imagem cresce pelo fim)', () => {
+    const p = build([clip('a', 0, 10), clip('f', 0, 5, {}, photo), clip('c', 0, 3)]);
+    const r = rollEdit(p, 'a', -4)!;
+    expect(r.delta).toBe(-4);
+    expect(trims(r.project, 'a')).toEqual([0, 6]);
+    expect(trims(r.project, 'f')).toEqual([0, 9]);
+    expect(starts(r.project)).toEqual([0, 6, 15]);
+    expect(duration(r.project)).toBe(duration(p));
+    // Slide do clipe antes da foto para a esquerda: a foto cresce, o total fica igual.
+    const s = slideClip(build([clip('x', 0, 5), clip('a', 0, 10), clip('f', 0, 5, {}, photo)]), 'a', -2)!;
+    expect(s.delta).toBe(-2);
+    expect(trims(s.project, 'f')).toEqual([0, 7]);
+    expect(duration(s.project)).toBe(20);
+  });
+
   it('transição que não cabia inteira fica com a duração que aparece (o total não muda ao crescer)', () => {
     // Transição de 2 s depois de um clipe de 2 s: só aparece 1 s (metade do clipe).
     const p = build([clip('a', 0, 2), clip('b', 10, 16)], [dissolve(2)]);

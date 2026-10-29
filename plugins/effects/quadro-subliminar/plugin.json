@@ -1,0 +1,17 @@
+{
+  "name": "Quadro subliminar",
+  "description": "De vez em quando, um quadro diferente pisca por um instante: negativo, contraste estourado, imagem de cabeça para baixo ou o rosto bem de perto. Quase não dá para ver, mas dá para sentir.",
+  "category": "Analógico",
+  "params": [
+    { "id": "frequencia", "label": "Piscadas por segundo", "type": "float", "default": 0.5, "min": 0.1, "max": 4 },
+    { "id": "inicio", "label": "Primeira piscada (s)", "type": "float", "default": 0.5, "min": 0, "max": 10 },
+    { "id": "acaso", "label": "Irregularidade", "type": "float", "default": 0.8, "min": 0, "max": 1 },
+    { "id": "quadros", "label": "Duração (quadros)", "type": "float", "default": 2, "min": 1, "max": 3, "step": 1 },
+    { "id": "tipo", "label": "Tipo (0 = sorteado · 1 negativo · 2 contraste · 3 de cabeça para baixo · 4 de perto)", "type": "float", "default": 0, "min": 0, "max": 4, "step": 1 },
+    { "id": "ponto", "label": "Onde aproximar (rosto)", "type": "vec2", "default": [0.5, 0.4], "min": 0, "max": 1 },
+    { "id": "aproximar", "label": "Quanto aproximar", "type": "float", "default": 3, "min": 1.5, "max": 6 },
+    { "id": "ruido", "label": "Chiado no quadro", "type": "float", "default": 0.4, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "silhueta",
+  "preview": { "frequencia": 1, "inicio": 1.27, "acaso": 0, "quadros": 3, "tipo": 1 }
+}

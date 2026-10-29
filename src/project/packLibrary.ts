@@ -61,9 +61,16 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Sonho e romance': '#db2777',
   'Suspense e terror': '#6d28d9',
   'Terror analógico': '#4d5a24',
+  'Found footage': '#7c4a2d',
   'Ação e games': '#0891b2',
   'Documentário e notícia': '#475569',
   'Clima e estações': '#0d9488',
+  'Casamento e eventos': '#b5838d',
+  'Moda e lookbook': '#27272a',
+  Esportes: '#65a30d',
+  'Datas comemorativas': '#9f1239',
+  'Produto e unboxing': '#1e3a8a',
+  Videoclipe: '#701a75',
 };
 
 /** Ordem das linhas na biblioteca. */
@@ -2354,6 +2361,726 @@ const MORE_PACKS: PackTemplate[] = [
   }),
 ];
 
+/** Liga e desliga a cada `step` segundos (pisca-pisca): começa aceso se `on` for verdadeiro. */
+const blink = (d: number, step: number, value: number, on = true): Point[] =>
+  Array.from({ length: Math.floor(d / step) + 1 }, (_, i): Point => [i * step, (i % 2 === 0) === on ? value : 0, 'hold']);
+
+/**
+ * Terceira leva: pacotes por tema (casamento, moda, esportes, datas, produto, videoclipe, found footage).
+ * Só visual, como os outros. Os que usam a pessoa ou a profundidade continuam sem mexer a câmera.
+ */
+const THEME_PACKS: PackTemplate[] = [
+  // ------------------------------------------------------------ Casamento e eventos
+  pack('sim-aceito', t('Sim, aceito'), 'Casamento e eventos', {
+    fadeIn: 0.6,
+    fadeOut: 0.6,
+    description: t('Pele bonita, brilho macio nas luzes, bordas claras e a câmera chegando perto devagar. Para os votos e o beijo.'),
+    effects: [fx('brilho', { threshold: 0.67, intensity: 0.8, radius: 24 }), fx('vinheta', { intensity: 0.4, tint: '#fff4ea', size: 0.5 })],
+    filter: look('portra', 0.85),
+    camera: cam({ zoom: [[0, 1.0, 'linear'], [6, 1.12]] }),
+  }),
+  pack('entrada-da-noiva', t('Entrada da noiva'), 'Casamento e eventos', {
+    ...slow([0.5], 3),
+    description: t('Câmera lenta com luz quente vazando, halo macio nas luzes e pontinhos de luz no ar, enquanto a câmera recua devagar.'),
+    effects: [
+      fx('brilho', { threshold: 0.62, intensity: 0.8, radius: 26 }),
+      fx('particulas-de-luz', { amount: 0.5, size: 0.9, speed: 0.2, hue: 0.1 }),
+      fx('luz-vazada', { amount: 0.3, speed: 0.4 }),
+    ],
+    filter: look('difusor-de-lente', 0.8),
+    camera: cam({ zoom: [[0, 1.15, 'linear'], [3, 1.03]] }),
+  }),
+  pack('filme-de-casamento', t('Filme de casamento'), 'Casamento e eventos', {
+    description: t('O visual dos filmes de casamento de hoje: cor de película suave, tela larga, grão fino, luz vazando e um deslize lento.'),
+    effects: [fx('barras-cinema', { aspect: 2.39 }), fx('granulado', { amount: 0.1 }), fx('luz-vazada', { amount: 0.25, speed: 0.5 })],
+    filter: look('pelicula-fosca', 0.9),
+    camera: cam({ zoom: [[0, 1.1, 'linear'], [6, 1.16]], x: [[0, 0.47, 'linear'], [6, 0.53]] }),
+  }),
+  pack('saida-dos-noivos', t('Saída dos noivos'), 'Casamento e eventos', {
+    ...slow([0.4], 2.5),
+    description: t('A saída debaixo da chuva de arroz em câmera lenta: um clarão de foto, brilhos flutuando como pétalas e cor alegre.'),
+    effects: [
+      fx('flash', { tint: '#ffffff', glow: 0.6 }, { amount: [[0, 0.8, 'ease-out'], [0.35, 0]] }),
+      fx('particulas-de-luz', { amount: 1, size: 1.2, speed: 0.8, hue: 0.12 }),
+      fx('brilho', { threshold: 0.67, intensity: 0.8, radius: 22 }),
+    ],
+    filter: look('kodak-gold', 0.5),
+    camera: cam({ zoom: [[0, 1.12, 'ease-out'], [0.5, 1.05, 'linear'], [2.5, 1.12]] }),
+  }),
+  pack('primeira-danca', t('Primeira dança'), 'Casamento e eventos', {
+    fadeIn: 0.8,
+    fadeOut: 0.8,
+    description: t('A câmera gira devagar em volta do casal, com luz dourada, brilho nas luzes do salão e as bordas no escuro.'),
+    effects: [fx('brilho', { threshold: 0.62, intensity: 0.8, radius: 24 }), fx('vinheta', { intensity: 0.55, size: 0.4 })],
+    filter: look('brilho-dourado', 0.9),
+    camera: cam({ rotation: [[0, -4, 'linear'], [6, 4]], zoom: [[0, 1.18, 'linear'], [6, 1.3]] }),
+  }),
+  pack('pista-da-festa', t('Pista da festa'), 'Casamento e eventos', {
+    ...onBeats({
+      'effects.0.amount': pulse(0, [[0, 0.4], [0.25, 0]], [[0, 0]]),
+      'effects.1.amount': pulse(0, [[0, 0]], [[0, 0.4], [0.25, 0]]),
+      'effects.2.intensity': pulse(0.3, [[0, 1.2], [0.3, 0.3]]),
+      'camera.zoom': pulse(1.04, [[0, 1.12, 'ease-out'], [0.3, 1.04]]),
+    }),
+    description: t('Luz de balada na festa: em cada batida a pista acende em lilás ou dourado, as luzes estouram e a câmera dá um pulo.'),
+    effects: [
+      fx('flash', { tint: '#b76bff', glow: 0.8, amount: 0 }),
+      fx('flash', { tint: '#ffc86b', glow: 0.8, amount: 0 }),
+      fx('brilho', { threshold: 0.62, radius: 22, intensity: 0.3 }),
+    ],
+    filter: look('noite-neon', 0.5),
+  }),
+  pack('brinde', t('Brinde'), 'Casamento e eventos', {
+    ...moment(1.5),
+    description: t('A hora do brinde: clarão dourado, brilho estourando nos copos, reflexo na lente e um zoom rápido que acalma.'),
+    effects: [
+      fx('flash', { tint: '#ffe2a0', glow: 0.8 }, { amount: [[0, 0], [0.1, 0.55, 'ease-out'], [0.6, 0]] }),
+      fx('brilho', { threshold: 0.62, radius: 26 }, { intensity: [[0, 0.3], [0.12, 1.3, 'ease-out'], [1.5, 0.3]] }),
+      fx('lens-flare', { source: [0.7, 0.75] }, { amount: [[0, 0], [0.12, 0.7, 'ease-out'], [1.5, 0.2]] }),
+    ],
+    camera: cam({ zoom: [[0, 1.0, 'ease-out'], [0.15, 1.15], [1.5, 1.08]] }),
+  }),
+  pack('foto-do-album', t('Foto do álbum'), 'Casamento e eventos', {
+    duration: 3.5,
+    timing: 'fixed',
+    anchor: 'cursor',
+    description: t('A cena para num clique de flash, vira uma foto em preto e branco suave por um instante e volta a andar colorida.'),
+    effects: [
+      fx('pausa-de-fita', { momento: 0.4, pausa: 1.8, ruido: 0, tremor: 0 }),
+      fx('flash', { tint: '#ffffff', glow: 0.6 }, { amount: [[0, 0], [0.4, 0.95, 'ease-out'], [0.8, 0]] }),
+      fx('vinheta', { tint: '#fffaf0', size: 0.45 }, { intensity: [[0, 0, 'hold'], [0.4, 0.55, 'hold'], [2.2, 0]] }),
+    ],
+    filter: look('mono-suave', 0.9, { intensity: [[0, 0, 'hold'], [0.4, 0.9, 'hold'], [2.2, 0]] }),
+  }),
+  pack('detalhe-das-aliancas', t('Detalhe das alianças'), 'Casamento e eventos', {
+    description: t('Para alianças, buquê e bolo: reflexos cintilando, cor delicada, bordas claras e a câmera chegando bem perto.'),
+    effects: [
+      fx('brilho', { threshold: 0.7, intensity: 0.8, radius: 10 }),
+      fx('raios-de-luz', { amount: 0.4, threshold: 0.75, spread: 0.4, source: [0.5, 0.5] }),
+      fx('vinheta', { intensity: 0.35, tint: '#fff6ee', size: 0.5 }),
+    ],
+    filter: look('glamour', 0.8),
+    camera: cam({ zoom: [[0, 1.1, 'linear'], [6, 1.35]] }),
+  }),
+  pack('vista-do-alto', t('Vista do alto'), 'Casamento e eventos', {
+    description: t('Voo de drone sobre o lugar da festa: a câmera desce devagar, gira de leve e o sol de fim de tarde brilha na lente.'),
+    effects: [fx('lens-flare', { amount: 0.6, source: [0.8, 0.85] }), fx('vinheta', { intensity: 0.25 })],
+    filter: look('hora-dourada', 0.8),
+    camera: cam({ zoom: [[0, 1.4, 'linear'], [6, 1.1]], y: [[0, 0.45, 'linear'], [6, 0.53]], rotation: [[0, 2.5, 'linear'], [6, -2.5]] }),
+  }),
+
+  // ------------------------------------------------------------ Moda e lookbook
+  pack('passarela', t('Passarela'), 'Moda e lookbook', {
+    ...slow([0.6], 4),
+    description: t('O desfile um pouco mais lento, contraste de passarela e flashes de fotógrafo estourando de vez em quando.'),
+    effects: [
+      fx('flash', { tint: '#ffffff', glow: 0.4 }, {
+        amount: [
+          [0, 0, 'hold'], [0.7, 0.6, 'hold'], [0.76, 0, 'hold'], [1.9, 0.45, 'hold'], [1.95, 0, 'hold'],
+          [2.3, 0.6, 'hold'], [2.36, 0, 'hold'], [3.4, 0.5, 'hold'], [3.45, 0, 'hold'],
+        ],
+      }),
+      fx('vinheta', { intensity: 0.4 }),
+    ],
+    filter: look('contraste', 0.7),
+    camera: cam({ zoom: [[0, 1.05, 'linear'], [4, 1.2]] }),
+  }),
+  pack('editorial-pb', t('Editorial P&B'), 'Moda e lookbook', {
+    description: t('Preto e branco de revista de moda, como fotografado com filtro vermelho: contraste limpo, grão fino e a câmera subindo devagar pelo look.'),
+    effects: [fx('granulado', { amount: 0.15, size: 1.2 }), fx('vinheta', { intensity: 0.3 })],
+    filter: look('pb-com-filtro', 1, {}, { contrast: 1.25 }),
+    camera: cam({ y: [[0, 0.58, 'linear'], [6, 0.44]] }, { zoom: 1.25 }),
+  }),
+  pack('capa-de-revista', t('Capa de revista'), 'Moda e lookbook', {
+    description: t('Close no rosto com pele luminosa, brilho suave e cor limpa de capa de revista.'),
+    face: { zoom: 'auto', smoothness: 0.7 },
+    effects: [fx('brilho', { threshold: 0.6, intensity: 0.6, radius: 18 }), fx('ajuste-cor', { brightness: 0.03, saturation: 1.05 })],
+    filter: look('glamour', 0.85),
+    camera: cam({}),
+  }),
+  pack('lookbook-suave', t('Lookbook suave'), 'Moda e lookbook', {
+    description: t('Pretos lavados, tom quente delicado e a câmera deslizando de lado, como no lookbook de uma marca.'),
+    effects: [fx('brilho', { threshold: 0.6, intensity: 0.4, radius: 16 }), fx('granulado', { amount: 0.08 })],
+    filter: look('matte-suave'),
+    camera: cam({ x: [[0, 0.45, 'linear'], [6, 0.55]] }, { zoom: 1.15 }),
+  }),
+  pack('sessao-de-fotos', t('Sessão de fotos'), 'Moda e lookbook', {
+    ...onBeats(
+      {
+        'effects.0.amount': pulse(0, [[0, 0.85], [0.15, 0]]),
+        'camera.zoom': pulse(1.2, [[0, 1.32]], [[0, 1.12]]),
+        'camera.x': pulse(0.5, [[0, 0.47]], [[0, 0.53]]),
+      },
+      2,
+    ),
+    description: t('Ensaio no ritmo: a cada duas batidas, um flash de estúdio e o enquadramento pula, como se fosse a próxima foto.'),
+    effects: [fx('flash', { tint: '#ffffff', glow: 0.5, amount: 0 })],
+    filter: look('retrato-high-key', 0.6),
+  }),
+  pack('flash-dos-anos-90', t('Flash dos anos 90'), 'Moda e lookbook', {
+    description: t('Foto de festa de revista dos anos 90: flash estourado na frente, fundo caindo no escuro, grão e cor forte.'),
+    effects: [fx('ajuste-cor', { contrast: 1.1, saturation: 1.15 }), fx('vinheta', { intensity: 0.5 })],
+    filter: look('flash-descartavel', 1, {}, { flash: 0.75, grain: 0.45 }),
+    camera: cam({ zoom: [[0, 1.0, 'linear'], [6, 1.08]] }),
+  }),
+  pack('alta-costura', t('Alta-costura'), 'Moda e lookbook', {
+    description: t('O fundo mergulha no preto e só a roupa e o rosto ficam na luz, em tela larga, com a câmera se aproximando devagar.'),
+    effects: [fx('barras-cinema', { aspect: 2.0 }), fx('brilho', { threshold: 0.65, intensity: 0.5, radius: 14 })],
+    filter: look('retrato-low-key', 1, {}, { depth: 0.7, vig: 0.6 }),
+    camera: cam({ zoom: [[0, 1.0, 'linear'], [6, 1.15]] }),
+  }),
+  pack('giro-do-look', t('Giro do look'), 'Moda e lookbook', {
+    ...slow([0.6], 2.5),
+    description: t('Câmera lenta para a voltinha que mostra a roupa: a pessoa deixa cópias cor-de-rosa para trás enquanto gira.'),
+    effects: [
+      fx('rastro-pessoa', { quantidade: 5, espaco: 0.05, cor: '#ff7ac8', tingir: 0.6, opacidade: 0.6 }),
+      fx('brilho', { threshold: 0.7, intensity: 0.6, radius: 18 }),
+    ],
+    filter: look('pastel', 0.5),
+  }),
+  pack('campanha-em-duas-cores', t('Campanha em duas cores'), 'Moda e lookbook', {
+    description: t('A imagem vira duas cores, sombras azul-marinho e luzes rosa-claro, como um anúncio de perfume, com grão fino.'),
+    effects: [fx('duotone', { dark: '#17183b', light: '#f6c9d8', contrast: 1.15 }), fx('granulado', { amount: 0.1 }), fx('vinheta', { intensity: 0.3 })],
+    camera: cam({ zoom: [[0, 1.04, 'linear'], [6, 1.12]] }),
+  }),
+  pack('luz-de-estudio-lateral', t('Luz de estúdio lateral'), 'Moda e lookbook', {
+    description: t('Ilumina a pessoa de novo com uma luz quente e macia vinda do lado, deixando o outro lado na sombra e o fundo mais escuro. A IA estima o volume do rosto.'),
+    effects: [
+      fx('luz-de-estudio', { angulo: 150, altura: 0.5, cor: '#ffd9b0', intensidade: 0.9, suavidade: 0.6, sombra: 0.55, fundo: 0.3, soPessoa: 1 }),
+      fx('vinheta', { intensity: 0.3 }),
+    ],
+    filter: look('portra', 0.5),
+  }),
+
+  // ------------------------------------------------------------ Esportes
+  pack('replay', t('Replay'), 'Esportes', {
+    ...slow([0.3], 2),
+    description: t('O replay da TV: entra com um clarão, mostra o lance em câmera lenta com a imagem nítida e sai com outro clarão.'),
+    effects: [
+      fx('flash', { tint: '#ffffff', glow: 0.6 }, { amount: [[0, 0.9, 'ease-out'], [0.15, 0], [1.85, 0], [2, 0.9]] }),
+      fx('ajuste-cor', { contrast: 1.1, saturation: 1.1 }),
+    ],
+    filter: look('nitido', 0.6),
+    camera: cam({ zoom: [[0, 1.08, 'linear'], [2, 1.22]] }),
+  }),
+  pack('grito-de-gol', t('Grito de gol'), 'Esportes', {
+    ...moment(2.4),
+    description: t('A arquibancada explode: clarão, três tremidas de gente pulando, um zoom que vai e volta e cor bem viva.'),
+    effects: [
+      fx('flash', { tint: '#ffffff', glow: 0.6 }, { amount: [[0, 0.85, 'ease-out'], [0.3, 0]] }),
+      fx('tremor', { speed: 16, rotation: 0.5 }, {
+        intensity: [[0, 0.8, 'ease-out'], [0.35, 0.15], [0.8, 0.7, 'ease-out'], [1.15, 0.15], [1.6, 0.6, 'ease-out'], [2.4, 0]],
+      }),
+      fx('brilho', { threshold: 0.67, intensity: 0.8, radius: 20 }),
+    ],
+    filter: look('vivido', 0.8),
+    camera: cam({ zoom: [[0, 1.25, 'ease-out'], [0.4, 1.1], [0.8, 1.22, 'ease-out'], [1.2, 1.1], [1.6, 1.2, 'ease-out'], [2.4, 1.08]] }),
+  }),
+  pack('lance-congelado', t('Lance congelado'), 'Esportes', {
+    duration: 4,
+    timing: 'fixed',
+    anchor: 'cursor',
+    description: t('Para mostrar a jogada: a imagem congela num clique, perde a cor e a câmera chega perto antes de o jogo voltar.'),
+    effects: [
+      fx('pausa-de-fita', { momento: 0.5, pausa: 2.2, ruido: 0, tremor: 0 }),
+      // Com a imagem parada, o zoom vem do efeito (a câmera do pacote mexeria no vídeo antes da pausa).
+      fx('zoom-lento', {}, {
+        zoomStart: [[0, 1, 'hold'], [0.5, 1], [2.6, 1.35, 'hold'], [2.7, 1]],
+        zoomEnd: [[0, 1, 'hold'], [0.5, 1], [2.6, 1.35, 'hold'], [2.7, 1]],
+      }),
+      fx('flash', { tint: '#ffffff', glow: 0.4 }, { amount: [[0, 0], [0.5, 0.7, 'ease-out'], [0.8, 0], [2.7, 0], [2.75, 0.5, 'ease-out'], [3.1, 0]] }),
+      fx('vinheta', { size: 0.4 }, { intensity: [[0, 0, 'hold'], [0.5, 0.6, 'hold'], [2.7, 0]] }),
+    ],
+    filter: look('mono-suave', 0.7, { intensity: [[0, 0, 'hold'], [0.5, 0.7, 'hold'], [2.7, 0]] }),
+  }),
+  pack('camera-de-acao', t('Câmera de ação'), 'Esportes', {
+    description: t('Câmera presa no capacete ou na bike: lente grande-angular, cor viva, muito detalhe e a imagem chacoalhando.'),
+    effects: [
+      fx('olho-de-peixe', { strength: 0.3 }),
+      fx('tremor', { intensity: 0.18, speed: 12, rotation: 0.3 }),
+      fx('ajuste-cor', { saturation: 1.2, contrast: 1.1 }),
+      fx('vinheta', { intensity: 0.25 }),
+    ],
+    filter: look('hdr', 0.6),
+    camera: cam({}, { zoom: 1.06 }),
+  }),
+  pack('transmissao-do-jogo', t('Transmissão do jogo'), 'Esportes', {
+    description: t('Visual de jogo na TV: cor de estádio viva e nítida, com a câmera de longe acompanhando o lance de lado.'),
+    effects: [fx('ajuste-cor', { contrast: 1.06, saturation: 1.12 })],
+    filter: look('vibracao'),
+    camera: cam({ x: [[0, 0.4], [6, 0.6]] }, { zoom: 1.4 }),
+  }),
+  pack('velocidade-maxima', t('Velocidade máxima'), 'Esportes', {
+    duration: 4,
+    timing: 'stretch',
+    anchor: 'cursor',
+    speed: [1.5],
+    description: t('Para corrida, bike e skate: um pouco acelerado, bordas borradas de velocidade, cor separada e a câmera avançando.'),
+    effects: [fx('desfoque-radial', { strength: 0.3 }), fx('rgb-split', { amount: 0.004 }), fx('tremor', { intensity: 0.12, speed: 14, rotation: 0.2 })],
+    filter: look('vivido', 0.6),
+    camera: cam({ zoom: [[0, 1.08, 'linear'], [4, 1.2]] }),
+  }),
+  pack('video-de-skate', t('Vídeo de skate'), 'Esportes', {
+    ...slow([1, 0.35, 0.35, 1], 2.5),
+    description: t('Vídeo de skate dos anos 2000: lente olho de peixe, cor de câmera digital antiga e a manobra em câmera lenta.'),
+    effects: [fx('olho-de-peixe', { strength: 0.4 }), fx('vinheta', { intensity: 0.5, size: 0.4 })],
+    filter: look('camera-digital-antiga', 0.9),
+    camera: cam({}, { zoom: 1.08 }),
+  }),
+  pack('treino-pesado', t('Treino pesado'), 'Esportes', {
+    ...onBeats({
+      'camera.zoom': pulse(1.05, [[0, 1.2, 'ease-out'], [0.3, 1.05]]),
+      'effects.0.intensity': pulse(0.45, [[0, 0.85], [0.3, 0.45]]),
+    }),
+    description: t('Vídeo de academia: cor dura e escura, grão e, em cada batida, um soco de zoom com as bordas fechando.'),
+    effects: [fx('vinheta', { intensity: 0.45, size: 0.35 }), fx('granulado', { amount: 0.25, size: 1.4 })],
+    filter: look('dramatico', 0.8),
+  }),
+  pack('jogo-a-noite', t('Jogo à noite'), 'Esportes', {
+    description: t('Partida sob os refletores: as luzes do estádio ganham brilho e reflexo na lente, com cor de filme para luz artificial.'),
+    effects: [fx('brilho', { threshold: 0.7, intensity: 0.8, radius: 22 }), fx('lens-flare', { amount: 0.7, source: [0.8, 0.85] }), fx('vinheta', { intensity: 0.4 })],
+    filter: look('cinema-500t', 0.9),
+    camera: cam({ zoom: [[0, 1.05, 'linear'], [6, 1.12]] }),
+  }),
+  pack('tensao-do-penalti', t('Tensão do pênalti'), 'Esportes', {
+    duration: 4,
+    timing: 'stretch',
+    anchor: 'cursor',
+    description: t('Antes do chute: a cor vai sumindo, as bordas escurecem em pulsos de coração e a câmera chega perto devagar.'),
+    effects: [
+      fx('vinheta', { tint: '#200000', size: 0.35 }, {
+        intensity: [[0, 0.2], [0.6, 0.6], [0.75, 0.4], [0.9, 0.6], [1.6, 0.45], [2.2, 0.75], [2.35, 0.55], [2.5, 0.8], [3.2, 0.65], [4, 0.85]],
+      }),
+    ],
+    filter: look('mono-suave', 0.8, { intensity: [[0, 0], [4, 0.8]] }),
+    camera: cam({ zoom: [[0, 1.0, 'ease-in'], [4, 1.4]] }),
+  }),
+
+  // ------------------------------------------------------------ Datas comemorativas
+  pack('noite-de-natal', t('Noite de Natal'), 'Datas comemorativas', {
+    description: t('Pisca-pisca desfocado no ar, neve fina caindo, brilho nas luzes e os vermelhos quentes de noite de Natal.'),
+    effects: [
+      fx('particulas-de-luz', { amount: 0.9, size: 1.4, speed: 0.15, hue: 0.08 }),
+      fx('neve', { amount: 0.35, speed: 0.4, size: 0.8 }),
+      fx('brilho', { threshold: 0.67, intensity: 0.8, radius: 22 }),
+      fx('vinheta', { intensity: 0.4 }),
+    ],
+    filter: look('kodachrome', 0.8),
+  }),
+  pack('pisca-pisca', t('Pisca-pisca'), 'Datas comemorativas', {
+    timing: 'stretch',
+    description: t('As bordas da imagem acendem em vermelho e verde, alternando como as luzinhas da árvore, com brilho nas luzes.'),
+    effects: [
+      fx('vinheta', { tint: '#ff2a2a', size: 0.4, softness: 0.6 }, { intensity: blink(6, 0.5, 0.55) }),
+      fx('vinheta', { tint: '#1fd65f', size: 0.4, softness: 0.6 }, { intensity: blink(6, 0.5, 0.55, false) }),
+      fx('brilho', { threshold: 0.67, intensity: 0.8, radius: 20 }),
+    ],
+    filter: look('quente', 0.6),
+  }),
+  pack('arraia', t('Arraiá'), 'Datas comemorativas', {
+    description: t('Noite de São João: luz de fogueira, fagulhas subindo, o ar tremendo de calor perto do chão e cor quente.'),
+    effects: [
+      fx('particulas-de-luz', { amount: 1.1, size: 0.8, speed: 1.1, hue: 0.06 }),
+      fx('calor', { amount: 0.35, speed: 1, bottom: 0.35 }),
+      fx('luz-vazada', { amount: 0.3, speed: 0.8 }),
+      fx('brilho', { threshold: 0.67, intensity: 0.8, radius: 20 }),
+    ],
+    filter: look('drama-de-epoca', 0.8, {}, { candle: 0.8, lift: 0.2, vig: 0.4 }),
+  }),
+  pack('quadrilha', t('Quadrilha'), 'Datas comemorativas', {
+    ...onBeats({
+      'camera.rotation': pulse(0, [[0, 3.5, 'ease-out'], [0.35, 1.5]], [[0, -3.5, 'ease-out'], [0.35, -1.5]]),
+      'camera.x': pulse(0.5, [[0, 0.47, 'ease-out'], [0.35, 0.49]], [[0, 0.53, 'ease-out'], [0.35, 0.51]]),
+    }),
+    description: t('A câmera dança de um lado para o outro no ritmo do forró, com a cor alegre de festa junina.'),
+    filter: look('kodak-gold', 0.8),
+    camera: cam({}, { zoom: 1.2 }),
+  }),
+  pack('noite-de-halloween', t('Noite de Halloween'), 'Datas comemorativas', {
+    intensity: 0.85,
+    description: t('Cor de abóbora e roxo, bordas no escuro, uma névoa de brilho e fagulhas laranja flutuando: clima de festa de Halloween.'),
+    effects: [
+      fx('duotone', { dark: '#22093a', light: '#ff9a2e', contrast: 1.2 }),
+      fx('brilho', { threshold: 0.67, intensity: 0.8, radius: 24 }),
+      fx('particulas-de-luz', { amount: 0.6, size: 0.9, speed: 0.3, hue: 0.07 }),
+      fx('vinheta', { intensity: 0.7, size: 0.35 }),
+    ],
+  }),
+  pack('gostosuras-ou-travessuras', t('Gostosuras ou travessuras'), 'Datas comemorativas', {
+    ...moment(1.4),
+    description: t('O susto de brincadeira: clarão roxo, tremida, zoom no rosto e as bordas acendendo em laranja.'),
+    face: { zoom: 1, smoothness: 0.2 },
+    effects: [
+      fx('flash', { tint: '#8a2be2', glow: 0.6 }, { amount: [[0, 0.75, 'ease-out'], [0.3, 0]] }),
+      fx('tremor', { speed: 22, rotation: 0.6 }, { intensity: [[0, 0.8, 'ease-out'], [0.8, 0]] }),
+      fx('vinheta', { tint: '#ff7a00', size: 0.35 }, { intensity: [[0, 0.9, 'ease-out'], [1.4, 0.4]] }),
+    ],
+    camera: cam({ zoom: [[0, 1.0, 'ease-out'], [0.1, 1.6, 'hold']] }),
+  }),
+  pack('virada-do-ano', t('Virada do ano'), 'Datas comemorativas', {
+    timing: 'stretch',
+    description: t('Fogos iluminando a cena: clarões dourados, rosa e azuis de tempos em tempos, brilho nas luzes e faíscas no ar.'),
+    effects: [
+      fx('flash', { tint: '#ffd27a', glow: 0.9 }, {
+        amount: [[0, 0], [0.8, 0, 'hold'], [0.85, 0.55, 'ease-out'], [1.6, 0], [3.6, 0, 'hold'], [3.65, 0.6, 'ease-out'], [4.5, 0]],
+      }),
+      fx('flash', { tint: '#ff5fb0', glow: 0.9 }, {
+        amount: [[0, 0], [2.1, 0, 'hold'], [2.15, 0.5, 'ease-out'], [2.9, 0], [5.1, 0, 'hold'], [5.15, 0.45, 'ease-out'], [5.9, 0]],
+      }),
+      fx('flash', { tint: '#6fb6ff', glow: 0.9 }, {
+        amount: [[0, 0], [1.4, 0, 'hold'], [1.45, 0.4, 'ease-out'], [2.2, 0], [4.4, 0, 'hold'], [4.45, 0.45, 'ease-out'], [5.2, 0]],
+      }),
+      fx('particulas-de-luz', { amount: 1.2, size: 1, speed: 1, hue: 0.12 }),
+      fx('brilho', { threshold: 0.62, intensity: 0.8, radius: 24 }),
+    ],
+    filter: look('noite-neon', 0.4),
+  }),
+  pack('parabens', t('Parabéns'), 'Datas comemorativas', {
+    duration: 5,
+    anchor: 'cursor',
+    description: t('A hora de assoprar as velinhas: luz quente de vela, brilho suave e a câmera chegando no rosto de quem faz o pedido.'),
+    face: { zoom: 1, smoothness: 0.7 },
+    effects: [
+      fx('brilho', { threshold: 0.62, intensity: 0.8, radius: 24 }),
+      fx('particulas-de-luz', { amount: 0.4, size: 1.2, speed: 0.15, hue: 0.09 }),
+      fx('vinheta', { intensity: 0.55 }),
+    ],
+    filter: look('quente', 0.8),
+    camera: cam({ zoom: [[0, 1.0, 'ease-in'], [5, 1.4]] }),
+  }),
+  pack('carnaval', t('Carnaval'), 'Datas comemorativas', {
+    ...onBeats({
+      'filter.shift': pulse(0, [[0, 0.33]], [[0, 0.66]]),
+      'camera.zoom': pulse(1.06, [[0, 1.16, 'ease-out'], [0.25, 1.06]]),
+      'effects.1.intensity': pulse(0.4, [[0, 1.2], [0.3, 0.4]]),
+    }),
+    description: t('Folia: as cores trocam a cada batida, confete de luz no ar e a imagem pulando no ritmo do bloco.'),
+    effects: [
+      fx('particulas-de-luz', { amount: 1.5, size: 1.2, speed: 1.2, hue: 0.85 }),
+      fx('brilho', { threshold: 0.62, radius: 22, intensity: 0.4 }),
+      fx('ajuste-cor', { saturation: 1.3 }),
+    ],
+    filter: look('girar-cores', 0.8, {}, { shift: 0 }),
+  }),
+
+  // ------------------------------------------------------------ Produto e unboxing
+  pack('abrindo-a-caixa', t('Abrindo a caixa'), 'Produto e unboxing', {
+    description: t('Unboxing caprichado: imagem clara e nítida, cor fiel e a câmera chegando devagar no que sai da caixa.'),
+    effects: [fx('ajuste-cor', { brightness: 0.03, contrast: 1.05, saturation: 1.05 }), fx('vinheta', { intensity: 0.2 })],
+    filter: look('aprimorar', 0.8),
+    camera: cam({ zoom: [[0, 1.0, 'linear'], [6, 1.2]], y: [[0, 0.48, 'linear'], [6, 0.52]] }),
+  }),
+  pack('revelacao-do-produto', t('Revelação do produto'), 'Produto e unboxing', {
+    ...moment(2.5),
+    description: t('O produto aparece: sai do escuro e do desfoque com um brilho, enquanto a câmera se afasta.'),
+    effects: [
+      fx('flash', { tint: '#000000', glow: 0 }, { amount: [[0, 0.85], [0.6, 0]] }),
+      fx('desfoque', {}, { radius: [[0, 12], [0.9, 0]] }),
+      fx('brilho', { threshold: 0.67, radius: 24 }, { intensity: [[0, 0], [0.6, 1.2, 'ease-out'], [2.5, 0.3]] }),
+    ],
+    camera: cam({ zoom: [[0, 1.3, 'ease-out'], [2.5, 1.0]] }),
+  }),
+  pack('brilho-de-comercial', t('Brilho de comercial'), 'Produto e unboxing', {
+    description: t('Reflexos cintilando como em propaganda: as luzes do produto ganham brilho e raios, e os detalhes ficam bem nítidos.'),
+    effects: [
+      fx('brilho', { threshold: 0.72, intensity: 0.8, radius: 9 }),
+      fx('raios-de-luz', { amount: 0.6, threshold: 0.7, spread: 0.5, source: [0.6, 0.6] }),
+      fx('vinheta', { intensity: 0.3 }),
+    ],
+    filter: look('nitidez-4k', 0.5),
+    camera: cam({ zoom: [[0, 1.05, 'linear'], [6, 1.15]] }),
+  }),
+  pack('fundo-infinito', t('Fundo infinito'), 'Produto e unboxing', {
+    description: t('Estúdio branco: o fundo estoura no branco, as sombras abrem e a câmera se aproxima devagar.'),
+    effects: [fx('ajuste-cor', { brightness: 0.04, contrast: 1.05 })],
+    filter: look('retrato-high-key', 1, {}, { bright: 0.75, soft: 0.4 }),
+    camera: cam({ zoom: [[0, 1.0, 'linear'], [6, 1.12]] }),
+  }),
+  pack('produto-de-luxo', t('Produto de luxo'), 'Produto e unboxing', {
+    description: t('Fundo preto e luz de recorte, o visual de relógio e perfume caros: reflexos brilhando e a câmera girando de leve.'),
+    effects: [fx('brilho', { threshold: 0.65, intensity: 0.8, radius: 14 }), fx('vinheta', { intensity: 0.6, size: 0.35 })],
+    filter: look('retrato-low-key', 1, {}, { depth: 0.8, vig: 0.5 }),
+    camera: cam({ rotation: [[0, -3, 'linear'], [6, 3]], zoom: [[0, 1.12, 'linear'], [6, 1.25]] }),
+  }),
+  pack('detalhe-macro', t('Detalhe macro'), 'Produto e unboxing', {
+    description: t('Como uma lente macro: o que está perto fica nítido, com a textura realçada, e o resto se desfaz no desfoque. A IA estima a profundidade.'),
+    effects: [fx('foco-que-muda', { de: 1, para: 1, inicio: 0, duracaoFoco: 0.1, forca: 0.8, nitido: 0.1 })],
+    filter: look('amplificar', 0.6),
+  }),
+  pack('cor-de-vitrine', t('Cor de vitrine'), 'Produto e unboxing', {
+    description: t('Realça a cor do produto sem estourar a pele, com contraste limpo. Bom para roupa, maquiagem e embalagem.'),
+    effects: [fx('ajuste-cor', { contrast: 1.06, saturation: 1.12 })],
+    filter: look('vibracao'),
+    camera: cam({ zoom: [[0, 1.0, 'linear'], [6, 1.06]] }),
+  }),
+  pack('review-de-tecnologia', t('Review de tecnologia'), 'Produto e unboxing', {
+    description: t('Visual de review de celular e gadget: imagem fria, limpa e nítida, bordas escuras e um deslize lento de câmera.'),
+    effects: [fx('ajuste-cor', { contrast: 1.08, temperature: -0.12 }), fx('vinheta', { intensity: 0.4 })],
+    filter: look('retrato-frio', 0.8),
+    camera: cam({ x: [[0, 0.46, 'linear'], [6, 0.54]] }, { zoom: 1.15 }),
+  }),
+  pack('reacao-ao-produto', t('Reação ao produto'), 'Produto e unboxing', {
+    ...moment(1.6),
+    description: t('A cara de quem acabou de abrir a caixa: zoom rápido no rosto, um clarão e brilho de surpresa.'),
+    face: { zoom: 1, smoothness: 0.25 },
+    effects: [
+      fx('flash', { tint: '#fff3d0', glow: 0.6 }, { amount: [[0, 0.6, 'ease-out'], [0.3, 0]] }),
+      fx('brilho', { threshold: 0.62, radius: 24 }, { intensity: [[0, 1.1, 'ease-out'], [1.6, 0.4]] }),
+      fx('particulas-de-luz', { amount: 0.8, size: 1.1, speed: 0.8, hue: 0.14 }),
+    ],
+    camera: cam({ zoom: [[0, 1.0, 'ease-out'], [0.15, 1.5], [1.6, 1.55]] }),
+  }),
+  pack('vista-de-cima', t('Vista de cima'), 'Produto e unboxing', {
+    description: t('Para produtos arrumados na mesa e filmados de cima: luz clara, cor fresca e a câmera girando devagar enquanto se aproxima.'),
+    effects: [fx('ajuste-cor', { brightness: 0.03, saturation: 1.08 })],
+    filter: look('brilhante', 0.8),
+    camera: cam({ rotation: [[0, 0, 'linear'], [6, 8]], zoom: [[0, 1.15, 'linear'], [6, 1.3]] }),
+  }),
+
+  // ------------------------------------------------------------ Videoclipe
+  pack('luz-de-palco', t('Luz de palco'), 'Videoclipe', {
+    ...onBeats({
+      'effects.0.amount': pulse(0.4, [[0, 1.2], [0.35, 0.4]]),
+      'effects.1.intensity': pulse(0.3, [[0, 1.1], [0.3, 0.3]]),
+    }),
+    description: t('Show ao vivo: feixes de luz descem do alto e pulsam em cada batida, com brilho nas luzes e cor de palco à noite.'),
+    effects: [
+      fx('raios-de-luz', { amount: 0.4, source: [0.5, 0.95], threshold: 0.6, spread: 0.7 }),
+      fx('brilho', { threshold: 0.62, radius: 24, intensity: 0.3 }),
+      fx('vinheta', { intensity: 0.5 }),
+    ],
+    filter: look('cinestill', 0.8),
+  }),
+  pack('clipe-dos-anos-2000', t('Clipe dos anos 2000'), 'Videoclipe', {
+    ...onBeats({
+      'camera.zoom': pulse(1.04, [[0, 1.14, 'ease-out'], [0.25, 1.04]]),
+      'effects.0.amount': pulse(0.003, [[0, 0.018], [0.2, 0.003]]),
+    }),
+    description: t('Clipe de TV a cabo do começo dos anos 2000: cores cruzadas e saturadas, cantos escuros e um zoom com cor separada em cada batida.'),
+    effects: [fx('rgb-split', { amount: 0.003 }), fx('vinheta', { intensity: 0.5 })],
+    filter: look('processo-cruzado', 0.85),
+  }),
+  pack('close-de-cantor', t('Close de cantor'), 'Videoclipe', {
+    description: t('Quem canta fica no centro: pretos fundos, halo macio nas luzes, pele lisa e a câmera se aproximando devagar.'),
+    face: { zoom: 1, smoothness: 0.7 },
+    effects: [fx('brilho', { threshold: 0.7, intensity: 0.7, radius: 20 }), fx('vinheta', { intensity: 0.5 })],
+    filter: look('difusor-preto', 0.9),
+    camera: cam({ zoom: [[0, 1.15, 'linear'], [6, 1.45]] }),
+  }),
+  pack('clipe-pintado', t('Clipe pintado'), 'Videoclipe', {
+    fadeIn: 0.5,
+    fadeOut: 0.5,
+    description: t('O clipe vira uma pintura viva: pinceladas grossas e redemoinhos que acompanham o movimento de quem dança, com as cores mais fortes.'),
+    effects: [fx('pintura-que-se-mexe', { tamanho: 0.5, comprimento: 0.7, seguir: 0.8, redemoinho: 0.5, cores: 0.6, relevo: 0.5 })],
+  }),
+  pack('clones-no-ritmo', t('Clones no ritmo'), 'Videoclipe', {
+    ...onBeats({ 'effects.0.opacidade': pulse(0.2, [[0, 1], [0.4, 0.2]]) }),
+    description: t('Cópias da pessoa dançam dos dois lados, um pouco atrasadas, e acendem em cada batida antes de quase sumir.'),
+    effects: [fx('clones', { copias: 2, atraso: 0.12, distancia: 0.22, opacidade: 0.2 })],
+  }),
+  pack('psicodelico', t('Psicodélico'), 'Videoclipe', {
+    timing: 'stretch',
+    description: t('Viagem dos anos 60: a imagem se espelha em fatias que giram, as cores rodam sem parar e as luzes brilham.'),
+    effects: [fx('caleidoscopio', { segments: 8, speed: 0.3, zoom: 0.75 }), fx('brilho', { threshold: 0.67, intensity: 0.8, radius: 20 })],
+    filter: look('girar-cores', 0.9, { shift: [[0, 0, 'linear'], [6, 1]] }),
+  }),
+  pack('plano-sequencia', t('Plano-sequência'), 'Videoclipe', {
+    duration: 8,
+    timing: 'stretch',
+    description: t('Movimento contínuo de gimbal em volta de quem canta: a câmera avança e gira devagar, em tela larga e cor de cinema.'),
+    effects: [fx('barras-cinema', { aspect: 2.0 }), fx('vinheta', { intensity: 0.3 })],
+    filter: look('teal-orange-natural', 0.9),
+    camera: cam({ x: [[0, 0.45], [8, 0.55]], rotation: [[0, -2.5], [8, 2.5]], zoom: [[0, 1.22], [4, 1.32], [8, 1.25]] }),
+  }),
+  pack('clipe-de-rap', t('Clipe de rap'), 'Videoclipe', {
+    ...onBeats({
+      'camera.zoom': pulse(1.2, [[0, 1.32, 'ease-out'], [0.25, 1.2]]),
+      'effects.1.intensity': pulse(0, [[0, 0.5], [0.25, 0]]),
+    }),
+    description: t('Lente olho de peixe bem perto, ângulo torto e um tranco em cada batida, como nos clipes de rap dos anos 90.'),
+    effects: [fx('olho-de-peixe', { strength: 0.35 }), fx('tremor', { speed: 20, rotation: 0.5, intensity: 0 }), fx('vinheta', { intensity: 0.45 })],
+    filter: look('contraste', 0.7),
+    camera: cam({}, { rotation: -6, zoom: 1.2 }),
+  }),
+  pack('luz-negra', t('Luz negra'), 'Videoclipe', {
+    description: t('Festa de luz negra: só os contornos acendem em roxo neon, o resto escurece e as luzes brilham.'),
+    effects: [fx('neon', { thickness: 1.6, tint: '#b44dff', darken: 0.75 }), fx('brilho', { threshold: 0.4, intensity: 1.2, radius: 20 })],
+  }),
+  pack('balada-na-chuva', t('Balada na chuva'), 'Videoclipe', {
+    ...slow([0.5], 3),
+    fadeIn: 0.4,
+    description: t('Câmera lenta debaixo da chuva com luz contra, cor fria e escura: o clipe da música triste.'),
+    effects: [
+      fx('chuva', { amount: 0.75, slant: 0.08, speed: 0.8 }),
+      fx('raios-de-luz', { amount: 0.7, source: [0.5, 0.95] }),
+      fx('vinheta', { intensity: 0.55 }),
+    ],
+    filter: look('sombrio', 0.8),
+    camera: cam({ zoom: [[0, 1.0, 'linear'], [3, 1.12]] }),
+  }),
+
+  // ------------------------------------------------------------ Found footage
+  pack('camera-perdida', t('Câmera perdida'), 'Found footage', {
+    duration: 8,
+    description: t('Filmadora achada no meio do mato: tremendo na mão, o foco indo e voltando, a luz se ajustando sozinha e grão de pouca luz.'),
+    effects: [
+      fx('tremor', { intensity: 0.2, speed: 4, rotation: 0.4 }),
+      fx('desfoque', {}, { radius: [[0, 0], [1.6, 0], [1.9, 5], [2.4, 0.5], [2.6, 0], [5.2, 0], [5.4, 4], [5.9, 0]] }),
+      fx('ajuste-cor', {}, { brightness: [[0, 0.1], [1.2, -0.05], [2.8, 0.06], [4.2, -0.06], [6, 0.05], [8, 0]] }),
+      fx('granulado', { amount: 0.35, size: 1.4 }),
+      fx('vinheta', { intensity: 0.45 }),
+    ],
+    filter: look('camera-digital-antiga', 0.8, {}, { sharp: 0.4, blocks: 0.3 }),
+    camera: cam({}, { zoom: 1.12 }),
+  }),
+  pack('fuga-no-escuro', t('Fuga no escuro'), 'Found footage', {
+    duration: 4,
+    timing: 'stretch',
+    anchor: 'cursor',
+    description: t('Correndo com a câmera na visão noturna: a imagem verde sacode a cada passada, borra e perde quadros.'),
+    effects: [
+      fx('visao-noturna', { gain: 2.4, grain: 0.55, binocular: 0 }),
+      fx('quadros-travando', { passo: 0.06, irregular: 0.5, tranco: 0.3 }),
+      fx('tremor', { intensity: 0.4, speed: 8, rotation: 0.6 }),
+      fx('desfoque-radial', { strength: 0.12 }),
+    ],
+    camera: cam({ y: Array.from({ length: 17 }, (_, i): Point => [i * 0.25, i % 2 ? 0.53 : 0.5, i % 2 ? 'ease-in' : 'ease-out']) }, { zoom: 1.2 }),
+  }),
+  pack('a-camera-caiu', t('A câmera caiu'), 'Found footage', {
+    ...moment(2.2),
+    description: t('A câmera cai no chão: gira, bate, falha e fica lá deitada, filmando torta.'),
+    effects: [
+      fx('desfoque-radial', {}, { strength: [[0, 0, 'ease-in'], [0.45, 0.6], [0.7, 0]] }),
+      fx('tremor', { speed: 26, rotation: 0.8 }, { intensity: [[0, 0.2, 'hold'], [0.5, 1, 'ease-out'], [1.1, 0]] }),
+      fx('glitch-digital', { blocks: 18, rate: 22 }, { amount: [[0, 0, 'hold'], [0.5, 0.9], [1.2, 0.15], [2.2, 0.05]] }),
+      fx('flash', { tint: '#000000', glow: 0 }, { amount: [[0, 0, 'hold'], [0.5, 0.8, 'hold'], [0.58, 0.2], [2.2, 0.25]] }),
+    ],
+    camera: cam({
+      rotation: [[0, 0, 'ease-in'], [0.5, -82, 'ease-out'], [0.7, -76], [0.85, -80]],
+      zoom: [[0, 1.0, 'ease-out'], [0.3, 2.0]],
+      y: [[0, 0.5, 'ease-in'], [0.5, 0.56]],
+    }),
+  }),
+  pack('arquivo-corrompido', t('Arquivo corrompido'), 'Found footage', {
+    duration: 4,
+    anchor: 'cursor',
+    description: t('Arquivo digital que estragou: blocos de compressão, pixels escorrendo junto com o movimento e a imagem travando aos trancos.'),
+    effects: [
+      fx('datamosh', { forca: 0.9, amplificar: 1.8, blocos: 0.7, cores: 0.4 }),
+      fx('quadros-travando', { passo: 0.15, irregular: 0.7, tranco: 0.5 }),
+      fx('glitch-digital', { amount: 0.25, blocks: 24, rate: 6 }),
+    ],
+  }),
+  pack('depoimento', t('Depoimento'), 'Found footage', {
+    duration: 8,
+    timing: 'stretch',
+    description: t('Entrevista de falso documentário: cor lavada de câmera barata, grão e uns zooms meio atrasados procurando o rosto.'),
+    face: { zoom: 1, smoothness: 0.35 },
+    effects: [fx('granulado', { amount: 0.2 }), fx('ajuste-cor', { saturation: 0.85, contrast: 0.95 })],
+    filter: look('desbotado', 0.7),
+    camera: cam({ zoom: [[0, 1.0, 'hold'], [1.8, 1.0], [2.3, 1.35, 'hold'], [5, 1.35], [5.4, 1.6, 'hold']] }),
+  }),
+  pack('brilho-nos-olhos', t('Brilho nos olhos'), 'Found footage', {
+    duration: 5,
+    anchor: 'cursor',
+    description: t('Close na visão noturna e os olhos devolvem a luz da câmera, acesos como os de um bicho no escuro. Procura o rosto sozinho; se os olhos não caírem no lugar, ajuste-os no efeito.'),
+    // O seguir rosto ("auto") enquadra o rosto do tamanho que o efeito dos olhos espera.
+    face: { zoom: 'auto', smoothness: 0.8 },
+    effects: [
+      fx('visao-noturna', { gain: 2, grain: 0.45, binocular: 0 }),
+      fx('olhos-brilhando', { modo: 0, cor: '#eafff2', brilho: 0.6, pulsar: 0.2 }),
+      fx('tremor', { intensity: 0.06, speed: 3, rotation: 0.2 }),
+    ],
+    camera: cam({}),
+  }),
+  pack('webcam-de-madrugada', t('Webcam de madrugada'), 'Found footage', {
+    description: t('Chamada de vídeo no escuro: imagem escura, granulada e quadriculada, travando e falhando quando alguém se mexe.'),
+    effects: [
+      fx('quadros-travando', { passo: 0.08, irregular: 0.7, tranco: 0.2 }),
+      fx('pixelar', { size: 4 }),
+      fx('glitch-digital', { amount: 0.12, blocks: 30, rate: 4 }),
+      fx('granulado', { amount: 0.5, size: 1.6 }),
+      fx('ajuste-cor', { brightness: -0.08, saturation: 0.6, temperature: -0.2 }),
+    ],
+    filter: look('escuro', 0.8),
+  }),
+  pack('fim-abrupto', t('Fim abrupto'), 'Found footage', {
+    duration: 3,
+    anchor: 'clip-end',
+    timing: 'stretch',
+    description: t('O fim da gravação: a câmera sacode cada vez mais, a imagem falha e corta seco para o preto.'),
+    effects: [
+      fx('tremor', { speed: 14, rotation: 0.6 }, { intensity: [[0, 0.1, 'ease-in'], [2.4, 0.9]] }),
+      fx('glitch-digital', { blocks: 20, rate: 18 }, { amount: [[0, 0, 'ease-in'], [2.4, 0.8]] }),
+      fx('desfoque-radial', {}, { strength: [[0, 0, 'ease-in'], [2.4, 0.4]] }),
+      fx('flash', { tint: '#000000', glow: 0 }, { amount: [[0, 0, 'hold'], [2.45, 1, 'hold'], [3, 1]] }),
+    ],
+    camera: cam({}, { zoom: 1.15 }),
+  }),
+  pack('camera-do-quarto', t('Câmera do quarto'), 'Found footage', {
+    duration: 10,
+    timing: 'stretch',
+    description: t('Câmera parada no tripé filmando o quarto à noite, no infravermelho: nada se mexe… até a luz falhar e a imagem engasgar.'),
+    effects: [
+      fx('oscilacao-de-brilho', { forca: 0.6, velocidade: 2, faixa: 0 }, { quedas: [[0, 0, 'hold'], [5.5, 0.9, 'hold'], [6.6, 0, 'hold']] }),
+      fx('glitch-digital', { blocks: 14, rate: 16 }, { amount: [[0, 0, 'hold'], [6, 0.7, 'hold'], [6.25, 0, 'hold']] }),
+      fx('olho-de-peixe', { strength: 0.15 }),
+      fx('granulado', { amount: 0.3 }),
+    ],
+    filter: look('vigilancia-infravermelha'),
+  }),
+  pack('zoom-digital', t('Zoom digital'), 'Found footage', {
+    duration: 5,
+    timing: 'stretch',
+    anchor: 'cursor',
+    description: t('O zoom digital da câmera barata tentando ver algo lá longe: aproxima aos trancos e a imagem vai ficando quadriculada.'),
+    effects: [
+      fx('pixelar', {}, { size: [[0, 1, 'hold'], [1, 2, 'hold'], [2, 3, 'hold'], [3, 5, 'hold'], [4, 7, 'hold']] }),
+      fx('granulado', { amount: 0.3 }),
+      fx('tremor', { intensity: 0.12, speed: 5, rotation: 0.3 }),
+    ],
+    camera: cam({ zoom: [[0, 1.0, 'hold'], [0.85, 1.0], [1, 1.4, 'hold'], [1.85, 1.4], [2, 1.9, 'hold'], [2.85, 1.9], [3, 2.5, 'hold'], [3.85, 2.5], [4, 3.2, 'hold']] }),
+  }),
+
+  // ------------------------------------------------------------ Terror analógico
+  pack('fim-da-programacao', t('Fim da programação'), 'Terror analógico', {
+    duration: 8,
+    description: t('A TV de madrugada sai do ar sozinha: as barras coloridas e a tela de chiado entram e somem por cima da imagem, em tela de tubo.'),
+    effects: [
+      fx('tela-de-teste', { mistura: 0.85, interferencia: 0.5, automatico: 1, velocidade: 0.4, chiado: 0.4 }),
+      fx('entrelacado', { forca: 0.6 }),
+      fx('sinal-fraco', { forca: 0.25, neve: 0.2, oscilacao: 0.3 }),
+      fx('crt', { curvature: 0.35, lines: 0.5 }),
+    ],
+    filter: look('estatica-fria', 0.6),
+  }),
+  pack('quadros-escondidos', t('Quadros escondidos'), 'Terror analógico', {
+    duration: 8,
+    description: t('Uma gravação qualquer, mas de vez em quando pisca um quadro estranho, rápido demais para ver direito: negativo, de cabeça para baixo ou um rosto bem de perto.'),
+    effects: [
+      fx('quadro-subliminar', { frequencia: 0.4, inicio: 1.2, acaso: 0.8, quadros: 2, tipo: 0, ruido: 0.5 }),
+      fx('cor-borrada-vhs', { vazamento: 0.4, atraso: 0.3, maciez: 0.4, ruidoCor: 0.3 }),
+      fx('granulado', { amount: 0.2 }),
+    ],
+    filter: look('desbotado', 0.6),
+  }),
+  pack('a-sombra-nao-acompanha', t('A sombra não acompanha'), 'Terror analógico', {
+    description: t('A sombra da pessoa aparece na parede, mas se mexe um pouco depois dela, como se tivesse vontade própria. Funciona tocando.'),
+    effects: [
+      fx('sombra-atrasada', { atraso: 0.6, ladoX: 0.08, ladoY: 0.02, escuridao: 0.85, difusa: 0.3 }),
+      fx('granulado', { amount: 0.25 }),
+      fx('vinheta', { intensity: 0.65 }),
+    ],
+    filter: look('sombrio', 0.8),
+  }),
+
+  // ------------------------------------------------------------ Ação e games
+  pack('camuflagem-optica', t('Camuflagem óptica'), 'Ação e games', {
+    description: t('A pessoa vira vidro e some no cenário: dá para ver o fundo através dela, torto como numa lente, e só a borda cintila quando ela se mexe.'),
+    effects: [fx('pessoa-invisivel', { invisivel: 0.92, refracao: 0.6, borda: 0.6, cintilar: 0.7, cor: '#bfeaff' })],
+  }),
+];
+
 type Extras = Pick<PackTemplate, 'muteSlow'>;
 
 /** Câmera lenta muda de alguns pacotes acima. */
@@ -2364,7 +3091,7 @@ const EXTRAS: Record<string, Extras> = {
   'camera-lenta-desnecessaria': { muteSlow: true },
 };
 
-export const PACKS: PackTemplate[] = [...BASE_PACKS, ...MORE_PACKS].map((template) => {
+export const PACKS: PackTemplate[] = [...BASE_PACKS, ...MORE_PACKS, ...THEME_PACKS].map((template) => {
   const extra = EXTRAS[template.id.replace(/^packs\//, '')];
   if (!extra) return template;
   return { ...template, ...extra };

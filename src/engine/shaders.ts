@@ -27,6 +27,8 @@ uniform sampler2D uTexture;
 uniform vec2 uScale;
 uniform float uRatio;
 uniform vec4 uCamera;
+uniform vec4 uCamera2;  // câmera no fim da exposição (desfoque de movimento); igual a uCamera sem desfoque
+uniform float uSamples; // vistas entre uCamera e uCamera2 (1 = sem desfoque)
 uniform float uFill;
 uniform float uTurn;    // 0..3 = 0°, 90°, 180°, 270° (horário)
 uniform vec2 uFlip;     // espelhar x / y
@@ -56,22 +58,36 @@ vec3 blurredBackground() {
   return sum / 9.0 * 0.62;
 }
 
-void main() {
-  float zoom = uCamera.z * mix(1.0, 1.0 / min(uScale.x, uScale.y), uFill);
+/** O pixel visto por uma câmera: a cor da mídia e, no alfa, 1 dentro da imagem e 0 fora (fundo). */
+vec4 view(vec4 cam) {
+  float zoom = cam.z * mix(1.0, 1.0 / min(uScale.x, uScale.y), uFill);
   vec2 s = (vUv - 0.5) * vec2(uRatio, 1.0);
-  float c = cos(uCamera.w);
-  float sn = sin(uCamera.w);
+  float c = cos(cam.w);
+  float sn = sin(cam.w);
   s = vec2(c * s.x - sn * s.y, sn * s.x + c * s.y) / zoom;
   // A vista não sai da imagem (evita bordas pretas ao seguir ou dar zoom).
   vec2 h = 0.5 / (zoom * uScale);
-  vec2 center = clamp(vec2(uCamera.x, 1.0 - uCamera.y), min(h, vec2(0.5)), max(1.0 - h, vec2(0.5)));
+  vec2 center = clamp(vec2(cam.x, 1.0 - cam.y), min(h, vec2(0.5)), max(1.0 - h, vec2(0.5)));
   vec2 p = s / vec2(uRatio, 1.0) / uScale + center;
-  if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) {
-    vec3 bg = uBgMode > 1.5 ? blurredBackground() : uBgMode > 0.5 ? uBgColor : vec3(0.0);
-    outColor = vec4(bg, 1.0);
-    return;
+  float inside = step(0.0, p.x) * step(p.x, 1.0) * step(0.0, p.y) * step(p.y, 1.0);
+  // Lê sempre (fora da imagem, na borda): ler dentro de um "if" estraga o mipmap entre pixels vizinhos.
+  return vec4(texture(uTexture, sourceUv(clamp(p, 0.0, 1.0))).rgb * inside, inside);
+}
+
+void main() {
+  // Desfoque de movimento: média das vistas entre uCamera (começo da exposição) e uCamera2 (fim).
+  float n = clamp(uSamples, 1.0, 32.0);
+  vec4 sum = vec4(0.0);
+  for (int i = 0; i < 32; i++) {
+    if (float(i) >= n) break;
+    sum += view(mix(uCamera, uCamera2, n > 1.5 ? float(i) / (n - 1.0) : 0.0));
   }
-  outColor = vec4(texture(uTexture, sourceUv(p)).rgb, 1.0);
+  vec3 color = sum.rgb;
+  if (sum.a < n - 0.001) {
+    vec3 bg = uBgMode > 1.5 ? blurredBackground() : uBgMode > 0.5 ? uBgColor : vec3(0.0);
+    color += bg * (n - sum.a);
+  }
+  outColor = vec4(color / n, 1.0);
 }`;
 
 /** Câmera lenta simples: mistura os dois quadros vizinhos. */
@@ -170,6 +186,10 @@ uniform sampler2D uTexture;
 uniform vec2 uCenter;   // centro na tela (0 a 1, y para baixo)
 uniform vec2 uSize;     // tamanho na tela (fração da largura e da altura)
 uniform float uAngle;   // radianos
+uniform vec2 uCenter2;  // posição no fim da exposição (desfoque de movimento); igual à de cima sem desfoque
+uniform vec2 uSize2;
+uniform float uAngle2;
+uniform float uSamples; // posições entre as duas (1 = sem desfoque)
 uniform float uRatio;   // largura / altura da saída
 uniform float uOpacity;
 uniform float uRadius;  // fração do lado menor
@@ -182,6 +202,8 @@ uniform vec4 uMaskRect;   // centro (x, y) e tamanho (w, h) dentro da camada, 0 
 uniform vec2 uMaskSoft;   // (suavidade da borda, inverter)
 uniform vec2 uMaskPath[32]; // forma desenhada à mão (pontos dentro da camada, y para baixo)
 uniform int uMaskCount;
+uniform float uPin;       // 1 = tela trocada: a camada vai dentro de quatro cantos (perspectiva)
+uniform mat3 uPinInverse; // da tela (0 a 1, y para baixo) para a camada (0 a 1)
 
 /** Distância até o contorno do polígono desenhado (negativa dentro). */
 float pathDistance(vec2 p) {
@@ -226,21 +248,34 @@ vec2 toChroma(vec3 c) {
   return vec2(dot(c, vec3(-0.169, -0.331, 0.5)), dot(c, vec3(0.5, -0.419, -0.081)));
 }
 
-void main() {
+/** A camada numa posição (centro, tamanho, giro): cor com alfa pré-multiplicado (0 fora dela). */
+vec4 placed(vec2 center, vec2 size, float angle) {
   vec2 p = vec2(vUv.x, 1.0 - vUv.y);
-  vec2 d = (p - uCenter) * vec2(uRatio, 1.0);
-  float c = cos(-uAngle);
-  float s = sin(-uAngle);
-  d = vec2(c * d.x - s * d.y, s * d.x + c * d.y);
-  vec2 half_ = 0.5 * uSize * vec2(uRatio, 1.0);
-  // Distância até a borda do retângulo arredondado (negativa dentro).
-  float r = uRadius * min(half_.x, half_.y) * 2.0;
-  vec2 q = abs(d) - half_ + r;
-  float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
-  float aa = 1.0 - smoothstep(-uPixel.y, uPixel.y, dist);
-  if (aa <= 0.0) discard;
+  vec2 local;
+  float aa;
+  if (uPin > 0.5) {
+    // Tela trocada: o pixel da tela volta para o ponto da camada pela homografia inversa.
+    vec3 h = uPinInverse * vec3(p, 1.0);
+    local = h.xy / h.z;
+    // Borda suave de ~1 pixel da tela, medida pela variação de local entre pixels vizinhos.
+    vec2 e = min(local, 1.0 - local);
+    float edge = min(e.x, e.y);
+    aa = h.z > 0.0 ? clamp(edge / max(fwidth(edge), 1e-6) + 0.5, 0.0, 1.0) : 0.0;
+  } else {
+    vec2 d = (p - center) * vec2(uRatio, 1.0);
+    float c = cos(-angle);
+    float s = sin(-angle);
+    d = vec2(c * d.x - s * d.y, s * d.x + c * d.y);
+    vec2 half_ = 0.5 * size * vec2(uRatio, 1.0);
+    // Distância até a borda do retângulo arredondado (negativa dentro).
+    float r = uRadius * min(half_.x, half_.y) * 2.0;
+    vec2 q = abs(d) - half_ + r;
+    float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+    aa = 1.0 - smoothstep(-uPixel.y, uPixel.y, dist);
+    local = d / (2.0 * half_) + 0.5;
+  }
+  if (aa <= 0.0) return vec4(0.0);
 
-  vec2 local = d / (2.0 * half_) + 0.5;
   vec4 tex = texture(uTexture, vec2(local.x, 1.0 - local.y));
   vec3 col = tex.rgb;
   float alpha = aa * uOpacity * mix(1.0, tex.a, uUseAlpha);
@@ -255,7 +290,7 @@ void main() {
     float inside = 1.0 - smoothstep(-soft, soft, maskDistance(q));
     alpha *= mix(inside, 1.0 - inside, uMaskSoft.y);
   }
-  if (alpha <= 0.0) discard;
+  if (alpha <= 0.0) return vec4(0.0);
   if (uKeyParams.x >= 0.0) {
     float diff = distance(toChroma(col), toChroma(uKey));
     float edge = uKeyParams.x * 0.4;
@@ -264,7 +299,20 @@ void main() {
     float spill = 1.0 - smoothstep(edge, edge + 0.15, diff);
     col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), spill * 0.6);
   }
-  outColor = vec4(col * alpha, alpha);
+  return vec4(col * alpha, alpha);
+}
+
+void main() {
+  // Desfoque de movimento: média das posições entre (uCenter, uSize, uAngle) e (uCenter2, uSize2, uAngle2).
+  float n = clamp(uSamples, 1.0, 32.0);
+  vec4 sum = vec4(0.0);
+  for (int i = 0; i < 32; i++) {
+    if (float(i) >= n) break;
+    float k = n > 1.5 ? float(i) / (n - 1.0) : 0.0;
+    sum += placed(mix(uCenter, uCenter2, k), mix(uSize, uSize2, k), mix(uAngle, uAngle2, k));
+  }
+  if (sum.a <= 0.0) discard;
+  outColor = sum / n;
 }`;
 
 /**
@@ -486,6 +534,18 @@ uniform vec2 uMotionScale;
 /** Onde está a pessoa no clipe atual / no próximo. */
 float getFromPerson(vec2 uv) { return uHasPerson.x > 0.5 ? smoothstep(0.3, 0.7, texture(uFromPerson, uv).r) : 0.0; }
 float getToPerson(vec2 uv) { return uHasPerson.y > 0.5 ? smoothstep(0.3, 0.7, texture(uToPerson, uv).r) : 0.0; }
+uniform sampler2D uFromDepth;
+uniform sampler2D uToDepth;
+uniform vec2 uHasDepth;   // (no clipe atual, no próximo)
+/** Profundidade em cada clipe: 1 = perto, 0 = longe (sem a IA, a mesma estimativa dos efeitos). */
+float getFromDepth(vec2 uv) {
+  if (uHasDepth.x > 0.5) return texture(uFromDepth, uv).r;
+  return max(clamp(1.0 - uv.y * 1.3, 0.0, 1.0) * 0.8, getFromPerson(uv));
+}
+float getToDepth(vec2 uv) {
+  if (uHasDepth.y > 0.5) return texture(uToDepth, uv).r;
+  return max(clamp(1.0 - uv.y * 1.3, 0.0, 1.0) * 0.8, getToPerson(uv));
+}
 vec4 getPrevious(vec2 uv) { return texture(uState, uv); }
 bool firstFrame() { return uFresh > 0.5; }
 /** Movimento do próximo clipe desde o quadro anterior (em uv). */
@@ -513,7 +573,7 @@ const MAINS = {
 
 /**
  * Entradas extras que o plugin usa, descobertas pelo próprio código (basta chamar a função):
- * getPerson / getFromPerson / getToPerson, getDepth, getPast, getMotion, getBackground e
+ * getPerson / getFromPerson / getToPerson, getDepth / getFromDepth / getToDepth, getPast, getMotion, getBackground e
  * um `vec4 state(vec2 uv)`, que guarda uma imagem de um quadro para o outro (lida com getPrevious).
  */
 export interface PluginInputs {
@@ -534,7 +594,7 @@ export function pluginInputs(plugin: Pick<ShaderPlugin, 'glsl'>): PluginInputs {
     const background = /\bgetBackground\s*\(/.test(g);
     found = {
       person: background || /\bget(From|To)?Person\s*\(/.test(g),
-      depth: /\bgetDepth\s*\(/.test(g),
+      depth: /\bget(From|To)?Depth\s*\(/.test(g),
       history: /\bgetPast\s*\(/.test(g),
       state: /\bvec4\s+state\s*\(/.test(g),
       motion: /\bgetMotion\s*\(/.test(g),

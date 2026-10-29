@@ -1,0 +1,12 @@
+{
+  "name": "Fita rebobinando",
+  "description": "O videocassete volta a fita cada vez mais rápido: a imagem rola, treme e se rasga em faixas de tracking, e no meio do chiado já entra o próximo clipe.",
+  "category": "Criativas",
+  "params": [
+    { "id": "forca", "label": "Força", "type": "float", "default": 0.8, "min": 0, "max": 1 },
+    { "id": "faixas", "label": "Faixas de tracking", "type": "float", "default": 3, "min": 1, "max": 5, "step": 1 },
+    { "id": "corte", "label": "Momento do corte", "type": "float", "default": 0.6, "min": 0.2, "max": 0.9 },
+    { "id": "simbolo", "label": "Mostrar o ◀◀ na tela", "type": "float", "default": 1, "min": 0, "max": 1, "step": 1 }
+  ],
+  "previewMedia": "silhueta"
+}

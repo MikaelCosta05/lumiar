@@ -96,12 +96,25 @@ const PACK_MEDIA: Record<string, PreviewMedia> = {
   'packs/timelapse': 'drone',
   'packs/faroeste': 'paisagem',
   'packs/neo-noir': 'cidade',
+  'packs/vista-do-alto': 'drone',
+  // Fatias espelhadas giram melhor no cenário que numa pessoa.
+  'packs/psicodelico': 'paisagem',
+  // Rastros e clones precisam de alguém se mexendo.
+  'packs/giro-do-look': 'movimento',
+  'packs/clones-no-ritmo': 'movimento',
+  'packs/clipe-pintado': 'movimento',
+  'packs/a-sombra-nao-acompanha': 'movimento',
+  'packs/camuflagem-optica': 'movimento',
+  // Os olhos precisam de um rosto de frente (o efeito não deforma nada, como na prévia dele).
+  'packs/brilho-nos-olhos': 'retrato',
 };
 
 const PACK_CATEGORY_MEDIA: Record<string, PreviewMedia> = {
   'Clima e estações': 'paisagem',
   'Suspense e terror': 'silhueta',
   'Terror analógico': 'silhueta',
+  'Found footage': 'silhueta',
+  Esportes: 'movimento',
 };
 
 /** "Terror analógico", "Horror"… também valem para categorias novas com outro nome. */

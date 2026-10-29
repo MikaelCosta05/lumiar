@@ -2,6 +2,7 @@ import { restoreMediaAssets } from '../media/importer';
 import { desktop } from '../media/screenRecorder';
 import { DEFAULT_BRAND, type BrandKit } from './brand';
 import { createProject, removeMedia, type MediaItem, type Project } from './model';
+import { allMedia, packVersions, relinkMedia, unpackVersions, type SavedVersion } from './versions';
 import { t } from '../i18n';
 
 /**
@@ -21,14 +22,17 @@ interface SavedMedia extends Omit<MediaItem, 'file' | 'url'> {
 
 interface SavedProject {
   version: 1;
-  project: Omit<Project, 'media'> & { media: SavedMedia[] };
+  project: Omit<Project, 'media' | 'versions'> & { media: SavedMedia[]; versions?: SavedVersion[] };
+  /** Mídias que só as versões nomeadas usam (ausente em projetos antigos) */
+  versionMedia?: SavedMedia[];
 }
 
 const FILE_TYPES: FilePickerAcceptType[] = [{ description: t('Projeto Lumiar'), accept: { 'application/x-lumiar': ['.lumiar'] } }];
 
 function serialize(project: Project): SavedProject {
   let offset = 0;
-  const media = project.media.map((m): SavedMedia => {
+  // As mídias que só as versões usam vão depois das do projeto, na mesma área de dados.
+  const all = allMedia(project).map((m): SavedMedia => {
     const { file, url: _url, ...rest } = m;
     const saved = {
       ...rest,
@@ -41,7 +45,13 @@ function serialize(project: Project): SavedProject {
     offset += file.size;
     return saved;
   });
-  return { version: 1, project: { ...project, media } };
+  const media = all.slice(0, project.media.length);
+  const versionMedia = all.slice(project.media.length);
+  return {
+    version: 1,
+    project: { ...project, media, versions: packVersions(project.versions) },
+    ...(versionMedia.length ? { versionMedia } : {}),
+  };
 }
 
 function header(json: string): Uint8Array<ArrayBuffer> {
@@ -55,14 +65,18 @@ function header(json: string): Uint8Array<ArrayBuffer> {
 
 async function revive(saved: SavedProject, fileFor: (m: SavedMedia) => File | null): Promise<Project> {
   const media: MediaItem[] = [];
-  for (const m of saved.project.media) {
-    const file = fileFor(m);
-    if (!file) continue;
-    const { type: _type, size: _size, offset: _offset, ...rest } = m;
-    media.push(await restoreMediaAssets({ ...rest, file, url: URL.createObjectURL(file) }));
+  const extra: MediaItem[] = [];
+  for (const [list, into] of [[saved.project.media, media], [saved.versionMedia ?? [], extra]] as const) {
+    for (const m of list) {
+      const file = fileFor(m);
+      if (!file) continue;
+      const { type: _type, size: _size, offset: _offset, ...rest } = m;
+      into.push(await restoreMediaAssets({ ...rest, file, url: URL.createObjectURL(file) }));
+    }
   }
+  const versions = unpackVersions(saved.project.versions, new Map([...media, ...extra].map((m) => [m.id, m])));
   // Campos novos de versões futuras ganham o valor padrão.
-  let project: Project = { ...createProject(), ...saved.project, media };
+  let project: Project = { ...createProject(), ...saved.project, media, versions };
   // Mídia que não voltou: os clipes dela saem junto. Se ficassem, a timeline (que pula clipes sem mídia)
   // e as funções que usam a posição do clipe na trilha principal discordariam, e dividir ou colar mexeria
   // no clipe errado.
@@ -90,7 +104,7 @@ export async function saveProject(project: Project, handle: FileSystemFileHandle
   const head = header(JSON.stringify(saved));
 
   if (!window.showSaveFilePicker) {
-    const blob = new Blob([head, ...project.media.map((m) => m.file)], { type: 'application/x-lumiar' });
+    const blob = new Blob([head, ...allMedia(project).map((m) => m.file)], { type: 'application/x-lumiar' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = suggestedFileName(project);
@@ -102,7 +116,7 @@ export async function saveProject(project: Project, handle: FileSystemFileHandle
   const writable = await target.createWritable();
   try {
     await writable.write(head);
-    for (const m of project.media) await writable.write(m.file);
+    for (const m of allMedia(project)) await writable.write(m.file);
     await writable.close();
   } catch (error) {
     await writable.abort().catch(() => {});
@@ -112,15 +126,15 @@ export async function saveProject(project: Project, handle: FileSystemFileHandle
   // O arquivo antigo foi substituído: as mídias passam a ser lidas do pacote novo.
   const file = await target.getFile();
   const dataStart = head.length;
-  const byId = new Map(saved.project.media.map((m) => [m.id, m]));
-  const relinked: Project = {
-    ...project,
-    media: project.media.map((m) => {
+  const byId = new Map([...saved.project.media, ...(saved.versionMedia ?? [])].map((m) => [m.id, m]));
+  const fresh = new Map(
+    allMedia(project).map((m) => {
       const s = byId.get(m.id)!;
       const slice = new File([file.slice(dataStart + s.offset, dataStart + s.offset + s.size)], m.name, { type: s.type });
-      return { ...m, file: slice, url: URL.createObjectURL(slice) };
+      return [m.id, { ...m, file: slice, url: URL.createObjectURL(slice) }];
     }),
-  };
+  );
+  const relinked = relinkMedia(project, fresh);
   return { handle: target, relinked };
 }
 
@@ -258,7 +272,7 @@ export async function autosave(project: Project): Promise<void> {
     const mediaStore = tx.objectStore(MEDIA_STORE);
     const added: string[] = [];
     const onDisk: string[] = [];
-    for (const m of project.media) {
+    for (const m of allMedia(project)) {
       if (storedMedia.has(m.id)) continue;
       const ref = diskRef(m.file);
       if (ref) onDisk.push(ref.path);
@@ -266,7 +280,7 @@ export async function autosave(project: Project): Promise<void> {
       added.push(m.id);
     }
     const ids = await versionMediaIds(tx);
-    project.media.forEach((m) => ids.add(m.id));
+    allMedia(project).forEach((m) => ids.add(m.id));
     for (const key of await request(mediaStore.getAllKeys())) {
       if (!ids.has(String(key))) {
         mediaStore.delete(key);
@@ -295,7 +309,7 @@ async function reviveStored(saved: SavedProject): Promise<RevivedProject> {
   const db = await openDb();
   try {
     const store = db.transaction([MEDIA_STORE], 'readonly').objectStore(MEDIA_STORE);
-    for (const m of saved.project.media) {
+    for (const m of [...saved.project.media, ...(saved.versionMedia ?? [])]) {
       const value = (await request(store.get(m.id))) as File | DiskRef | undefined;
       if (value) stored.set(m.id, value);
     }
@@ -405,7 +419,7 @@ export async function saveVersion(project: Project, summary: string): Promise<vo
     }
     const key = `version:${String(savedAt).padStart(15, '0')}`;
     state.put(record, key);
-    versionMedia.put(project.media.map((m) => m.id), key);
+    versionMedia.put(allMedia(project).map((m) => m.id), key);
     await done(tx);
   } finally {
     db.close();

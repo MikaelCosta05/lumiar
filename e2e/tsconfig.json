@@ -1,0 +1,16 @@
+{
+  // Só para conferir os tipos dos testes de ponta a ponta: npx tsc -p e2e
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "noUnusedLocals": true,
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "./**/*.mjs"]
+}

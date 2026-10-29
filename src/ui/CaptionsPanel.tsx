@@ -22,6 +22,7 @@ import {
 } from '../project/captions';
 import { uid, type Project } from '../project/model';
 import { formatTime } from './format';
+import { SpeakerNames } from './SpeakerNames';
 import { Button, cx, IconButton, SectionTitle, Segmented, Slider, Switch, SwitchRow } from './kit';
 import { previewStore, sampleImage } from './previews';
 import { lang as uiLang, t } from '../i18n';
@@ -435,6 +436,7 @@ export function CaptionsPanel({ project, time, onChange, onSeek, notify }: Props
                 onChange={(speakerNames) => setStyle({ speakerNames })}
                 label={t('Mostrar o nome acima da legenda')}
               />
+              <SpeakerNames project={project} track={track} onChange={onChange} notify={notify} />
               <button
                 className="text-[11px] text-faint hover:text-danger"
                 onClick={() =>

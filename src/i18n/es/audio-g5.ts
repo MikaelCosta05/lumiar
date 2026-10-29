@@ -1,0 +1,46 @@
+export default {
+  // Música gerada
+  'Compondo a música… {n}%': 'Componiendo la música… {n}%',
+  'Música de {seconds}s ({bpm} BPM) na trilha de música, com as batidas marcadas. Foi composta pelo Lumiar: é sua, sem direitos autorais.':
+    'Música de {seconds}s ({bpm} BPM) en la pista de música, con los beats marcados. La compuso Lumiar: es tuya, sin derechos de autor.',
+  'Não foi possível gerar a música: {error}': 'No se pudo generar la música: {error}',
+  'Lo-fi': 'Lo-fi',
+  'Tensão / suspense': 'Tensión / suspenso',
+  'Épico / trailer': 'Épico / tráiler',
+  'Alegre / vlog': 'Alegre / vlog',
+  'Eletrônico': 'Electrónico',
+  'Música {style} {n}': 'Música {style} {n}',
+  'Música {n}': 'Música {n}',
+  'Piano elétrico, bateria preguiçosa e chiado de vinil.': 'Piano eléctrico, batería perezosa y crujido de vinilo.',
+  'Cordas pulsando, relógio e coração acelerando.': 'Cuerdas pulsando, un reloj y un corazón acelerado.',
+  'Cordas, tambores e metais graves de trailer.': 'Cuerdas, tambores y metales graves de tráiler.',
+  'Drones graves, metal raspando e fita lenta.': 'Drones graves, metal que raspa y cinta lenta.',
+  'Ukulele, palmas e sininhos para vlog.': 'Ukelele, palmas y campanitas para vlog.',
+  'Bumbo reto, sintetizador bombeando e arpejo.': 'Bombo constante, sintetizador que bombea y arpegio.',
+  'Gerar música': 'Generar música',
+  'sem direitos autorais': 'sin derechos de autor',
+  'do trecho': 'la del tramo',
+  'do vídeo': 'la del video',
+  'Trecho selecionado: {from} a {to}': 'Tramo seleccionado: {from} a {to}',
+  'Começa em {from} e termina junto com o vídeo.': 'Empieza en {from} y termina junto con el video.',
+  'Andamento': 'Tempo',
+  'Variação': 'Variación',
+  'Outra melodia, outros acordes e outro ritmo no mesmo estilo': 'Otra melodía, otros acordes y otro ritmo en el mismo estilo',
+  'Gerar outra': 'Generar otra',
+  'Pôr na timeline': 'Poner en la línea de tiempo',
+  'Composta na hora pelo próprio Lumiar, sem internet e sem trechos de músicas de ninguém. Vai para a trilha de música, que abaixa sozinha quando alguém fala.':
+    'Compuesta al momento por el propio Lumiar, sin internet y sin fragmentos de canciones de nadie. Va a la pista de música, que baja sola cuando alguien habla.',
+  // Vento e estalos
+  'Tirar o vento': 'Quitar el viento',
+  'Tirar estalos de boca': 'Quitar chasquidos de boca',
+  'Tirar ruído, vento e estalos': 'Quitar ruido, viento y chasquidos',
+  // Nome na tela
+  '{n} nome(s) na tela, na primeira fala de cada pessoa. Cada um é um texto comum: clique nele na timeline para mudar.':
+    '{n} nombre(s) en pantalla, en la primera intervención de cada persona. Cada uno es un texto normal: haz clic en él en la línea de tiempo para cambiarlo.',
+  'Pôr o nome de cada pessoa na tela': 'Poner el nombre de cada persona en pantalla',
+  'Como se chama cada voz? O nome aparece embaixo, na primeira vez que a pessoa fala.': '¿Cómo se llama cada voz? El nombre aparece abajo la primera vez que esa persona habla.',
+  'Nome (vazio = sem nome na tela)': 'Nombre (vacío = sin nombre en pantalla)',
+  'Cargo ou @perfil (opcional)': 'Cargo o @perfil (opcional)',
+  'Cores e fonte do Kit da marca': 'Colores y fuente del Kit de marca',
+  'Criar os nomes': 'Crear los nombres',
+};

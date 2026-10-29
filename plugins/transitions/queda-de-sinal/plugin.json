@@ -1,0 +1,12 @@
+{
+  "name": "Queda de sinal",
+  "description": "Como TV digital com sinal fraco: a imagem trava, se desmancha em quadradinhos borrados e de cor errada, e quando o sinal volta já está no próximo clipe.",
+  "category": "Distorção",
+  "params": [
+    { "id": "tamanho", "label": "Tamanho dos blocos (px)", "type": "float", "default": 24, "min": 8, "max": 64, "step": 1 },
+    { "id": "defeitos", "label": "Quantidade de defeitos", "type": "float", "default": 0.7, "min": 0, "max": 1 },
+    { "id": "cores", "label": "Blocos de cor errada", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "travar", "label": "Travar a imagem antes", "type": "float", "default": 1, "min": 0, "max": 1, "step": 1 }
+  ],
+  "preview": { "cores": 0.3 }
+}

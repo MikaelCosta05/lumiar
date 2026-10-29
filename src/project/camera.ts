@@ -46,6 +46,8 @@ export interface Camera {
   follow: CameraFollow | null;
   /** Estabilização (tira o tremido), somada ao resto. Ver project/stabilize.ts. */
   stabilize?: Stabilization;
+  /** Desfoque de movimento só desta câmera (0 = desligado); ausente = o do projeto. Ver project/motionBlur.ts. */
+  motionBlur?: number;
 }
 
 export const IDENTITY: CameraTransform = { zoom: 1, x: 0.5, y: 0.5, rotation: 0 };

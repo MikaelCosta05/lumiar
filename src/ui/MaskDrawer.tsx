@@ -1,7 +1,8 @@
 import { Check, Diamond, Eraser } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { LayerMask } from '../engine/renderer';
-import { maskAt, type MediaItem, type OverlayClip, type Project } from '../project/model';
+import { maskAt, speedOf, type MediaItem, type OverlayClip, type Project } from '../project/model';
+import { maskMotion, movePoints } from '../project/maskFollow';
 import { Button } from './kit';
 import { t } from '../i18n';
 
@@ -31,7 +32,10 @@ export function MaskDrawer({
   const [box, setBox] = useState({ left: 0, top: 0, width: 1, height: 1 });
   const svg = useRef<SVGSVGElement>(null);
   const mask = clip.transform.mask?.shape === 'path' ? clip.transform.mask : { shape: 'path' as const, x: 0.5, y: 0.5, width: 1, height: 1, feather: 0.05, invert: false, points: [] };
-  const shown = maskAt(mask, clipTime)?.points ?? [];
+  // Forma que acompanha um ponto/objeto: mostra onde ela está agora e grava como se fosse no instante de referência.
+  const motion = maskMotion(clip.transform.maskFollow, clip, media, clip.trimIn + clipTime * speedOf(clip));
+  const drawn = maskAt(mask, clipTime)?.points ?? [];
+  const shown = motion ? movePoints(motion, drawn) : drawn;
   const animated = !!mask.keys?.length;
 
   // O SVG fica exatamente em cima do canvas (que muda de tamanho com a janela).
@@ -72,7 +76,8 @@ export function MaskDrawer({
   };
 
   /** Grava os pontos: na forma fixa ou, com animação, num keyframe no instante do cursor. */
-  const write = (points: number[]) => {
+  const write = (onScreen: number[]) => {
+    const points = motion ? movePoints(motion, onScreen, true) : onScreen;
     if (!animated) return onChange({ ...mask, points });
     const time = Math.round(clipTime * 1000) / 1000;
     const keys = [...(mask.keys ?? []).filter((k) => Math.abs(k.time - time) > 1 / 60), { time, points }].sort((a, b) => a.time - b.time);
@@ -155,8 +160,8 @@ export function MaskDrawer({
           icon={<Diamond size={12} />}
           title={t('A forma passa a acompanhar o movimento: mude o cursor de lugar e ajuste os pontos (cada ajuste vira um keyframe)')}
           onClick={() => {
-            if (animated) onChange({ ...mask, points: shown, keys: undefined });
-            else onChange({ ...mask, points: shown, keys: [{ time: Math.round(clipTime * 1000) / 1000, points: shown }] });
+            if (animated) onChange({ ...mask, points: drawn, keys: undefined });
+            else onChange({ ...mask, points: drawn, keys: [{ time: Math.round(clipTime * 1000) / 1000, points: drawn }] });
           }}
         >
           {animated ? t('Parar de animar') : t('Animar a forma')}

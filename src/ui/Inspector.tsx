@@ -31,6 +31,8 @@ import { SpeedCurve } from './SpeedCurve';
 import { applySpeed } from '../project/packs';
 import { BackgroundSection, GradeSection, LutSection, MaskSection } from './ColorTools';
 import { ObjectCutoutSection } from './ObjectPicker';
+import { GazeSection } from './GazeFixer';
+import { CornerPinSection, MaskFollowSection } from './TrackingSections';
 import type { SavedLut } from '../project/lut';
 import { deleteMainClip } from '../project/ripple';
 import { effectPlugins, filterPlugins, getPlugin, paramDefault, transitionPlugins } from '../engine/registry';
@@ -70,6 +72,7 @@ import { formatTime } from './format';
 import { PackInspector, type PackTab } from './PackInspector';
 import { Button, cx, IconButton, Kbd, SectionTitle, Segmented, Slider, Switch, Tabs, type TabItem } from './kit';
 import { CameraPanel } from './CameraPanel';
+import { MotionBlurProvider } from './MotionBlurControl';
 import { bindKeyframes, type KeyframeContext } from './keyframeUi';
 import { LivePreview } from './LivePreview';
 import { ParamControl } from './ParamControl';
@@ -279,7 +282,13 @@ export function Inspector(props: Props) {
     );
   }
 
-  return <aside className="min-h-0 overflow-y-auto border-l border-line bg-panel">{content}</aside>;
+  return (
+    <aside className="min-h-0 overflow-y-auto border-l border-line bg-panel">
+      <MotionBlurProvider project={project} onChange={onChange}>
+        {content}
+      </MotionBlurProvider>
+    </aside>
+  );
 }
 
 function EmptyInspector() {
@@ -524,6 +533,7 @@ function ClipInspector({
           <TurnFlip clip={clip} onChange={onChange} />
           <BackgroundSection matte={clip.matte} allowCut={false} onChange={(matte) => onChange((c) => ({ ...c, matte }))} />
           <ObjectCutoutSection clip={clip} target={{ kind: 'clip', id: clip.id }} onChange={onChange} />
+          <GazeSection clip={clip} target={{ kind: 'clip', id: clip.id }} onChange={onChange} />
         </>
       )}
 
@@ -1370,6 +1380,7 @@ function OverlayInspector({
           <TurnFlip clip={clip} onChange={setVideo} />
           <BackgroundSection matte={clip.matte} allowCut onChange={(matte) => onChange((c) => ({ ...c, matte }))} />
           <ObjectCutoutSection clip={clip} target={{ kind: 'overlay', id: clip.id }} onChange={setVideo} />
+          <GazeSection clip={clip} target={{ kind: 'overlay', id: clip.id }} onChange={setVideo} />
           <Tip>{t('Arraste o clipe na timeline para mudar de lugar ou de trilha. Trilhas mais altas ficam por cima.')}</Tip>
         </>
       )}
@@ -1397,6 +1408,7 @@ function OverlayInspector({
           <LabeledSlider label={t('Cantos arredondados')} value={tf.radius} display={`${Math.round(tf.radius * 200)}%`} min={0} max={0.5} step={0.005} onChange={(radius) => setTransform({ radius })} />
           <LabeledSlider label={t('Opacidade')} value={tf.opacity} display={`${Math.round(tf.opacity * 100)}%`} min={0} max={1} step={0.01} onChange={(opacity) => setTransform({ opacity })} />
           <p className="mt-1 text-[11px] text-faint">{t('Dica: com este clipe selecionado, arraste a imagem direto no preview.')}</p>
+          <CornerPinSection clip={clip} onChange={onChange} />
 
           <SectionTitle>{t('Mesclagem')}</SectionTitle>
           <Segmented options={BLENDS} value={tf.blend} onChange={(blend) => setTransform({ blend })} />
@@ -1437,6 +1449,7 @@ function OverlayInspector({
             <p className="text-[11px] leading-snug text-faint">{t('Ligue para apagar o fundo verde (ou azul) de um vídeo gravado com tela de chroma.')}</p>
           )}
           <MaskSection mask={tf.mask} onChange={(mask) => setTransform({ mask })} onDraw={onDrawMask} />
+          <MaskFollowSection clip={clip} clipTime={ctx.clipTime} onChange={onChange} />
         </>
       )}
 

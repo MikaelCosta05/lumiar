@@ -1,0 +1,17 @@
+{
+  "name": "Luz de estúdio",
+  "description": "Ilumina a pessoa de novo, depois de gravado: escolha de que lado vem a luz, a cor, a força e se ela é dura ou suave. A IA estima o volume do rosto pela profundidade.",
+  "category": "Retrato",
+  "params": [
+    { "id": "angulo", "label": "De onde vem a luz (graus)", "type": "float", "default": 135, "min": 0, "max": 360, "step": 1 },
+    { "id": "altura", "label": "Altura da luz", "type": "float", "default": 0.45, "min": 0, "max": 1 },
+    { "id": "cor", "label": "Cor da luz", "type": "color", "default": "#ffd2a1" },
+    { "id": "intensidade", "label": "Força da luz", "type": "float", "default": 0.7, "min": 0, "max": 1.5 },
+    { "id": "suavidade", "label": "Suavidade", "type": "float", "default": 0.5, "min": 0.05, "max": 1 },
+    { "id": "sombra", "label": "Escurecer o outro lado", "type": "float", "default": 0.45, "min": 0, "max": 1 },
+    { "id": "fundo", "label": "Escurecer o fundo", "type": "float", "default": 0.2, "min": 0, "max": 1 },
+    { "id": "soPessoa", "label": "Só na pessoa", "type": "float", "default": 1, "min": 0, "max": 1, "step": 1 }
+  ],
+  "previewMedia": "retrato",
+  "preview": { "angulo": 160, "cor": [1, 0.72, 0.47], "intensidade": 1.2, "sombra": 0.75, "suavidade": 0.35, "fundo": 0.35 }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Pessoa invisível",
+  "description": "O corpo vira vidro: dá para ver o fundo através da pessoa, torto como numa lente, com a borda cintilando de leve (a IA encontra a pessoa e o que está atrás dela).",
+  "category": "Pessoa",
+  "params": [
+    { "id": "invisivel", "label": "Invisibilidade", "type": "float", "default": 0.9, "min": 0, "max": 1 },
+    { "id": "refracao", "label": "Distorção do vidro", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "borda", "label": "Brilho da borda", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "cintilar", "label": "Cintilação", "type": "float", "default": 0.6, "min": 0, "max": 1 },
+    { "id": "cor", "label": "Cor da borda", "type": "color", "default": "#bfeaff" }
+  ],
+  "previewMedia": "movimento",
+  "preview": { "invisivel": 0.95, "refracao": 0.7, "borda": 0.8 }
+}

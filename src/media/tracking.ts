@@ -5,6 +5,7 @@ import { ALL_FORMATS, BlobSource, CanvasSink, Input } from 'mediabunny';
 import type { TrackPoint } from '../project/camera';
 import type { MediaItem } from '../project/model';
 import { assets } from './assets';
+import { smoothTrack, trackGrayPoints, type TrackedPoint, type TrackFrame } from './pointTrack';
 
 export type Progress = (fraction: number) => void;
 
@@ -216,6 +217,47 @@ export async function trackPoint(
     }
   }
   return [...result.entries()].sort((a, b) => a[0] - b[0]).map(([, p]) => p);
+}
+
+/** Posições de vários pontos no mesmo instante do arquivo (0 a 1). */
+export interface MultiTrackSample {
+  t: number;
+  points: TrackedPoint[];
+}
+
+/**
+ * Segue vários pontos ao mesmo tempo (cantos de uma tela, pontos de um objeto) a partir do instante
+ * `at`, para frente e para trás, no trecho [from, to] do arquivo. Lê o vídeo uma vez só e acha a
+ * posição com fração de pixel (ver pointTrack.ts). `group` = pontos perdidos andam com os outros.
+ */
+export async function trackPoints(
+  media: MediaItem,
+  at: number,
+  points: { x: number; y: number }[],
+  from: number,
+  to: number,
+  onProgress?: Progress,
+  options: { fps?: number; width?: number; group?: boolean } = {},
+): Promise<MultiTrackSample[]> {
+  const fps = options.fps ?? 24;
+  const width = options.width ?? 640;
+  const frames: TrackFrame[] = [];
+  const total = Math.max(1, Math.ceil((to - from) * fps));
+  for await (const { t, canvas } of videoFrames(media, from, to, fps, width)) {
+    frames.push({ t, img: toGray(canvas as HTMLCanvasElement) });
+    onProgress?.(Math.min(1, frames.length / total) * 0.5);
+  }
+  if (frames.length === 0) return [];
+  let start = 0;
+  for (let i = 0; i < frames.length; i++) if (Math.abs(frames[i].t - at) < Math.abs(frames[start].t - at)) start = i;
+  // Procura e molde crescem junto com a resolução (a mesma distância na imagem).
+  const k = width / 640;
+  const track = smoothTrack(
+    trackGrayPoints(frames, start, points, { patch: Math.max(6, Math.round(12 * k)), search: Math.max(8, Math.round(28 * k)), group: options.group }, (done, n) =>
+      onProgress?.(0.5 + (done / n) * 0.5),
+    ),
+  );
+  return frames.map((f, i) => ({ t: f.t, points: track[i] }));
 }
 
 // ---------------------------------------------------------------- Todos os rostos (para desfocar)

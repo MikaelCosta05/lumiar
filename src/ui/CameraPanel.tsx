@@ -6,6 +6,7 @@ import { CAMERA_PRESETS, createCamera, presetKeyframes, type Camera, type Camera
 import { Button, cx, SectionTitle, Slider, Switch } from './kit';
 import { bindKeyframes, type KeyframeContext } from './keyframeUi';
 import { ParamControl } from './ParamControl';
+import { MotionBlurSection } from './MotionBlurControl';
 import { t, tc } from '../i18n';
 
 interface Props {
@@ -155,6 +156,7 @@ export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCam
         })}
       </div>
 
+      <MotionBlurSection camera={camera} onCamera={setCamera} pack={!tracking} />
     </>
   );
 }

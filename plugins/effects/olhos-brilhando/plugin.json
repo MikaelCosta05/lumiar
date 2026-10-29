@@ -1,0 +1,16 @@
+{
+  "name": "Olhos brilhando",
+  "description": "Os olhos acendem como os de um bicho no escuro, ou ficam totalmente pretos. Marque onde estão os dois olhos (os pacotes usam o seguir rosto, que deixa o rosto no centro).",
+  "category": "Pessoa",
+  "params": [
+    { "id": "modo", "label": "Modo (0 = brilhando, 1 = totalmente pretos)", "type": "float", "default": 0, "min": 0, "max": 1, "step": 1 },
+    { "id": "olhoEsquerdo", "label": "Olho da esquerda", "type": "vec2", "default": [0.455, 0.45], "min": 0, "max": 1 },
+    { "id": "olhoDireito", "label": "Olho da direita", "type": "vec2", "default": [0.545, 0.45], "min": 0, "max": 1 },
+    { "id": "tamanho", "label": "Tamanho dos olhos", "type": "float", "default": 0.04, "min": 0.005, "max": 0.1 },
+    { "id": "cor", "label": "Cor do brilho", "type": "color", "default": "#ff3a1c" },
+    { "id": "brilho", "label": "Brilho em volta", "type": "float", "default": 0.7, "min": 0, "max": 1 },
+    { "id": "pulsar", "label": "Pulsar", "type": "float", "default": 0.3, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "retrato",
+  "preview": { "modo": 0, "olhoEsquerdo": [0.496, 0.417], "olhoDireito": [0.621, 0.433], "tamanho": 0.032, "cor": [1, 0.78, 0.42], "brilho": 0.35 }
+}

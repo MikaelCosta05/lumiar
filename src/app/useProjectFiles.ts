@@ -15,6 +15,7 @@ import {
   saveVersion,
 } from '../project/storage';
 import { buildTemplateProject, placeholderImage, type ProjectTemplate } from '../project/templates';
+import { relinkMedia } from '../project/versions';
 import { formatTime } from '../ui/format';
 import type { EditorContext } from './context';
 import type { Compounds } from './useCompounds';
@@ -160,7 +161,9 @@ export function useProjectFiles(ctx: EditorContext, compounds: Compounds, clearM
       if (result.relinked) {
         // As mídias agora são lidas do arquivo salvo; os passos de desfazer também passam a usá-lo.
         const media = new Map(result.relinked.media.map((m) => [m.id, m]));
-        history.rewrite((p) => ({ ...p, media: p.media.map((m) => media.get(m.id) ?? m) }));
+        // As versões nomeadas também (as mídias delas estão no mesmo arquivo).
+        for (const v of result.relinked.versions ?? []) for (const m of v.project.media) media.set(m.id, m);
+        history.rewrite((p) => relinkMedia(p, media));
         savedProject.current = result.relinked;
       } else {
         savedProject.current = project;

@@ -1,5 +1,5 @@
 import { History, LoaderCircle, RotateCcw, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { type Project } from '../project/model';
 import { listVersions, type VersionInfo } from '../project/storage';
 import { locale, t } from '../i18n';
@@ -72,13 +72,16 @@ export function HistoryDialog({
   onJump,
   onRestore,
   onClose,
+  named,
 }: {
   entries: { past: Project[]; current: Project; future: Project[]; timeOf: (p: Project) => number | undefined };
   onJump: (steps: number) => void;
   onRestore: (key: string) => void;
   onClose: () => void;
+  /** Versões nomeadas do projeto (ver ProjectVersions.tsx) */
+  named?: ReactNode;
 }) {
-  const [tab, setTab] = useState<'session' | 'versions'>('session');
+  const [tab, setTab] = useState<'session' | 'named' | 'versions'>('session');
   const [versions, setVersions] = useState<VersionInfo[] | null>(null);
   useEffect(() => {
     if (tab === 'versions') void listVersions().then(setVersions).catch(() => setVersions([]));
@@ -104,6 +107,7 @@ export function HistoryDialog({
           onChange={setTab}
           options={[
             { value: 'session', label: t('Nesta sessão') },
+            ...(named ? [{ value: 'named' as const, label: t('Versões'), title: t('Versões com nome, guardadas dentro do arquivo do projeto') }] : []),
             { value: 'versions', label: t('Cópias de segurança') },
           ]}
         />
@@ -129,6 +133,8 @@ export function HistoryDialog({
               ))}
             </div>
           </>
+        ) : tab === 'named' ? (
+          named
         ) : (
           <>
             <p className="my-2 text-[11px] leading-snug text-faint">

@@ -1,6 +1,7 @@
 import type { LayerInput, Renderer } from '../engine/renderer';
 import { assets } from '../media/assets';
-import { drawTexts } from '../media/textRender';
+import { drawTextsWithMotionBlur } from '../media/textMotionBlur';
+import { addMotionBlur } from '../project/motionBlur';
 import { onElementData } from '../media/elementData';
 import { onSegmenterReady, segmentFrame } from '../media/segment';
 import { objectOrPerson } from '../media/objectSelect';
@@ -352,8 +353,11 @@ export class Player {
       this.project.luts,
       behind,
     );
-    if (behind && drawTexts(this.behindCanvas, this.project, this.time, 'behind')) frame.behind = this.behindCanvas;
-    if (drawTexts(this.textCanvas, this.project, this.time)) frame.overlay = this.textCanvas;
+    // Desfoque de movimento leve (menos amostras que na exportação).
+    const fps = this.project.fps || 30;
+    addMotionBlur(frame, this.project, this.timeline, this.time, fps, 'preview', this.project);
+    if (behind && drawTextsWithMotionBlur(this.behindCanvas, this.project, this.time, fps, 'preview', 'behind')) frame.behind = this.behindCanvas;
+    if (drawTextsWithMotionBlur(this.textCanvas, this.project, this.time, fps, 'preview')) frame.overlay = this.textCanvas;
     this.renderer.render(frame);
   }
 

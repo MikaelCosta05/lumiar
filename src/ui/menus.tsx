@@ -133,9 +133,13 @@ import type { TimelineTarget } from './Timeline';
 import { t } from '../i18n';
 import { LassoSelect } from 'lucide-react';
 import { startObjectPick } from './objectPick';
+import { startGazeFix } from './gazeFix';
 import { shortcutLabel } from '../app/shortcuts';
 import type { StabilizeStrength } from '../project/stabilize';
 import { stabilizeMenu } from './stabilizeMenu';
+import { Scan, ScanLine } from 'lucide-react';
+import { Infinity as InfinityIcon, Repeat } from 'lucide-react';
+import { requestTracking } from './trackingStore';
 
 /** Tudo que os menus precisam do editor. */
 export interface EditorApi {
@@ -161,6 +165,10 @@ export interface EditorApi {
   freeze: (clipId: string) => void;
   /** Cria uma cópia do clipe tocando de trás para frente */
   reverse: (target: { kind: 'clip' | 'overlay'; id: string }) => void;
+  /** Loop perfeito: o fim do clipe emenda no começo sem pulo */
+  seamlessLoop?: (clipId: string) => void;
+  /** Boomerang: o clipe vai e volta (cópia invertida logo depois) */
+  boomerang?: (clipId: string) => void;
   addMarker: (time: number) => void;
   /** Grava a voz exatamente no trecho do clipe (dublagem) */
   dub: (target: { kind: 'clip' | 'overlay'; id: string }) => void;
@@ -179,7 +187,7 @@ export interface EditorApi {
   /** Cortes na trilha principal levam o resto junto */
   ripple: boolean;
   /** Tira o ruído de fundo do áudio (cria uma cópia limpa) */
-  cleanAudio: (target: { kind: 'audio' | 'clip'; id: string }, strength: number) => void;
+  cleanAudio: (target: { kind: 'audio' | 'clip'; id: string }, strength: number, extra?: { wind?: number; clicks?: number }) => void;
   /** Troca a mídia de um clipe da trilha principal (mantém o tempo, a cor e os efeitos) */
   replaceMedia: (clipId: string, mediaId: string) => void;
   /** Criar capa (thumbnail) com o quadro atual */
@@ -256,6 +264,11 @@ function cleanMenu(api: EditorApi, target: { kind: 'audio' | 'clip'; id: string 
       { label: t('Leve'), onClick: () => api.cleanAudio(target, 0.35) },
       { label: t('Médio'), onClick: () => api.cleanAudio(target, 0.65) },
       { label: t('Forte'), onClick: () => api.cleanAudio(target, 1) },
+      'separator',
+      // Vento e estalos de boca: sem mexer no ruído de fundo (ou junto, na última opção).
+      { label: t('Tirar o vento'), onClick: () => api.cleanAudio(target, 0, { wind: 1 }) },
+      { label: t('Tirar estalos de boca'), onClick: () => api.cleanAudio(target, 0, { clicks: 1 }) },
+      { label: t('Tirar ruído, vento e estalos'), onClick: () => api.cleanAudio(target, 0.65, { wind: 1, clicks: 1 }) },
     ],
   };
 }
@@ -436,6 +449,12 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
       media.hasAudio && !clip.audioDetached && { label: t('Separar a voz da música'), icon: <AudioLines size={14} />, onClick: () => api.splitVoice({ kind: 'clip', id: clip.id }) },
       media.kind !== 'audio' && { label: t('Desfocar rostos automaticamente…'), icon: <ScanFace size={14} />, onClick: () => api.blurFaces({ kind: 'clip', id: clip.id }) },
       media.kind !== 'audio' && { label: t('Selecionar objeto…'), icon: <LassoSelect size={14} />, onClick: () => startObjectPick({ kind: 'clip', id: clip.id }) },
+      media.kind !== 'audio' && { label: t('Corrigir o olhar…'), icon: <Eye size={14} />, onClick: () => startGazeFix({ kind: 'clip', id: clip.id }) },
+      layout.index < api.timeline.clips.length - 1 && {
+        label: t('Corte casado com o próximo clipe'),
+        icon: <Scan size={14} />,
+        onClick: () => requestTracking({ kind: 'matchCut', index: layout.index }),
+      },
       stabilizeMenu(media, clip.camera, (strength) => api.stabilize({ kind: 'clip', id: clip.id }, strength)),
       ...clip.effects
         .filter((e) => e.pluginId === 'effects/apagar-objeto')
@@ -515,6 +534,16 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
         icon: <Rewind size={14} />,
         onClick: () => api.reverse({ kind: 'clip', id: clip.id }),
       },
+      media.kind === 'video' && api.seamlessLoop && {
+        label: t('Loop perfeito (o fim emenda no começo)'),
+        icon: <InfinityIcon size={14} />,
+        onClick: () => api.seamlessLoop?.(clip.id),
+      },
+      media.kind === 'video' && api.boomerang && {
+        label: t('Boomerang (vai e volta)'),
+        icon: <Repeat size={14} />,
+        onClick: () => api.boomerang?.(clip.id),
+      },
       {
         label: t('Mover para uma trilha de vídeo acima'),
         icon: <ArrowUp size={14} />,
@@ -583,6 +612,12 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
       media?.kind === 'video' && { label: t('Dublar este clipe (gravar voz)'), icon: <Clapperboard size={14} />, onClick: () => api.dub({ kind: 'overlay', id: clip.id }) },
       media?.kind !== 'audio' && { label: t('Desfocar rostos automaticamente…'), icon: <ScanFace size={14} />, onClick: () => api.blurFaces({ kind: 'overlay', id: clip.id }) },
       media && media.kind !== 'audio' && { label: t('Selecionar objeto…'), icon: <LassoSelect size={14} />, onClick: () => startObjectPick({ kind: 'overlay', id: clip.id }) },
+      media && media.kind !== 'audio' && { label: t('Corrigir o olhar…'), icon: <Eye size={14} />, onClick: () => startGazeFix({ kind: 'overlay', id: clip.id }) },
+      media && media.kind !== 'audio' && {
+        label: clip.cornerPin ? t('Ajustar a tela trocada (cantos)…') : t('Trocar a tela (rastrear 4 cantos)…'),
+        icon: <ScanLine size={14} />,
+        onClick: () => requestTracking({ kind: 'corners', id: clip.id }),
+      },
       stabilizeMenu(media, clip.camera, (strength) => api.stabilize({ kind: 'overlay', id: clip.id }, strength)),
       media?.kind === 'image' && {
         label: t('Foto 3D (a câmera entra na foto)'),
@@ -785,6 +820,11 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
         label: t('Trocar por'),
         icon: <Blend size={14} />,
         items: featured.map((p) => ({ label: p.name, checked: transition?.pluginId === p.id, onClick: () => set(p.id) })),
+      },
+      {
+        label: t('Corte casado automático'),
+        icon: <Scan size={14} />,
+        onClick: () => requestTracking({ kind: 'matchCut', index: target.index }),
       },
       transition && {
         label: t('Usar esta em todas as junções'),

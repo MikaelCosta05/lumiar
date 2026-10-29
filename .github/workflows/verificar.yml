@@ -1,0 +1,60 @@
+# Confere cada push e pull request nos três sistemas: tipos (tsc), testes (vitest) e o build do Vite.
+# Não gera instaladores (isso é o release.yml, nas tags) nem baixa os modelos de IA: nada disso é preciso aqui.
+#
+# Os testes de ponta a ponta (npm run e2e, que abrem o app no Electron e clicam nele) ficam de fora: precisam de
+# placa de vídeo (WebGL2) e de codificador de vídeo, que as máquinas do GitHub não têm de forma confiável.
+name: Verificar
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Um push novo no mesmo ramo cancela a verificação antiga, que já não vale.
+concurrency:
+  group: verificar-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verificar:
+    name: Verificar (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      # O binário do Electron (~100 MB) e os navegadores do Playwright só servem para rodar o app e os testes
+      # de ponta a ponta.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tipos (tsc)
+        run: npm run typecheck
+
+      - name: Tipos dos testes de ponta a ponta
+        run: npx tsc -p e2e
+
+      - name: Testes (vitest)
+        run: npm test
+
+      - name: Build (vite)
+        run: npx vite build

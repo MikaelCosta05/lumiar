@@ -1,0 +1,13 @@
+{
+  "name": "Entrar pelo olho",
+  "description": "A câmera mergulha num olho até a pupila escura tomar a tela, e o próximo clipe se abre de dentro dela, como uma íris. Marque o olho (os pacotes usam o seguir rosto).",
+  "category": "Movimento",
+  "params": [
+    { "id": "ponto", "label": "Onde está o olho", "type": "vec2", "default": [0.455, 0.45], "min": 0, "max": 1 },
+    { "id": "profundidade", "label": "Profundidade do mergulho", "type": "float", "default": 20, "min": 4, "max": 60 },
+    { "id": "desfoque", "label": "Desfoque de velocidade", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "iris", "label": "Cor da íris", "type": "color", "default": "#7a5634" },
+    { "id": "mostrarIris", "label": "Íris na abertura", "type": "float", "default": 0.7, "min": 0, "max": 1 }
+  ],
+  "preview": { "ponto": [0.46, 0.41] }
+}

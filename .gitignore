@@ -6,3 +6,4 @@ public/models
 public/ort
 public/mediapipe
 .tmp-test
+.tmp-e2e

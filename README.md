@@ -22,7 +22,7 @@ A interface está em português, inglês e espanhol ([como traduzir](docs/TRADUC
 ---
 
 Comecei o Lumiar porque queria um editor no estilo do Filmora em que eu pudesse inventar os meus próprios
-efeitos e transições. Hoje ele vem com **160 filtros, 70 transições, 88 efeitos, 260 pacotes de edição, 59 stickers, 10 elementos animados e 34 efeitos sonoros prontos**. Cada filtro, efeito e transição é só uma
+efeitos e transições. Hoje ele vem com **160 filtros, 75 transições, 96 efeitos, 333 pacotes de edição, 59 stickers, 10 elementos animados e 34 efeitos sonoros prontos**. Cada filtro, efeito e transição é só uma
 pastinha com um shader. Se você souber um pouco de GLSL, dá para criar o seu em minutos: direto no programa, pelo
 **Editor de efeitos** (Ferramentas), ou no código ([guia aqui](docs/PLUGINS.md)).
 
@@ -55,12 +55,29 @@ Tudo é processado na placa de vídeo (WebGL2), então o preview mostra exatamen
   todo. Em *Recorte* (painel do clipe), troque entre a pessoa (automático) e o objeto selecionado: o fundo, o
   contorno, recortar, o texto atrás e os efeitos *Desfocar o objeto* e *Apagar o objeto* passam a usar o objeto. O
   modelo (SlimSAM) é baixado na primeira vez; a seleção fica salva no projeto.
+- **Trocar a cor de um objeto**: no *Selecionar objeto…*, escolha em *O que fazer com o objeto* a opção *Trocar a cor
+  do objeto* e a cor nova, e clique em *Aplicar*. Só o objeto muda de cor (a camiseta, o carro, o cabelo); a luz, a
+  sombra e a textura continuam. No painel do clipe, em *Efeitos*, ajuste a saturação, clarear ou escurecer, a margem e
+  *Proteger a pele*. Objetos finos e estampados (um vestido florido) são mais difíceis de selecionar.
+- **Olhar para a câmera**: para quem lê o roteiro e não olha para a lente. Clique direito no clipe → *Corrigir o
+  olhar…*. O Lumiar acha os olhos em cada quadro e leva a íris para onde ela estaria olhando para a câmera; olho
+  fechado ou piscando não mexe. No painel do clipe, em *Olhar para a câmera*, ajuste a *Intensidade* e *Na vertical*.
+  Funciona melhor com o rosto de frente, bem iluminado e com correções pequenas (o roteiro logo abaixo da câmera);
+  desvios grandes ficam com cara de olho pintado.
 - **Mover o resto junto** (🔗 na barra da timeline, ligado por padrão): ao cortar ou excluir na trilha principal,
   textos, áudios, sobreposições, pacotes, marcadores e legendas andam junto e continuam sincronizados.
 - **Marcadores** (tecla **M**) para anotar pontos importantes, e **Ctrl + ← / →** pula entre cortes.
 - Desfazer e refazer (até 200 passos), salvamento automático e um arquivo `.lumiar` que guarda o projeto e as mídias juntos.
 - **Histórico** (ícone de relógio no topo): a lista do que foi feito nesta sessão, para voltar direto a um ponto, e as
   **cópias de segurança** que o Lumiar guarda sozinho a cada 5 minutos de edição (as 15 mais recentes).
+- **Versões do projeto** (Histórico → aba **Versões**): guarde o projeto com um nome ("versão do cliente", "versão
+  curta"…) e volte a ele quando quiser. As versões vão dentro do arquivo `.lumiar`. Em cada uma: **Abrir** (Ctrl+Z
+  desfaz), **Atualizar** com o projeto atual, **Duplicar**, **Renomear** e **Apagar**. Uma mídia que só uma versão usa
+  continua guardada no arquivo.
+- **Loop perfeito e boomerang**: clique direito num vídeo da trilha principal → *Loop perfeito* (o começo aparece aos
+  poucos por cima do fim, em meio segundo: repetido, não dá para ver a emenda) ou *Boomerang* (a cópia invertida entra
+  logo depois, com a câmera tocando ao contrário). Na janela **Exportar**, a opção **Loop** faz o mesmo com o vídeo
+  inteiro ou o GIF.
 - **Agrupar**: clique direito num texto, som, sobreposição ou pacote → *Agrupar com o que está neste trecho*. Arrastar
   um item do grupo leva os outros junto.
 - **Selecionar vários itens**: Ctrl (ou Shift) + clique, ou arraste um retângulo na área vazia da timeline. Os
@@ -123,6 +140,38 @@ uma miniatura e ela mostra o efeito animado. Para aplicar, é só clicar com o c
 E duas transições novas: **Pela silhueta** (o próximo clipe aparece dentro do corpo da pessoa e cresce até tomar
 a tela) e **Zoom infinito** (a câmera entra num ponto da imagem e sai no próximo clipe).
 
+**Mais efeitos na pessoa** (categoria *Pessoa*):
+
+- **Pessoa invisível**: o corpo vira vidro. Dá para ver o fundo através da pessoa, torto como numa lente, e a borda
+  cintila de leve.
+- **Sombra atrasada**: a sombra da pessoa aparece na parede atrás dela, mas se mexe um pouco depois. Escolha o atraso,
+  para que lado ela fica e quão escura.
+- **Olhos brilhando**: os olhos acendem como os de um bicho no escuro, ou ficam totalmente pretos (*Modo*). Marque os
+  dois olhos em *Olho da esquerda* e *Olho da direita*; com o *seguir rosto* ligado, os pontos padrão já caem nos olhos.
+
+**Terror analógico** (categoria *Analógico*):
+
+- **Quadro subliminar**: de vez em quando, um quadro diferente pisca por 1 a 3 quadros: negativo, contraste estourado,
+  de cabeça para baixo ou o rosto bem de perto.
+- **Tela de teste da TV**: as barras coloridas de fim de transmissão e a tela de "sem sinal" com chiado entram e saem
+  sozinhas por cima da imagem.
+
+**Arte e retrato:**
+
+- **Pintura que se mexe** (*Arte*): o vídeo vira uma pintura de pinceladas grossas e redemoinhos, como os
+  pós-impressionistas, e as pinceladas seguem o movimento da cena.
+- **Luz de estúdio** (*Retrato*): ilumina a pessoa de novo depois de gravado. Escolha de que lado vem a luz, a altura, a
+  cor, a força e se ela é dura ou suave. A IA usa a profundidade para saber o volume do rosto.
+
+**Mais transições:**
+
+- **Passar pela pessoa**: o corpo da pessoa do clipe atual varre a tela e deixa o próximo clipe por onde passa.
+- **Por profundidade**: o próximo clipe aparece primeiro no que está longe e vem avançando até a frente.
+- **Fita rebobinando**: o videocassete volta a fita cada vez mais rápido e corta para o próximo clipe no meio do chiado.
+- **Queda de sinal**: a imagem trava, se desmancha em blocos de cor errada e volta já no próximo clipe.
+- **Entrar pelo olho**: a câmera mergulha num olho até a pupila tomar a tela, e o próximo clipe se abre de dentro dela.
+  Marque o olho em *Onde está o olho*.
+
 - **Keyframes** em qualquer parâmetro: marque um valor num ponto e outro mais à frente, e o Lumiar anima entre os dois.
 - **Correção de cor manual**, na aba Cor do clipe: rodas de sombras, meios-tons e altas luzes, saturação e curvas
   (geral, vermelho, verde e azul).
@@ -153,11 +202,15 @@ sozinhas ao novo tamanho.
 
 ![Pacote "Trailer épico" sobre a entrevista, com uma "Batida" mais à frente](docs/screenshots/pacotes.jpg)
 
-São 260 pacotes em 18 categorias. Alguns fazem bem mais do que mudar a cor:
+São 333 pacotes em 25 categorias. Alguns fazem bem mais do que mudar a cor:
 
-- **Terror analógico** (21): o clima das fitas amaldiçoadas e das transmissões que não deviam estar no ar. Fita VHS
+- **Terror analógico** (24): o clima das fitas amaldiçoadas e das transmissões que não deviam estar no ar. Fita VHS
   doente e mofada, erro de tracking, imagem rolando na vertical, ruído da cabeça de vídeo, fantasma, quadros travando,
-  pausa de fita, transmissão de emergência, câmera de vigilância, visão noturna, luz de lanterna e o zoom súbito no rosto.
+  pausa de fita, transmissão de emergência, câmera de vigilância, visão noturna, luz de lanterna, o zoom súbito no rosto,
+  as barras coloridas de fim da programação, quadros escondidos e a sombra que não acompanha.
+- **Found footage** (10): falso documentário e gravação encontrada: câmera perdida, fuga no escuro em visão noturna, a
+  câmera caiu, arquivo corrompido, depoimento, webcam de madrugada, fim abrupto, câmera do quarto, zoom digital e
+  brilho nos olhos.
 
 - **Batidas da música**: o Lumiar ouve a música, encontra as batidas (e o BPM) e o pacote pulsa em cada uma, com
   zoom, flash, tremida, giro, P&B, estrobo, cores alternadas… As batidas ficam marcadas na régua e servem de ímã para
@@ -173,7 +226,25 @@ São 260 pacotes em 18 categorias. Alguns fazem bem mais do que mudar a cor:
   desnecessária, tropeço. Outros aceleram, como o filme mudo e a perseguição acelerada.
 - **Câmera em movimento**: câmera na mão, crash zoom, órbita, ângulo holandês, travelling, pêndulo, drone…
 - **Cinematográfico**, **Impacto e ritmo**, **Passagens no corte**, **Aberturas e finais**, **Vlog**, **Retrô**,
-  **Sonho e romance**, **Suspense e terror**, **Ação e games**, **Documentário e notícia** e **Clima e estações**.
+  **Sonho e romance**, **Suspense e terror**, **Ação e games** (com a camuflagem óptica: a pessoa vira vidro),
+  **Documentário e notícia** e **Clima e estações**.
+
+**Pacotes por tema**, com cerca de dez receitas cada:
+
+- **Casamento e eventos**: votos com pele bonita, entrada da noiva em câmera lenta, filme de casamento em tela larga,
+  saída dos noivos, primeira dança com a câmera girando, luz de balada na pista (nas batidas), brinde, foto do álbum (a
+  cena congela num flash e volta), detalhe das alianças e vista do alto de drone.
+- **Moda e lookbook**: passarela com flashes de fotógrafo, editorial P&B, capa de revista (segue o rosto), lookbook
+  suave, sessão de fotos no ritmo da música, flash dos anos 90, alta-costura, giro do look com rastro colorido, campanha
+  em duas cores e luz de estúdio lateral (a IA reilumina a pessoa).
+- **Esportes**: replay, grito de gol, lance congelado, câmera de ação, transmissão do jogo, velocidade máxima, vídeo de
+  skate com olho de peixe, treino pesado (zoom nas batidas), jogo à noite e tensão do pênalti.
+- **Datas comemorativas**: Natal, pisca-pisca, arraiá e quadrilha de São João, Halloween, gostosuras ou travessuras,
+  virada do ano com fogos, parabéns e carnaval (as cores trocam a cada batida).
+- **Produto e unboxing**: abrindo a caixa, revelação do produto, brilho de comercial, fundo infinito, produto de luxo,
+  detalhe macro (a IA desfoca o fundo), cor de vitrine, review de tecnologia, reação ao produto e vista de cima.
+- **Videoclipe**: luz de palco, clipe dos anos 2000, close de cantor, clones no ritmo, psicodélico, plano-sequência,
+  clipe de rap, luz negra, balada na chuva e clipe pintado (pinceladas que seguem o movimento).
 
 Os pacotes não trazem som, texto nem sticker: isso fica nas abas **Sons**, **Textos** e **Stickers**, para pôr só onde
 você quiser. Nos pacotes de câmera lenta, o trecho lento pode ficar mudo.
@@ -209,6 +280,12 @@ Também dá para trabalhar como numa action do Photoshop:
   ba-dum-tss, boing, disco arranhado, bip de censura, aplausos, whoosh, impacto, boom de cinema, "entrando em câmera
   lenta", coração batendo, dun dun duuun, moeda, vitória, sino de luta… Clique em ▶ para ouvir e no nome para pôr no
   cursor. Eles vão para a trilha "Efeitos sonoros".
+- **Gerar música** (sem direitos autorais): na aba **Sons**, abra *Gerar música*. Escolha o estilo (lo-fi,
+  tensão/suspense, épico/trailer, terror analógico, alegre/vlog ou eletrônico), a duração, o andamento (BPM), a
+  intensidade e a variação (*Gerar outra* troca melodia, acordes e ritmo). **Ouvir** toca antes; **Pôr na timeline**
+  coloca a música na trilha de música. A duração já vem certa (a do vídeo ou a do item selecionado), a música tem
+  começo, meio e fim, e o último acorde termina exatamente no fim. As batidas já ficam marcadas na régua, prontas para
+  *Montar os clipes no ritmo*. Tudo é composto na hora pelo Lumiar, sem internet e sem trechos de músicas de ninguém.
 
 ### Edição rápida
 
@@ -277,6 +354,29 @@ Em **Revisar um por um**, cada vício aparece numa lista para ouvir e desmarcar 
 - **Curva de velocidade**: na aba Velocidade, desenhe a rampa (lento no meio, freia até parar, bullet time…) e o
   clipe ganha uma aceleração e uma freada suaves.
 - Girar 90°, espelhar, congelar quadro e tocar de trás para frente.
+- **Desfoque de movimento**: o que anda rápido fica borrado na direção do movimento, como numa câmera de verdade:
+  zoom, panorâmica e giro da câmera, pacotes com câmera, picture-in-picture e textos que entram deslizando, girando ou
+  quicando. Fica no fim da aba **Câmera** do clipe ou do pacote. No projeto todo: *Desligado*, *Pacotes* (o padrão: só
+  os pacotes com câmera, intensidade 50%) ou *Tudo*; em cada clipe ou pacote dá para seguir o projeto, desligar ou usar
+  uma intensidade própria. No preview o desfoque é mais leve; o arquivo exportado sai com o desfoque completo.
+
+### Rastreamento
+
+- **Trocar a tela (4 cantos)**: põe um vídeo ou uma foto dentro da tela de um celular, de um quadro ou de uma placa do
+  vídeo de baixo, em perspectiva. Clique direito na sobreposição → **Trocar a tela (rastrear 4 cantos)…** (ou aba
+  **Posição** → **Marcar os 4 cantos…**), arraste os 4 cantos coloridos até os cantos da tela e clique em **Rastrear os
+  cantos**. O Lumiar segue os cantos quadro a quadro. Para ajustar, pare o cursor em outro momento e abra de novo:
+  **Corrigir aqui** muda só em volta daquele momento; **Rastrear de novo daqui** refaz o rastro. **Usar sem rastrear**
+  deixa os cantos parados (bom para fotos). O vídeo de baixo precisa estar na trilha principal.
+- **A forma acompanha**: a forma da sobreposição (círculo, estrela ou a desenhada à mão com ✎) anda junto com algo do
+  vídeo. Na aba **Posição**, abaixo de **Forma (máscara)**, escolha **Um ponto** (o centro da forma, ou clique em
+  **Escolher o ponto no vídeo…**) ou **O objeto** (o de **Selecionar objeto**). Ligue **Crescer e diminuir junto** e
+  **Girar junto** (só na forma desenhada) se o objeto se aproximar ou girar.
+- **Corte casado automático**: clique direito entre dois clipes da trilha principal → **Corte casado automático** (ou
+  no clipe → **Corte casado com o próximo clipe**). O Lumiar procura, no fim do primeiro e no começo do segundo, os
+  dois quadros com a forma e a composição mais parecidas, muda os pontos de corte e, se ajudar, aproxima e move o
+  segundo clipe para as formas caírem no mesmo lugar. Com **Mover o resto junto** ligado, o que está depois do corte
+  acompanha. Um aviso diz o que mudou; **Ctrl+Z** desfaz.
 
 ### Textos e legendas
 
@@ -297,6 +397,10 @@ Em **Revisar um por um**, cada vício aparece numa lista para ouvir e desmarcar 
   português e baixa um .srt por idioma (para enviar ao YouTube), ou troca as legendas da tela.
 - **Legendas com cor por pessoa**: na aba Legendas, *Separar as vozes* reconhece quem fala em cada legenda (pelo
   timbre e pela altura da voz, de 2 a 4 pessoas) e dá uma cor e um nome a cada uma, que pode aparecer acima da legenda.
+- **Nome de cada pessoa na tela**: depois de *Separar as vozes*, clique em *Pôr o nome de cada pessoa na tela*. Digite o
+  nome de cada voz (e, se quiser, o cargo ou @perfil) e quanto tempo fica (3, 4 ou 6 s). Cada pessoa ganha uma "Faixa
+  de nome" na primeira vez que fala, com as cores e a fonte do Kit da marca, se houver. Cada faixa é um texto comum;
+  rodar de novo troca as faixas antigas em vez de duplicar.
 
 ### Voz: narração e dublagem
 
@@ -315,6 +419,10 @@ Em **Revisar um por um**, cada vício aparece numa lista para ouvir e desmarcar 
   mesmo instante (acelerando um pouco quando não cabe); o som original fica baixinho por baixo.
 - **Limpar o áudio**: tira chiado, ventilador, ar-condicionado e ronco de fundo (leve, médio ou forte). Cria uma cópia
   limpa; o arquivo original fica intacto.
+- **Tirar o vento** e **tirar estalos de boca**: no mesmo menu (clique direito → *Limpar o áudio (tirar ruído)*).
+  *Tirar o vento* abaixa as rajadas graves e liga um filtro que só age enquanto venta; *Tirar estalos de boca* acha os
+  cliques de saliva e lábios e preenche o buraco com o som de antes e de depois; *Tirar ruído, vento e estalos* faz tudo
+  junto. Com vento forte, parte dos graves de uma voz grave também cai.
 - **Equalizador** de graves, médios e agudos, com atalhos como "voz mais clara" e "tirar chiado".
 - **Separar a voz da música**: clique direito no áudio (ou no vídeo) → *Separar a voz da música*. A voz vai para a
   trilha de narração e o resto (música, fundo) para uma trilha de música, para baixar, silenciar ou trocar cada parte.
@@ -403,7 +511,9 @@ em quatro níveis de qualidade. Em **Volume**, o som do vídeo inteiro pode sair
 para YouTube, Instagram, TikTok e Spotify; -16 para podcast; -23 para TV), com os picos abaixo de -1 dB: não sai baixo
 nem é abaixado (e distorcido) pela plataforma. Dá para exportar só um trecho ou salvar o quadro atual como imagem.
 Em **Exportar em vários formatos de uma vez**, marque YouTube (16:9), Reels/TikTok/Shorts (9:16), feed (4:5),
-quadrado e um GIF curto, e o Lumiar gera todos em sequência. Durante a exportação, **Continuar editando** fecha a
+quadrado e um GIF curto, e o Lumiar gera todos em sequência, com o formato no fim do nome (`Meu vídeo - 9x16.mp4`).
+Quando a proporção muda, **Seguir o rosto** (padrão) preenche a tela e acompanha quem aparece, como no "Converter para
+vertical"; **Mostrar tudo** mantém a imagem inteira com as sobras desfocadas. Durante a exportação, **Continuar editando** fecha a
 janela e o progresso fica num cantinho da tela; novas exportações entram na fila.
 
 ![Janela de exportação](docs/screenshots/exportar.jpg)
@@ -511,6 +621,20 @@ Outros comandos:
 | `npm run dist:linux` | Gera o AppImage e o .deb em `release/` (precisa rodar num Linux ou no WSL) |
 | `npm run dist:mac` | Gera o .dmg e o .zip (chip da Apple e Intel) em `release/` (precisa rodar num Mac) |
 | `npm run typecheck` | Confere os tipos do TypeScript |
+| `npm test` | Roda os testes da lógica (vitest) |
+| `npm run e2e` | Abre o Lumiar de verdade (Electron) e clica nele: testes de ponta a ponta |
+
+**Testes de ponta a ponta**: `npm run e2e` compila uma cópia do app em `.tmp-e2e/app` e abre o Lumiar de verdade, com
+uma pasta de dados vazia só para o teste (não mexe no seu Lumiar instalado nem nos seus projetos). Os testes ficam em
+`e2e/` e usam o [Playwright](https://playwright.dev): abrem o projeto de exemplo, arrastam o cursor pela régua,
+importam um vídeo, aplicam um filtro e um pacote, mexem no mixer, usam o slip, o slide e o roll, mudam um atalho, abrem
+a galeria sem internet, estabilizam, pré-renderizam, trocam o idioma e exportam um trecho curto. Para rodar só um
+arquivo: `npm run e2e -- trim`. Para repetir sem compilar de novo: `LUMIAR_E2E_SKIP_BUILD=1 npm run e2e`. Quando um
+teste falha, a imagem da tela e o passo a passo ficam em `.tmp-e2e/resultados`.
+
+**Verificação automática**: a cada push e pull request, o GitHub confere os tipos, roda os testes e compila no Windows,
+no Linux e no macOS (`.github/workflows/verificar.yml`). Os testes de ponta a ponta rodam só no computador, porque
+precisam de placa de vídeo.
 
 ## Como ele funciona por dentro
 

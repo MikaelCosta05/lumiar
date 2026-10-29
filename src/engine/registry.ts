@@ -92,6 +92,11 @@ export function getPlugin(id: string): ShaderPlugin | undefined {
   return byId.get(id);
 }
 
+/** Efeito do próprio editor (ex.: corrigir o olhar): o renderizador acha pelo id, mas ele não aparece nas bibliotecas. */
+export function registerBuiltinPlugin(plugin: ShaderPlugin): void {
+  byId.set(plugin.id, plugin);
+}
+
 // ---------------------------------------------------------------- Efeitos criados no editor
 
 const listeners = new Set<() => void>();

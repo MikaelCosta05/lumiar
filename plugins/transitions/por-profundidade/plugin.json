@@ -1,0 +1,12 @@
+{
+  "name": "Por profundidade",
+  "description": "O próximo clipe aparece primeiro no fundo, no que está mais longe, e vem avançando até a frente, como uma névoa que atravessa a cena (a IA calcula a profundidade).",
+  "category": "Criativas",
+  "params": [
+    { "id": "sentido", "label": "Sentido (0 = do fundo para a frente, 1 = da frente para o fundo)", "type": "float", "default": 0, "min": 0, "max": 1, "step": 1 },
+    { "id": "suavidade", "label": "Suavidade", "type": "float", "default": 0.12, "min": 0.02, "max": 0.5 },
+    { "id": "cor", "label": "Cor da frente", "type": "color", "default": "#bfe4ff" },
+    { "id": "brilho", "label": "Brilho da frente", "type": "float", "default": 0.5, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "pessoa"
+}

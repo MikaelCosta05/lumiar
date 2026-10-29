@@ -97,6 +97,7 @@ import { missingMediaText, useProjectFiles } from './app/useProjectFiles';
 import { useProxies } from './app/useProxies';
 import { useVoice } from './app/useVoice';
 import { visualTools } from './app/visualTools';
+import { loopTools } from './app/loopTools';
 import { stabilizeTools } from './app/stabilizeTools';
 import { getPlugin } from './engine/registry';
 import { t } from './i18n';
@@ -180,7 +181,11 @@ import { type Selection } from './ui/selection';
 import { Timeline, type MediaDropTarget, type TimelineTarget } from './ui/Timeline';
 import { MixerPanel } from './ui/Mixer';
 import { useHistory } from './ui/useHistory';
+import { ProjectVersions } from './ui/ProjectVersions';
+import { openVersion } from './project/versions';
 import { ObjectPicker } from './ui/ObjectPicker';
+import { GazeFixer } from './ui/GazeFixer';
+import { TrackingTools } from './ui/TrackingTools';
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -315,6 +320,7 @@ export default function App() {
   const audio = audioTools(ctx);
   const multicam = multicamTools(ctx);
   const visual = visualTools(ctx);
+  const loops = loopTools(ctx);
   const follow = cameraFollowTools(ctx, setPicking);
   const stabilizer = stabilizeTools(ctx);
   const packs = packTools(ctx, audio);
@@ -604,6 +610,8 @@ export default function App() {
     copyFrame: () => void copyFrame(),
     freeze: (id) => void visual.freeze(id),
     reverse: (target) => void visual.reverse(target),
+    seamlessLoop: (id) => loops.seamlessLoop(id),
+    boomerang: (id) => void loops.boomerang(id),
     addMarker: (t) => markHere(t),
     dub: (target) => void voice.startRecording({ ...savedRecordOptions(), dub: target }),
     normalize: (id) => audio.normalizeAudio(id),
@@ -613,7 +621,7 @@ export default function App() {
     beatMontage: (every, fill, t) => void audio.beatMontage(every, fill, t),
     ripple,
     reframeVertical: () => void visual.reframeVertical(),
-    cleanAudio: (target, strength) => void audio.cleanAudio(target, strength),
+    cleanAudio: (target, strength, extra) => void audio.cleanAudio(target, strength, extra),
     makeThumbnail: () => void makeThumbnail(),
     syncAudio: (id) => void audio.syncAudioClip(id),
     matchColor: (id, reference) => void visual.matchColor(id, reference),
@@ -956,6 +964,7 @@ export default function App() {
         onAddMedia={(media) => setProject((p) => addToTimeline(p, [media]))}
         onAddText={addText}
         onAddSound={(sound) => void audio.addSound(sound)}
+        music={{ range: audio.musicRange(), onAdd: (options, start) => audio.addGeneratedMusic(options, start) }}
         onRecordScreen={() => screen.setScreenDialog(true)}
         onScriptAssembly={() => setToolDialog('script')}
         time={time}
@@ -1051,6 +1060,8 @@ export default function App() {
               );
             })()}
           <ObjectPicker project={project} timeline={timeline} time={time} setProject={setProject} notify={notify} />
+          <GazeFixer timeline={timeline} setProject={setProject} notify={notify} />
+          <TrackingTools project={project} timeline={timeline} time={time} setProject={setProject} notify={notify} canvasRef={canvasRef} ripple={ripple} />
 
           {voice.session && (
             <Teleprompter
@@ -1282,7 +1293,7 @@ export default function App() {
           duration={timeline.duration}
           time={time}
           onStart={(settings) => exporting.startExport(settings)}
-          onStartBatch={(jobs) => exporting.startBatchExport(jobs)}
+          onStartBatch={(jobs, reframe) => exporting.startBatchExport(jobs, reframe)}
           onBackground={exporting.exportInBackground}
           onSnapshot={() => {
             exporting.setExportState(null);
@@ -1304,6 +1315,20 @@ export default function App() {
       {toolDialog === 'history' && (
         <HistoryDialog
           entries={history.entries()}
+          named={
+            <ProjectVersions
+              project={project}
+              // A lista de versões vale para todos os passos do desfazer (desfazer não apaga uma versão guardada).
+              onVersions={(versions) => history.rewrite((p) => ({ ...p, versions }))}
+              onOpen={(version) => {
+                if (!confirm(t('Voltar para "{name}"? O projeto atual continua no histórico ({keys} volta).', { name: version.name, keys: keys('Ctrl+Z') }))) return;
+                setProject((p) => openVersion(p, version.id) ?? p);
+                setSelection(null);
+                setToolDialog(null);
+                notify(t('Versão "{name}" aberta. {keys} volta ao que estava antes.', { name: version.name, keys: keys('Ctrl+Z') }));
+              }}
+            />
+          }
           onJump={(steps) => {
             history.jump(steps);
             setToolDialog(null);

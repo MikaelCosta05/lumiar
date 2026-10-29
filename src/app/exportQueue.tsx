@@ -6,12 +6,16 @@ import type { Player } from '../preview/player';
 import type { Project } from '../project/model';
 import { download, type BatchJob, type ExportState } from '../ui/ExportDialog';
 import type { Highlight } from '../ui/ShortsTools';
+import { formatFileName, sameShape } from '../project/reframe';
+import { reframedProject } from './batchReframe';
 
 interface ExportJob {
   label: string;
   project: Project;
   settings: ExportSettings;
   fileName: string;
+  /** Preparar o projeto na hora de exportar (ex.: procurar os rostos para reenquadrar) */
+  prepare?: (onProgress: (fraction: number) => void, signal: AbortSignal) => Promise<Project>;
 }
 
 interface ExportPillState {
@@ -51,7 +55,9 @@ export function useExportQueue(project: Project, playerRef: RefObject<Player | n
       };
       show(t('Preparando'), 0);
       try {
-        const blob = await exportProject(job.project, job.settings, { signal: controller.signal, onProgress: (p) => show(p.stage, p.fraction) });
+        const ready = job.prepare ? await job.prepare((f) => show(t('Procurando os rostos para reenquadrar'), f), controller.signal) : job.project;
+        if (controller.signal.aborted) throw new DOMException(t('Exportação cancelada.'), 'AbortError');
+        const blob = await exportProject(ready, job.settings, { signal: controller.signal, onProgress: (p) => show(p.stage, p.fraction) });
         const url = URL.createObjectURL(blob);
         download(url, job.fileName);
         last = { url, fileName: job.fileName, size: blob.size };
@@ -107,18 +113,24 @@ export function useExportQueue(project: Project, playerRef: RefObject<Player | n
   const startExport = (settings: ExportSettings) =>
     enqueueExports([{ label: FORMAT_INFO[settings.format].label, project, settings, fileName: `${fileBase()}.${FORMAT_INFO[settings.format].extension}` }]);
 
-  /** Vários formatos de uma vez: cada um é o projeto no tamanho do formato, exportado e baixado em sequência. */
-  const startBatchExport = (jobs: BatchJob[]) =>
+  /**
+   * Vários formatos de uma vez: cada um é o projeto no tamanho do formato, exportado e baixado em sequência.
+   * Com `reframe`, os formatos de outra proporção seguem o rosto (como "Converter para vertical");
+   * sem, mostram a imagem inteira com as sobras desfocadas. O formato vai no fim do nome do arquivo.
+   */
+  const startBatchExport = (jobs: BatchJob[], reframe = false) =>
     enqueueExports(
       jobs.map((job) => {
-        const sameShape = Math.abs(job.width / job.height - project.width / project.height) < 0.01;
-        const suffix = job.label.split(' (')[0].toLowerCase().replace(/[^a-z0-9à-ú]+/gi, '-').replace(/-+$/, '');
+        const same = sameShape(job, project);
+        const suffix = job.suffix ?? job.label.split(' (')[0].toLowerCase().replace(/[^a-z0-9à-ú]+/gi, '-').replace(/-+$/, '');
+        const snapshot = project;
         return {
           label: job.label,
           // Proporção diferente: as sobras ficam com a imagem desfocada em vez de barras pretas.
-          project: { ...project, width: job.width, height: job.height, background: sameShape ? project.background : { kind: 'blur' as const, color: project.background.color } },
+          project: { ...project, width: job.width, height: job.height, background: same ? project.background : { kind: 'blur' as const, color: project.background.color } },
+          prepare: reframe && !same ? (onProgress, signal) => reframedProject(snapshot, job.width, job.height, onProgress, signal) : undefined,
           settings: job.settings,
-          fileName: `${fileBase()} - ${suffix}.${FORMAT_INFO[job.settings.format].extension}`,
+          fileName: formatFileName(fileBase(), suffix, FORMAT_INFO[job.settings.format].extension),
         };
       }),
     );

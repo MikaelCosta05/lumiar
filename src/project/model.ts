@@ -12,6 +12,11 @@ import { createPackTrack, packsAt, type ActivePack, type PackTrack } from './pac
 import { createTextTrack, type TextTrack } from './text';
 import type { CursorFx, CursorTrack } from './cursorFx';
 import type { ObjectSelection } from './objectMask';
+import { pinOverlays, type CornerPin } from './cornerPin';
+import { followMask, type MaskFollow } from './maskFollow';
+import { gazeEffect, type GazeCorrection } from './gaze';
+import type { MotionBlurSettings } from './motionBlur';
+import type { ProjectVersion } from './versions';
 
 export type MediaKind = 'video' | 'audio' | 'image';
 
@@ -74,6 +79,8 @@ export interface VideoClip {
   cursorFx?: CursorFx;
   /** Objeto selecionado com cliques (máscara ao longo do clipe); com `use`, substitui a pessoa */
   object?: ObjectSelection;
+  /** Olhar para a câmera: os olhos analisados em cada quadro e a intensidade da correção */
+  gaze?: GazeCorrection;
 }
 
 /** O que aparece onde a mídia não cobre a tela (barras). */
@@ -208,6 +215,8 @@ export interface LayerTransform {
   radius: number;
   /** Forma que recorta a camada (círculo, coração, estrela…) */
   mask?: LayerMask | null;
+  /** A forma acompanha um ponto rastreado ou o objeto selecionado (ver maskFollow.ts) */
+  maskFollow?: MaskFollow | null;
 }
 
 /** Clipe numa trilha de vídeo extra: posição livre na timeline e na tela. */
@@ -221,6 +230,8 @@ export interface OverlayClip extends VideoClip {
   multicam?: boolean;
   /** Grupo de itens que andam juntos */
   group?: string;
+  /** Trocar a tela: desenhada em perspectiva dentro de quatro cantos do vídeo de baixo (ver cornerPin.ts) */
+  cornerPin?: CornerPin;
 }
 
 export interface VideoTrack {
@@ -275,6 +286,10 @@ export interface Project {
   /** Mixer: som da trilha principal (que não tem `muted` próprio) e volume geral (Master) */
   mainMix?: TrackMix & { muted?: boolean };
   masterMix?: { gainDb?: number };
+  /** Desfoque de movimento (ausente = só nos pacotes de câmera, moderado). Ver project/motionBlur.ts. */
+  motionBlur?: MotionBlurSettings;
+  /** Versões nomeadas guardadas dentro do arquivo ("versão do cliente"…). Ver project/versions.ts. */
+  versions?: ProjectVersion[];
 }
 
 export const DEFAULT_TRANSITION_ID = 'transitions/dissolver';
@@ -1076,6 +1091,8 @@ export interface ActiveOverlay {
   active: ActiveClip;
   transform: LayerTransform;
   opacity: number;
+  /** Tela trocada: os quatro cantos na tela neste quadro (0 a 1, y para baixo) */
+  corners?: number[];
 }
 
 export interface FrameState {
@@ -1104,7 +1121,8 @@ function overlaysAt(timeline: TimelineLayout, t: number): ActiveOverlay[] {
 
 /** O que aparece na tela no instante t. */
 export function resolveFrame(project: Project, timeline: TimelineLayout, t: number): FrameState {
-  return { ...resolveMain(project, timeline, t), overlays: overlaysAt(timeline, t), packs: packsAt(project, t) };
+  const main = resolveMain(project, timeline, t);
+  return { ...main, overlays: pinOverlays(overlaysAt(timeline, t), main, project), packs: packsAt(project, t) };
 }
 
 function resolveMain(project: Project, timeline: TimelineLayout, t: number): Omit<FrameState, 'overlays' | 'packs'> {
@@ -1259,7 +1277,10 @@ export function projectNeeds(project: Project): LayerNeeds {
   return joinNeeds(
     ...clips.map(clipNeeds),
     ...project.packTracks.flatMap((t) => t.clips).map((c) => effectNeeds(c.effects)),
-    { person: transitions.some((p) => p && pluginInputs(p).person) || project.textTracks.some((t) => t.clips.some((c) => c.behind)), depth: false },
+    {
+      person: transitions.some((p) => p && pluginInputs(p).person) || project.textTracks.some((t) => t.clips.some((c) => c.behind)),
+      depth: transitions.some((p) => p && pluginInputs(p).depth),
+    },
   );
 }
 
@@ -1268,7 +1289,7 @@ function baseNeeds(state: FrameState, behind: boolean): LayerNeeds {
   const transitionPlugin = state.transition ? getPlugin(state.transition.instance.pluginId) : undefined;
   return joinNeeds(...state.packs.map((p) => effectNeeds(p.clip.effects)), {
     person: behind || (!!transitionPlugin && pluginInputs(transitionPlugin).person),
-    depth: false,
+    depth: !!transitionPlugin && pluginInputs(transitionPlugin).depth,
   });
 }
 
@@ -1310,15 +1331,19 @@ export function toFrameInput(
   behind = false,
 ): FrameInput {
   const base = baseNeeds(state, behind);
-  const layer = (active: ActiveClip | null, extra: LayerNeeds): LayerInput | null => {
+  const layer = (active: ActiveClip | null, extra: LayerNeeds, stretch = false): LayerInput | null => {
     if (!active) return null;
     const { clip, media, length } = active.layout;
     const t = active.clipTime;
     const needs = joinNeeds(clipNeeds(clip), extra);
     const { mask, depth, ...provided } = provide(active, needs);
     const color = { ...gradeInput(clip.grade), lut: lutInput(luts, clip.lut) };
-    const { effects, filter } = resolveLook(clip, t);
+    const look = resolveLook(clip, t);
     const camera = clip.camera ? { ...evaluateCamera(clip.camera, t, active.sourceTime), fill: clip.camera.fill } : null;
+    // Olhar para a câmera: corrige a imagem original, antes dos efeitos do clipe.
+    const gaze = gazeEffect(clip, media, active.sourceTime, camera, stretch);
+    const effects = gaze ? [gaze, ...look.effects] : look.effects;
+    const filter = look.filter;
     const sideways = clip.turn === 90 || clip.turn === 270;
     return {
       key: clip.id,
@@ -1344,10 +1369,15 @@ export function toFrameInput(
     a: layer(state.a, base),
     b: layer(state.b, base),
     layers: state.overlays.map((o): PlacedLayer => ({
-      ...layer(o.active, NO_NEEDS)!,
+      ...layer(o.active, NO_NEEDS, true)!,
       // A camada é processada "esticada" (a mídia ocupa o quadro todo) e depois posicionada.
       stretch: true,
-      place: { ...o.transform, mask: maskAt(o.transform.mask, o.active.clipTime), opacity: o.opacity },
+      place: {
+        ...o.transform,
+        mask: followMask(maskAt(o.transform.mask, o.active.clipTime), o.transform.maskFollow, o.active.layout.clip, o.active.layout.media, o.active.sourceTime),
+        opacity: o.opacity,
+        corners: o.corners ?? null,
+      },
     })),
     adjust: state.packs.map(({ clip, local, amount }): AdjustInput => ({
       key: `pacote:${clip.id}`,

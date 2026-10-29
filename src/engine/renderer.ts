@@ -30,6 +30,7 @@ import {
   type PluginInputs,
 } from './shaders';
 import type { EffectInstance, FilterInstance, ParamValues, ShaderPlugin } from './types';
+import { screenToLayerMatrix } from './homography';
 
 /** Enquadramento da câmera virtual (ver project/camera.ts). */
 export interface LayerCamera {
@@ -84,6 +85,25 @@ export interface LayerInput {
   matte?: LayerMatte | null;
   /** Correção de cor manual e LUT (depois do filtro) */
   color?: LayerColor | null;
+  /** Desfoque de movimento da câmera (ver project/motionBlur.ts) */
+  motionBlur?: CameraBlur | null;
+}
+
+/**
+ * Desfoque de movimento: a câmera no começo e no fim da exposição do quadro. A imagem é a média
+ * de `samples` vistas espalhadas entre as duas (o borrão segue o movimento e cresce com a velocidade).
+ */
+export interface CameraBlur {
+  from: LayerCamera;
+  to: LayerCamera;
+  samples: number;
+}
+
+/** Desfoque de movimento de uma camada sobreposta que anda na tela (posição, tamanho e giro). */
+export interface PlaceBlur {
+  from: Pick<LayerPlacement, 'x' | 'y' | 'scale' | 'rotation'>;
+  to: Pick<LayerPlacement, 'x' | 'y' | 'scale' | 'rotation'>;
+  samples: number;
 }
 
 export interface LayerMatte {
@@ -126,10 +146,13 @@ export interface LayerPlacement {
   chroma: { color: string; similarity: number; smoothness: number } | null;
   radius: number;
   mask?: LayerMask | null;
+  /** Tela trocada: a camada é desenhada em perspectiva dentro destes cantos (tela, 0 a 1, y para baixo); x/y/scale/rotation não valem */
+  corners?: number[] | null;
 }
 
 export interface PlacedLayer extends LayerInput {
   place: LayerPlacement;
+  placeBlur?: PlaceBlur | null;
 }
 
 export interface TransitionInput {
@@ -153,6 +176,8 @@ export interface AdjustInput {
   camera: LayerCamera | null;
   /** 0 a 1: mistura com a imagem sem o pacote (intensidade e entrada/saída suaves). */
   amount: number;
+  /** Desfoque de movimento da câmera do pacote */
+  motionBlur?: CameraBlur | null;
 }
 
 export interface FrameInput {
@@ -538,6 +563,18 @@ export class Renderer {
     setUniform(gl, p, 'uCenter', [place.x, place.y]);
     setUniform(gl, p, 'uSize', [fitW * place.scale, fitH * place.scale]);
     setUniform(gl, p, 'uAngle', (place.rotation * Math.PI) / 180);
+    // Desfoque de movimento: o shader tira a média das posições entre o começo e o fim da exposição.
+    const blur = layer.placeBlur && layer.placeBlur.samples > 1 ? layer.placeBlur : null;
+    if (blur) {
+      setUniform(gl, p, 'uCenter', [blur.from.x, blur.from.y]);
+      setUniform(gl, p, 'uSize', [fitW * blur.from.scale, fitH * blur.from.scale]);
+      setUniform(gl, p, 'uAngle', (blur.from.rotation * Math.PI) / 180);
+    }
+    const end = blur?.to ?? place;
+    setUniform(gl, p, 'uCenter2', [end.x, end.y]);
+    setUniform(gl, p, 'uSize2', [fitW * end.scale, fitH * end.scale]);
+    setUniform(gl, p, 'uAngle2', (end.rotation * Math.PI) / 180);
+    setUniform(gl, p, 'uSamples', blur ? Math.min(32, blur.samples) : 1);
     setUniform(gl, p, 'uRatio', this.width / this.height);
     setUniform(gl, p, 'uOpacity', Math.min(1, Math.max(0, place.opacity)));
     setUniform(gl, p, 'uRadius', Math.min(0.5, Math.max(0, place.radius)));
@@ -557,6 +594,10 @@ export class Renderer {
     }
     setUniform(gl, p, 'uMaskRect', mask ? [mask.x, mask.y, mask.width, mask.height] : [0.5, 0.5, 1, 1]);
     setUniform(gl, p, 'uMaskSoft', mask ? [mask.feather * 0.5, mask.invert ? 1 : 0] : [0, 0]);
+    // Tela trocada: cada pixel da tela volta para o ponto da camada pela homografia inversa.
+    const pin = place.corners ? screenToLayerMatrix(place.corners) : null;
+    setUniform(gl, p, 'uPin', pin ? 1 : 0);
+    if (pin) gl.uniformMatrix3fv(gl.getUniformLocation(p.program, 'uPinInverse'), false, pin);
     gl.enable(gl.BLEND);
     // Alfa pré-multiplicado: cada modo é só uma combinação diferente com o fundo.
     if (place.blend === 'screen') gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_COLOR);
@@ -930,6 +971,7 @@ export class Renderer {
       effects: [],
       filter: null,
       camera: adjust.camera && { ...adjust.camera, fill: false },
+      motionBlur: adjust.motionBlur,
       stretch: true,
       flipY: true,
     };
@@ -950,9 +992,12 @@ export class Renderer {
     setUniform(gl, this.sourceProgram, 'uTexture', 0);
     setUniform(gl, this.sourceProgram, 'uScale', layer.stretch ? [1, 1] : this.fitScale(layer.width, layer.height));
     setUniform(gl, this.sourceProgram, 'uRatio', this.width / this.height);
-    setUniform(gl, this.sourceProgram, 'uCamera', cam
-      ? [cam.x, cam.y, Math.max(0.05, cam.zoom), (cam.rotation * Math.PI) / 180]
-      : [0.5, 0.5, 1, 0]);
+    const view = (c: LayerCamera | null | undefined) => (c ? [c.x, c.y, Math.max(0.05, c.zoom), (c.rotation * Math.PI) / 180] : [0.5, 0.5, 1, 0]);
+    // Desfoque de movimento: média das vistas entre a câmera do começo e a do fim da exposição.
+    const blur = cam && layer.motionBlur && layer.motionBlur.samples > 1 ? layer.motionBlur : null;
+    setUniform(gl, this.sourceProgram, 'uCamera', view(blur ? blur.from : cam));
+    setUniform(gl, this.sourceProgram, 'uCamera2', view(blur ? blur.to : cam));
+    setUniform(gl, this.sourceProgram, 'uSamples', blur ? Math.min(32, blur.samples) : 1);
     setUniform(gl, this.sourceProgram, 'uFill', cam?.fill ? 1 : 0);
     setUniform(gl, this.sourceProgram, 'uTurn', Math.round(((layer.turn ?? 0) % 360) / 90));
     setUniform(gl, this.sourceProgram, 'uFlip', [layer.flipX ? 1 : 0, layer.flipY ? 1 : 0]);
@@ -1048,10 +1093,13 @@ export class Renderer {
       const st = step?.st;
       this.bindTexture(4, st?.state?.[st.read].texture ?? this.blank);
       this.bindTexture(5, st?.last ? this.small[2].texture : this.blank);
-      for (const [name, unit] of [['uFrom', 0], ['uTo', 1], ['uFromPerson', 2], ['uToPerson', 3], ['uState', 4], ['uMotion', 5]] as const) {
+      this.bindTexture(6, fromCtx.depth?.texture ?? this.blank);
+      this.bindTexture(7, toCtx.depth?.texture ?? this.blank);
+      for (const [name, unit] of [['uFrom', 0], ['uTo', 1], ['uFromPerson', 2], ['uToPerson', 3], ['uState', 4], ['uMotion', 5], ['uFromDepth', 6], ['uToDepth', 7]] as const) {
         setUniform(gl, program, name, unit);
       }
       setUniform(gl, program, 'uHasPerson', [fromCtx.person ? 1 : 0, toCtx.person ? 1 : 0]);
+      setUniform(gl, program, 'uHasDepth', [fromCtx.depth ? 1 : 0, toCtx.depth ? 1 : 0]);
       setUniform(gl, program, 'uFresh', step?.mode === 'fresh' ? 1 : 0);
       setUniform(gl, program, 'uMotionScale', [32 / this.smallWidth, 32 / this.smallHeight]);
       setUniform(gl, program, 'progress', progress);
@@ -1067,7 +1115,7 @@ export class Renderer {
     }
     run(compiled, this.screen);
     if (step?.st.last) this.copyTarget(to, step.st.last);
-    for (let unit = 1; unit <= 5; unit++) this.bindTexture(unit, null);
+    for (let unit = 1; unit <= 7; unit++) this.bindTexture(unit, null);
     return true;
   }
 

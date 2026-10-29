@@ -55,7 +55,9 @@ import { loadSegmenter, segmentFrame } from './segment';
 import { objectMaskAt, usesObjectMask } from './objectSelect';
 import { depthFrameNow } from './depthVideo';
 import { hasBehindText } from '../project/text';
-import { drawTexts } from './textRender';
+import { drawTextsWithMotionBlur } from './textMotionBlur';
+import { ExportLooper, type ExportLoop } from './exportLoop';
+import { addMotionBlur } from '../project/motionBlur';
 import { loadWorld } from './mapRender';
 import { LOUDNESS_TARGETS, normalizeLoudness, type LoudnessTarget } from './loudness';
 import { prepareSpectra } from './spectrum';
@@ -80,6 +82,8 @@ export interface ExportSettings {
   range: { start: number; end: number } | null;
   /** Volume no padrão de uma plataforma (LUFS); ausente = como está */
   loudness?: LoudnessTarget;
+  /** Loop perfeito ou boomerang (GIF, Reels); ausente = normal. Ver exportLoop.ts. */
+  loop?: ExportLoop;
 }
 
 export const FORMAT_INFO: Record<ExportFormat, { label: string; extension: string; mime: string; video: boolean; hint: string }> = {
@@ -186,6 +190,9 @@ export async function exportProject(project: Project, settings: ExportSettings, 
   const scaled = { ...project, width, height };
   const canvas = document.createElement('canvas');
   const renderer = new Renderer(canvas, width, height);
+  // Loop perfeito / boomerang: os quadros passam por ele antes de ir para o arquivo (e o som também).
+  const looper = settings.loop && settings.loop !== 'none' && !options.videoOnly ? new ExportLooper(settings.loop, frameCount - warm, fps, width, height) : null;
+  if (looper && audio) audio = looper.audio(audio);
   const textCanvas = document.createElement('canvas');
   const behindCanvas = document.createElement('canvas');
   const needsDepth = projectNeeds(project).depth;
@@ -213,7 +220,7 @@ export async function exportProject(project: Project, settings: ExportSettings, 
           ? new MovOutputFormat({ fastStart: 'in-memory' })
           : new Mp4OutputFormat({ fastStart: 'in-memory' });
     output = new Output({ format, target: new BufferTarget() });
-    videoSource = new CanvasSource(canvas, { codec: videoCodec, bitrate: quality, keyFrameInterval: options.keyFrameInterval });
+    videoSource = new CanvasSource(looper?.canvas ?? canvas, { codec: videoCodec, bitrate: quality, keyFrameInterval: options.keyFrameInterval });
     output.addVideoTrack(videoSource, { frameRate: fps });
   }
 
@@ -252,6 +259,18 @@ export async function exportProject(project: Project, settings: ExportSettings, 
         streams.set(layout.clip.id, sink.samplesAtTimestamps(timestamps.map((t) => Math.max(t, first))));
       }
     }
+
+    /** Grava o quadro `index` do arquivo (a imagem está em `source`; o vídeo lê do canvas ligado a ele). */
+    const emit = async (source: HTMLCanvasElement, index: number) => {
+      if (gifEncoder && readback) {
+        readback.drawImage(source, 0, 0);
+        gifEncoder.addFrame(readback.getImageData(0, 0, width, height).data, 100 / fps);
+        // Deixa a interface respirar: o GIF é codificado aqui mesmo.
+        if (index % 4 === 3) await new Promise((r) => setTimeout(r, 0));
+      } else if (videoSource) {
+        await videoSource.add(index / fps, 1 / fps);
+      }
+    };
 
     for (let k = 0; k < frameCount; k++) {
       throwIfAborted(signal);
@@ -333,8 +352,10 @@ export async function exportProject(project: Project, settings: ExportSettings, 
         project.luts,
         behind,
       );
-      if (behind && drawTexts(behindCanvas, scaled, time, 'behind')) frame.behind = behindCanvas;
-      if (drawTexts(textCanvas, scaled, time)) frame.overlay = textCanvas;
+      // Desfoque de movimento completo: a exposição segue o fps do arquivo.
+      addMotionBlur(frame, project, timeline, time, fps, 'export', { width, height });
+      if (behind && drawTextsWithMotionBlur(behindCanvas, scaled, time, fps, 'export', 'behind')) frame.behind = behindCanvas;
+      if (drawTextsWithMotionBlur(textCanvas, scaled, time, fps, 'export')) frame.overlay = textCanvas;
       // Placa de vídeo parou no meio: sem isso, o arquivo sairia com quadros congelados, sem aviso.
       if (renderer.gl.isContextLost()) {
         frames.forEach((f) => f.close());
@@ -345,17 +366,15 @@ export async function exportProject(project: Project, settings: ExportSettings, 
 
       if (k < warm) {
         // Aquecimento: o quadro só alimenta a memória dos efeitos.
-      } else if (gifEncoder && readback) {
-        readback.drawImage(canvas, 0, 0);
-        gifEncoder.addFrame(readback.getImageData(0, 0, width, height).data, 100 / fps);
-        // Deixa a interface respirar: o GIF é codificado aqui mesmo.
-        if (k % 4 === 3) await new Promise((r) => setTimeout(r, 0));
-      } else if (videoSource) {
-        await videoSource.add((k - warm) / fps, 1 / fps);
+      } else if (looper) {
+        await looper.push(canvas, emit);
+      } else {
+        await emit(canvas, k - warm);
       }
       onProgress?.({ stage: gif ? t('Criando o GIF') : t('Renderizando o vídeo'), fraction: (k + 1) / frameCount });
     }
 
+    if (looper) await looper.finish(emit);
     onProgress?.({ stage: t('Finalizando o arquivo'), fraction: 1 });
     if (gifEncoder) return gifEncoder.finish();
     videoSource!.close();

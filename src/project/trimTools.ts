@@ -120,19 +120,22 @@ function moveEdges(project: Project, layout: TimelineLayout, left: number, right
   const b = layout.clips[right];
   const sa = speedOf(a.clip);
   const sb = speedOf(b.clip);
+  // Uma imagem à direita não tem "começo do arquivo" para voltar: ela cresce (ou encolhe) pelo fim, que na
+  // tela dá no mesmo. Sem isso, o corte antes de uma foto não andava para a esquerda (trimIn já é 0).
+  const still = b.media.kind === 'image';
   // Limites: o arquivo do clipe da esquerda acaba; o da direita começa no 0; nenhum dos dois fica curto demais.
-  const lo = Math.max(minLength(a) - a.length, -b.clip.trimIn / sb);
+  const lo = Math.max(minLength(a) - a.length, still ? -(b.media.duration - b.clip.trimOut) / sb : -b.clip.trimIn / sb);
   const hi = Math.min((a.media.duration - a.clip.trimOut) / sa, b.length - minLength(b));
   const d = limit(delta, lo, hi);
   let next = settleTransitions(project, layout, [left - 1, left, right - 1, right]);
   next = updateClip(next, a.clip.id, (c) => ({ ...c, trimOut: c.trimOut + d * sa }));
-  next = updateClip(next, b.clip.id, (c) => ({ ...c, trimIn: c.trimIn + d * sb }));
+  next = updateClip(next, b.clip.id, (c) => (still ? { ...c, trimOut: c.trimOut - d * sb } : { ...c, trimIn: c.trimIn + d * sb }));
   const ids = layout.clips.slice(left, right + 1).map((l) => l.clip.id);
   return {
     project: followDetachedAudio(project, next, ids),
     delta: d,
     left: { mediaId: a.clip.mediaId, time: a.clip.trimOut + d * sa, edge: 'out' } satisfies TrimFrame,
-    right: { mediaId: b.clip.mediaId, time: b.clip.trimIn + d * sb, edge: 'in' } satisfies TrimFrame,
+    right: { mediaId: b.clip.mediaId, time: still ? b.clip.trimIn : b.clip.trimIn + d * sb, edge: 'in' } satisfies TrimFrame,
   };
 }
 

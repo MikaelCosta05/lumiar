@@ -32,6 +32,7 @@ import type { PluginKind, ShaderPlugin } from '../engine/types';
 import type { MediaItem, MediaKind, Project } from '../project/model';
 import { STICKER_CATEGORIES, STICKERS, TEXT_PRESETS, type TextPreset } from '../project/text';
 import { SOUND_CATEGORIES, SOUNDS, soundUrl, type SoundEffect } from '../media/sfx';
+import { MusicGenerator, type MusicGeneratorProps } from './MusicGenerator';
 import { formatTime } from './format';
 import { CaptionsPanel } from './CaptionsPanel';
 import { TranscriptPanel } from './TranscriptPanel';
@@ -108,6 +109,8 @@ interface LibraryProps {
   onAddText: (preset: TextPreset) => void;
   /** Efeito sonoro: clique põe no cursor */
   onAddSound: (sound: SoundEffect) => void;
+  /** Gerar música (no topo da aba Sons) */
+  music?: MusicGeneratorProps;
   /** Gravar a tela (e a webcam) */
   onRecordScreen: () => void;
   /** Montar o vídeo pelo roteiro (aba Texto) */
@@ -141,7 +144,7 @@ export function Library(props: LibraryProps) {
       ) : tab === 'stickers' ? (
         <StickerList onAdd={onAddText} />
       ) : tab === 'sounds' ? (
-        <SoundList onAdd={props.onAddSound} />
+        <SoundList onAdd={props.onAddSound} music={props.music} />
       ) : tab === 'voice' ? (
         <VoicePanel {...props.voice} project={project} />
       ) : tab === 'transcript' ? (
@@ -431,7 +434,7 @@ function StickerList({ onAdd }: { onAdd: (preset: TextPreset) => void }) {
 /** Um só player para ouvir os sons da biblioteca. */
 let listening: HTMLAudioElement | null = null;
 
-function SoundList({ onAdd }: { onAdd: (sound: SoundEffect) => void }) {
+function SoundList({ onAdd, music }: { onAdd: (sound: SoundEffect) => void; music?: MusicGeneratorProps }) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
@@ -461,6 +464,7 @@ function SoundList({ onAdd }: { onAdd: (sound: SoundEffect) => void }) {
         hint={t('Sons criados pelo próprio Lumiar, sem internet. ▶ ouve, clique no nome para pôr no cursor ou arraste até uma trilha de áudio.\nOs sons vão para a trilha "Efeitos sonoros".')}
       />
       <div className="space-y-2.5 px-4 pb-3">
+        {music && <MusicGenerator {...music} />}
         <label className="relative block">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
           <input className="field w-full pl-8" placeholder={t('Buscar…')} value={search} onChange={(e) => setSearch(e.target.value)} />
