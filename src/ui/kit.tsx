@@ -205,3 +205,13 @@ export function Kbd({ children }: { children: ReactNode }) {
     </kbd>
   );
 }
+
+/** Interruptor com o texto ao lado (o rótulo aparece, não só no título). */
+export function SwitchRow({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-dim">{label}</span>
+      <Switch checked={checked} onChange={onChange} label={label} />
+    </div>
+  );
+}

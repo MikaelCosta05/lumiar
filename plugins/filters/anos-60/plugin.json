@@ -1,0 +1,24 @@
+{
+  "name": "Anos 60",
+  "description": "Revista dos anos 60: vermelhos de batom, azuis esverdeados e papel cor de creme.",
+  "category": "Retrô",
+  "previewMedia": "pessoa",
+  "params": [
+    {
+      "id": "fade",
+      "label": "Desbotar",
+      "type": "float",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "satAmt",
+      "label": "Saturação",
+      "type": "float",
+      "default": 1.1,
+      "min": 0.5,
+      "max": 1.5
+    }
+  ]
+}

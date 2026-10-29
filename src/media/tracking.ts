@@ -1,5 +1,6 @@
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
 import { assetUrl } from '../assetUrl';
+import { t } from '../i18n';
 import { ALL_FORMATS, BlobSource, CanvasSink, Input } from 'mediabunny';
 import type { TrackPoint } from '../project/camera';
 import type { MediaItem } from '../project/model';
@@ -15,7 +16,11 @@ let detectorClock = 0;
  * O MediaPipe envia estatísticas de uso para o Google (sem opção para desligar).
  * O Lumiar funciona offline e não manda nada para fora: a resposta falsa faz o MediaPipe desistir de enviar.
  */
-function blockTelemetry() {
+let telemetryBlocked = false;
+
+export function blockTelemetry() {
+  if (telemetryBlocked) return;
+  telemetryBlocked = true;
   const original = window.fetch.bind(window);
   window.fetch = (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
@@ -37,7 +42,7 @@ function getFaceDetector(): Promise<FaceDetector> {
 }
 
 /** Quadros do vídeo (reduzidos) em intervalos regulares, para análise. */
-async function* frames(media: MediaItem, from: number, to: number, fps: number, width: number) {
+export async function* videoFrames(media: MediaItem, from: number, to: number, fps: number, width: number) {
   if (media.kind === 'image') {
     const bitmap = assets.bitmaps.get(media.id);
     if (!bitmap) return;
@@ -77,7 +82,7 @@ export async function trackFace(media: MediaItem, from: number, to: number, onPr
   const points: TrackPoint[] = [];
   let last: TrackPoint | null = null;
   let count = 0;
-  for await (const { t, canvas } of frames(media, from, to, fps, 480)) {
+  for await (const { t, canvas } of videoFrames(media, from, to, fps, 480)) {
     detectorClock += 50;
     const result = face.detectForVideo(canvas as HTMLCanvasElement, detectorClock);
     const candidates = result.detections
@@ -175,7 +180,7 @@ export async function trackPoint(
   const width = 320;
   const grays: { t: number; img: Gray }[] = [];
   const total = Math.max(1, Math.ceil((to - from) * fps));
-  for await (const { t, canvas } of frames(media, from, to, fps, width)) {
+  for await (const { t, canvas } of videoFrames(media, from, to, fps, width)) {
     grays.push({ t, img: toGray(canvas) });
     onProgress?.((grays.length / total) * 0.6);
   }
@@ -187,7 +192,7 @@ export async function trackPoint(
   const sx = point.x * ref.width;
   const sy = point.y * ref.height;
   const original = patchAt(ref, sx, sy);
-  if (!original) throw new Error('Escolha um ponto um pouco mais longe da borda da imagem.');
+  if (!original) throw new Error(t('Escolha um ponto um pouco mais longe da borda da imagem.'));
 
   const result = new Map<number, TrackPoint>();
   result.set(startIndex, { t: grays[startIndex].t, x: point.x, y: point.y, size: 0 });
@@ -211,4 +216,102 @@ export async function trackPoint(
     }
   }
   return [...result.entries()].sort((a, b) => a[0] - b[0]).map(([, p]) => p);
+}
+
+// ---------------------------------------------------------------- Todos os rostos (para desfocar)
+
+/** Um rosto acompanhado ao longo do trecho: posição e tamanho da caixa em cada instante. */
+export interface FaceTrack {
+  points: { t: number; x: number; y: number; w: number; h: number }[];
+  /** Miniatura do rosto (para escolher quais desfocar) */
+  thumb: string;
+}
+
+/**
+ * Encontra todos os rostos do trecho e liga cada um ao longo do tempo (o mais perto do quadro
+ * anterior). Rostos que aparecem só num instante (falsos positivos) ficam de fora.
+ */
+export async function trackAllFaces(media: MediaItem, from: number, to: number, onProgress?: Progress): Promise<FaceTrack[]> {
+  const face = await getFaceDetector();
+  const fps = 8;
+  const total = Math.max(1, Math.ceil((to - from) * fps));
+  const tracks: (FaceTrack & { lastT: number })[] = [];
+  let count = 0;
+  for await (const { t, canvas } of videoFrames(media, from, to, fps, 640)) {
+    detectorClock += 50;
+    const result = face.detectForVideo(canvas as HTMLCanvasElement, detectorClock);
+    const boxes = result.detections
+      .map((d) => d.boundingBox)
+      .filter((b): b is NonNullable<typeof b> => !!b)
+      .map((b) => ({ x: (b.originX + b.width / 2) / canvas.width, y: (b.originY + b.height / 2) / canvas.height, w: b.width / canvas.width, h: b.height / canvas.height }));
+    const used = new Set<number>();
+    for (const box of boxes) {
+      // O rastro aberto mais perto (que apareceu há pouco tempo) continua com este rosto.
+      let best = -1;
+      let bestDist = Infinity;
+      tracks.forEach((track, i) => {
+        if (used.has(i) || t - track.lastT > 1) return;
+        const last = track.points[track.points.length - 1];
+        const d = Math.hypot(last.x - box.x, last.y - box.y);
+        if (d < Math.max(0.12, last.w) && d < bestDist) {
+          best = i;
+          bestDist = d;
+        }
+      });
+      if (best < 0) {
+        const thumb = document.createElement('canvas');
+        thumb.width = 64;
+        thumb.height = 64;
+        const side = Math.max(box.w * canvas.width, box.h * canvas.height) * 1.3;
+        thumb.getContext('2d')!.drawImage(canvas, box.x * canvas.width - side / 2, box.y * canvas.height - side / 2, side, side, 0, 0, 64, 64);
+        tracks.push({ points: [], thumb: thumb.toDataURL('image/jpeg', 0.8), lastT: t });
+        best = tracks.length - 1;
+      }
+      used.add(best);
+      tracks[best].points.push({ t, ...box });
+      tracks[best].lastT = t;
+    }
+    onProgress?.(++count / total);
+  }
+  return tracks.filter((track) => track.points.length >= 3).map(({ points, thumb }) => ({ points, thumb }));
+}
+
+// ---------------------------------------------------------------- Mudanças de cena
+
+/**
+ * Onde a cena muda (corte de câmera, troca de plano): compara o histograma de cores de quadros
+ * seguidos e marca os saltos bem maiores que o normal. Devolve instantes do arquivo.
+ */
+export async function detectScenes(media: MediaItem, from: number, to: number, onProgress?: Progress): Promise<number[]> {
+  const fps = 10;
+  const total = Math.max(1, Math.ceil((to - from) * fps));
+  const BINS = 8;
+  const diffs: { t: number; d: number }[] = [];
+  let prev: Float32Array | null = null;
+  let count = 0;
+  for await (const { t, canvas } of videoFrames(media, from, to, fps, 96)) {
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const hist = new Float32Array(BINS * BINS * BINS);
+    const n = data.length / 4;
+    for (let i = 0; i < data.length; i += 4) hist[((data[i] >> 5) * BINS + (data[i + 1] >> 5)) * BINS + (data[i + 2] >> 5)] += 1 / n;
+    if (prev) {
+      let d = 0;
+      for (let k = 0; k < hist.length; k++) d += Math.abs(hist[k] - prev[k]);
+      diffs.push({ t, d: d / 2 });
+    }
+    prev = hist;
+    onProgress?.(++count / total);
+  }
+  // Limite que se adapta ao vídeo: bem acima da variação típica (câmera mexendo, luz mudando).
+  const sorted = diffs.map((x) => x.d).sort((a, b) => a - b);
+  const typical = sorted[Math.floor(sorted.length * 0.5)] ?? 0;
+  const high = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+  const threshold = Math.max(0.35, typical * 6, high * 0.8);
+  const cuts: number[] = [];
+  diffs.forEach((x, i) => {
+    const isPeak = x.d >= (diffs[i - 1]?.d ?? 0) && x.d >= (diffs[i + 1]?.d ?? 0);
+    if (x.d > threshold && isPeak && x.t - (cuts[cuts.length - 1] ?? from) > 0.6 && to - x.t > 0.3) cuts.push(x.t);
+  });
+  return cuts;
 }

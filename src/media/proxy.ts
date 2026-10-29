@@ -10,6 +10,7 @@ import {
   QUALITY_MEDIUM,
   WebMOutputFormat,
 } from 'mediabunny';
+import { t } from '../i18n';
 import type { MediaItem } from '../project/model';
 
 /**
@@ -45,11 +46,11 @@ export async function makeProxy(media: MediaItem, onProgress?: (fraction: number
       video: { ...size, codec: avc ? 'avc' : 'vp9', quality: QUALITY_MEDIUM, keyFrameInterval: 0.5, forceTranscode: true },
       showWarnings: false,
     });
-    if (!conversion.isValid) throw new Error('não foi possível converter este vídeo');
+    if (!conversion.isValid) throw new Error(t('não foi possível converter este vídeo'));
     conversion.onProgress = (progress) => onProgress?.(progress);
     await conversion.execute();
     const buffer = output.target.buffer;
-    if (!buffer) throw new Error('a cópia saiu vazia');
+    if (!buffer) throw new Error(t('a cópia saiu vazia'));
     return URL.createObjectURL(new Blob([buffer], { type: avc ? 'video/mp4' : 'video/webm' }));
   } finally {
     input.dispose();

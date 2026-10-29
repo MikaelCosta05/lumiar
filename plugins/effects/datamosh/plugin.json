@@ -1,0 +1,11 @@
+{
+  "name": "Datamosh",
+  "description": "Os pixels não se renovam: a imagem escorre e se arrasta junto com o movimento, como num vídeo corrompido (visual de clipe de rap).",
+  "category": "Tempo",
+  "params": [
+    { "id": "forca", "label": "Quanto escorre", "type": "float", "default": 0.93, "min": 0.5, "max": 1 },
+    { "id": "amplificar", "label": "Exagerar o movimento", "type": "float", "default": 1.6, "min": 0.5, "max": 4 },
+    { "id": "blocos", "label": "Blocos", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "cores", "label": "Cores estouradas", "type": "float", "default": 0.3, "min": 0, "max": 1 }
+  ]
+}

@@ -1,4 +1,25 @@
+import { t } from '../i18n';
+
 export class ShaderError extends Error {}
+
+/** O navegador (ou a placa de vídeo) não oferece WebGL2: o editor não tem como desenhar. */
+export class WebGL2Unavailable extends Error {
+  constructor() {
+    super(t('Seu navegador não suporta WebGL2.'));
+  }
+}
+
+/** Testa se dá para criar um contexto WebGL2 (num canvas descartável, liberado logo em seguida). */
+export function hasWebGL2(): boolean {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) return false;
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface RenderTarget {
   texture: WebGLTexture;
@@ -20,7 +41,7 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const log = gl.getShaderInfoLog(shader) ?? 'erro desconhecido';
+    const log = gl.getShaderInfoLog(shader) ?? t('erro desconhecido');
     gl.deleteShader(shader);
     throw new ShaderError(log);
   }
@@ -47,7 +68,7 @@ export function compileProgram(
   gl.deleteShader(vs);
   gl.deleteShader(fs);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const log = gl.getProgramInfoLog(program) ?? 'erro desconhecido';
+    const log = gl.getProgramInfoLog(program) ?? t('erro desconhecido');
     gl.deleteProgram(program);
     throw new ShaderError(log);
   }
@@ -88,6 +109,8 @@ export function setUniform(
     case gl.INT:
     case gl.BOOL:
     case gl.SAMPLER_2D:
+    case gl.SAMPLER_3D:
+    case gl.SAMPLER_2D_ARRAY:
       gl.uniform1i(info.location, Math.round(v[0] ?? 0));
       break;
   }

@@ -7,6 +7,9 @@ export type Selection =
   | { kind: 'transition'; index: number }
   | null;
 
+/** Um item na seleção de vários itens da timeline. */
+export type MultiItem = { kind: 'clip' | 'audio' | 'text' | 'overlay' | 'pack'; id: string };
+
 /** Tipo usado ao arrastar um efeito/transição/filtro da biblioteca para a timeline. */
 export const PLUGIN_MIME = 'application/x-lumiar-plugin';
 /** Tipo usado ao arrastar uma mídia da biblioteca para a timeline. */

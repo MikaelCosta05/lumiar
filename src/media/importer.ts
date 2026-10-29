@@ -16,6 +16,7 @@ import {
 } from 'mediabunny';
 import { IMAGE_MAX_DURATION, uid, type MediaItem, type MediaKind } from '../project/model';
 import { assets, PEAKS_PER_SECOND } from './assets';
+import { t } from '../i18n';
 
 const VIDEO_EXT = /\.(mp4|mov|webm|mkv|m4v)$/i;
 const AUDIO_EXT = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus)$/i;
@@ -39,16 +40,16 @@ export async function importMedia(file: File): Promise<MediaItem> {
     if (video) return { ...(await importMedia(video)), name: file.name };
   }
   if (kind === 'image') return importImage(file);
-  if (!kind) throw new Error(`"${file.name}" não é um vídeo, áudio ou imagem suportado.`);
+  if (!kind) throw new Error(t('"{name}" não é um vídeo, áudio ou imagem suportado.', { name: file.name }));
 
   const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
   try {
     const video = await input.getPrimaryVideoTrack();
     const audio = await input.getPrimaryAudioTrack();
-    if (!video && !audio) throw new Error(`"${file.name}" não tem vídeo nem áudio.`);
+    if (!video && !audio) throw new Error(t('"{name}" não tem vídeo nem áudio.', { name: file.name }));
     const track = video ?? audio!;
     if (!(await track.canDecode())) {
-      throw new Error(`O navegador não consegue ler "${file.name}" (codec: ${track.codec ?? 'desconhecido'}).`);
+      throw new Error(t('O navegador não consegue ler "{name}" (codec: {codec}).', { name: file.name, codec: track.codec ?? t('desconhecido') }));
     }
     const base = {
       id: uid(),

@@ -1,17 +1,18 @@
+import { t } from '../i18n';
 import type { VoiceEffect } from '../project/model';
 
 export const VOICE_EFFECTS: { id: VoiceEffect; label: string; hint: string }[] = [
-  { id: 'none', label: 'Nenhum', hint: 'Som original' },
-  { id: 'clean', label: 'Voz limpa', hint: 'Tira o grave do ambiente, dá presença e equilibra o volume (podcast)' },
-  { id: 'phone', label: 'Telefone', hint: 'Só os médios, como numa ligação' },
-  { id: 'radio', label: 'Rádio', hint: 'Rádio AM antigo, um pouco saturado' },
-  { id: 'megaphone', label: 'Megafone', hint: 'Estourado e anasalado' },
-  { id: 'echo', label: 'Eco', hint: 'Repetições que vão sumindo' },
-  { id: 'cave', label: 'Caverna', hint: 'Reverberação longa, como num salão grande' },
-  { id: 'robot', label: 'Robô', hint: 'Voz metálica de robô' },
-  { id: 'underwater', label: 'Debaixo d’água', hint: 'Abafado e distante' },
-  { id: 'deep', label: 'Monstro', hint: 'Voz bem grave (sem mudar a velocidade)' },
-  { id: 'chipmunk', label: 'Esquilo', hint: 'Voz bem aguda (sem mudar a velocidade)' },
+  { id: 'none', label: t('Nenhum'), hint: t('Som original') },
+  { id: 'clean', label: t('Voz limpa'), hint: t('Tira o grave do ambiente, dá presença e equilibra o volume (podcast)') },
+  { id: 'phone', label: t('Telefone'), hint: t('Só os médios, como numa ligação') },
+  { id: 'radio', label: t('Rádio'), hint: t('Rádio AM antigo, um pouco saturado') },
+  { id: 'megaphone', label: t('Megafone'), hint: t('Estourado e anasalado') },
+  { id: 'echo', label: t('Eco'), hint: t('Repetições que vão sumindo') },
+  { id: 'cave', label: t('Caverna'), hint: t('Reverberação longa, como num salão grande') },
+  { id: 'robot', label: t('Robô'), hint: t('Voz metálica de robô') },
+  { id: 'underwater', label: t('Debaixo d’água'), hint: t('Abafado e distante') },
+  { id: 'deep', label: t('Monstro'), hint: t('Voz bem grave (sem mudar a velocidade)') },
+  { id: 'chipmunk', label: t('Esquilo'), hint: t('Voz bem aguda (sem mudar a velocidade)') },
 ];
 
 export interface VoiceChain {
@@ -241,4 +242,31 @@ function pitchShifter(ctx: BaseAudioContext, offset: number) {
   mod2.start(t2);
   fade2.start(t2);
   return { input, output, sources: [mod1, mod2, fade1, fade2] };
+}
+
+/** Equalizador de 3 faixas (graves, médios, agudos). null se está tudo em 0 dB. */
+export function buildEq(ctx: BaseAudioContext, eq: { low: number; mid: number; high: number } | undefined): VoiceChain | null {
+  if (!eq || (Math.abs(eq.low) < 0.1 && Math.abs(eq.mid) < 0.1 && Math.abs(eq.high) < 0.1)) return null;
+  const band = (type: BiquadFilterType, frequency: number, gain: number, Q = 0.8) => {
+    const f = ctx.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = frequency;
+    f.gain.value = gain;
+    f.Q.value = Q;
+    return f;
+  };
+  const low = band('lowshelf', 200, eq.low);
+  const mid = band('peaking', 1200, eq.mid);
+  const high = band('highshelf', 4500, eq.high);
+  low.connect(mid).connect(high);
+  return { input: low, output: high, stop: () => {} };
+}
+
+/** Efeito de voz seguido do equalizador (cada um pode faltar). */
+export function buildAudioChain(ctx: BaseAudioContext, voice: VoiceEffect | undefined, eq: { low: number; mid: number; high: number } | undefined): VoiceChain | null {
+  const a = buildVoiceChain(ctx, voice);
+  const b = buildEq(ctx, eq);
+  if (!a || !b) return a ?? b;
+  a.output.connect(b.input);
+  return { input: a.input, output: b.output, stop: a.stop };
 }

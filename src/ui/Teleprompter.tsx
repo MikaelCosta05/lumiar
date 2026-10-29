@@ -1,6 +1,39 @@
 import { Square } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { VoiceSession } from './VoicePanel';
+import { t } from '../i18n';
+
+/** Volume do microfone acima do qual conta como "falando". */
+const VOICE_LEVEL = 0.06;
+
+/**
+ * Relógio do roteiro. No modo "acompanhar a voz", ele só anda enquanto a pessoa fala (com uma folga
+ * de meio segundo para as pausas entre as palavras): parou de falar, o texto espera.
+ */
+export class PrompterClock {
+  private spoken = 0;
+  private last = 0;
+  private lastVoice = -Infinity;
+
+  constructor(private readonly follow: boolean) {}
+
+  /** Avança até `elapsed` (s desde o começo) com o volume atual; devolve o tempo "de leitura". */
+  tick(elapsed: number, level: number): number {
+    const dt = Math.max(0, Math.min(0.5, elapsed - this.last));
+    this.last = elapsed;
+    if (!this.follow) return elapsed;
+    if (level > VOICE_LEVEL) this.lastVoice = elapsed;
+    if (elapsed - this.lastVoice < 0.5) this.spoken += dt;
+    return this.spoken;
+  }
+}
+
+/** Fração do roteiro já lida, na velocidade de leitura escolhida. */
+export function prompterProgress(script: string, wordsPerMinute: number, readSeconds: number): number {
+  const words = script.trim() ? script.trim().split(/\s+/).length : 0;
+  const readTime = Math.max(1, (words / wordsPerMinute) * 60);
+  return Math.min(1, readSeconds / readTime);
+}
 
 /**
  * Por cima do preview durante a gravação: contagem regressiva grande e o roteiro
@@ -10,13 +43,20 @@ export function Teleprompter({
   session,
   script,
   wordsPerMinute,
+  follow,
   onStop,
 }: {
   session: VoiceSession;
   script: string;
   wordsPerMinute: number;
+  /** Só rolar enquanto a pessoa fala */
+  follow: boolean;
   onStop: () => void;
 }) {
+  const clock = useRef<PrompterClock | null>(null);
+  if (session.phase !== 'recording') clock.current = null;
+  else clock.current ??= new PrompterClock(follow);
+  const read = clock.current ? clock.current.tick(session.elapsed, session.level) : 0;
   const box = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ box: 0, content: 0 });
@@ -26,9 +66,7 @@ export function Teleprompter({
     setSize({ box: box.current?.clientHeight ?? 0, content: content.current?.scrollHeight ?? 0 });
   }, [text]);
 
-  const words = text ? text.split(/\s+/).length : 0;
-  const readTime = Math.max(1, (words / wordsPerMinute) * 60);
-  const progress = session.phase === 'recording' ? Math.min(1, session.elapsed / readTime) : 0;
+  const progress = session.phase === 'recording' ? prompterProgress(text, wordsPerMinute, read) : 0;
   // Começa com a primeira linha no meio da caixa e termina com a última no meio.
   const offset = size.box / 2 - progress * size.content;
 
@@ -63,7 +101,7 @@ export function Teleprompter({
         className="pointer-events-auto flex items-center gap-2 rounded-full bg-danger px-4 py-2 text-sm font-semibold text-white shadow-xl shadow-danger/30 transition hover:brightness-110"
       >
         <span className="size-2 animate-pulse rounded-full bg-white" />
-        {session.phase === 'countdown' ? 'Cancelar' : `${session.mode === 'dub' ? 'Dublando' : 'Gravando'} ${Math.floor(session.elapsed)}s`}
+        {session.phase === 'countdown' ? t('Cancelar') : `${session.mode === 'dub' ? t('Dublando') : t('Gravando')} ${Math.floor(session.elapsed)}s`}
         <Square size={12} fill="currentColor" />
       </button>
     </div>

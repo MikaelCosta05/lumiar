@@ -23,8 +23,12 @@ import {
   type VideoSample,
 } from 'mediabunny';
 import { Renderer, type LayerInput } from '../engine/renderer';
+import { t } from '../i18n';
 import {
   clipLength,
+  fadeGain,
+  volumeAt,
+  type AudioClip,
   DUCK_RAMP,
   getMedia,
   voiceIntervals,
@@ -33,6 +37,9 @@ import {
   resolveFrame,
   speedOf,
   toFrameInput,
+  frameNeeds,
+  projectNeeds,
+  type ActiveClip,
   type FrameState,
   type MediaItem,
   type Project,
@@ -42,8 +49,16 @@ import {
 import { assets } from './assets';
 import { loadFonts } from './fonts';
 import { GifEncoder } from './gif';
-import { buildVoiceChain } from './voiceFx';
+import { buildAudioChain } from './voiceFx';
+import { buildMixBus } from './mixGraph';
+import { loadSegmenter, segmentFrame } from './segment';
+import { objectMaskAt, usesObjectMask } from './objectSelect';
+import { depthFrameNow } from './depthVideo';
+import { hasBehindText } from '../project/text';
 import { drawTexts } from './textRender';
+import { loadWorld } from './mapRender';
+import { LOUDNESS_TARGETS, normalizeLoudness, type LoudnessTarget } from './loudness';
+import { prepareSpectra } from './spectrum';
 
 export interface ExportProgress {
   stage: string;
@@ -63,15 +78,17 @@ export interface ExportSettings {
   quality: ExportQuality;
   /** Trecho da timeline (s). null = tudo. */
   range: { start: number; end: number } | null;
+  /** Volume no padrão de uma plataforma (LUFS); ausente = como está */
+  loudness?: LoudnessTarget;
 }
 
 export const FORMAT_INFO: Record<ExportFormat, { label: string; extension: string; mime: string; video: boolean; hint: string }> = {
-  mp4: { label: 'MP4', extension: 'mp4', mime: 'video/mp4', video: true, hint: 'H.264 · abre em qualquer lugar' },
-  webm: { label: 'WebM', extension: 'webm', mime: 'video/webm', video: true, hint: 'VP9 · ótimo para a web' },
-  mov: { label: 'MOV', extension: 'mov', mime: 'video/quicktime', video: true, hint: 'H.264 · para editores e Apple' },
-  gif: { label: 'GIF', extension: 'gif', mime: 'image/gif', video: true, hint: 'Animação sem som, em loop' },
-  wav: { label: 'WAV', extension: 'wav', mime: 'audio/wav', video: false, hint: 'Só o áudio, sem perdas' },
-  m4a: { label: 'M4A', extension: 'm4a', mime: 'audio/mp4', video: false, hint: 'Só o áudio, compactado (AAC)' },
+  mp4: { label: 'MP4', extension: 'mp4', mime: 'video/mp4', video: true, hint: t('H.264 · abre em qualquer lugar') },
+  webm: { label: 'WebM', extension: 'webm', mime: 'video/webm', video: true, hint: t('VP9 · ótimo para a web') },
+  mov: { label: 'MOV', extension: 'mov', mime: 'video/quicktime', video: true, hint: t('H.264 · para editores e Apple') },
+  gif: { label: 'GIF', extension: 'gif', mime: 'image/gif', video: true, hint: t('Animação sem som, em loop') },
+  wav: { label: 'WAV', extension: 'wav', mime: 'audio/wav', video: false, hint: t('Só o áudio, sem perdas') },
+  m4a: { label: 'M4A', extension: 'm4a', mime: 'audio/mp4', video: false, hint: t('Só o áudio, compactado (AAC)') },
 };
 
 const QUALITIES: Record<ExportQuality, Quality> = {
@@ -84,6 +101,12 @@ const QUALITIES: Record<ExportQuality, Quality> = {
 export interface ExportOptions {
   onProgress?: (progress: ExportProgress) => void;
   signal?: AbortSignal;
+  /** Só a imagem, sem mixar o som (pré-renderização do preview) */
+  videoOnly?: boolean;
+  /** Um quadro-chave a cada quantos segundos (menos = pular dentro do vídeo fica mais rápido). Padrão: 2 s. */
+  keyFrameInterval?: number;
+  /** Segundos renderizados antes do trecho só para os efeitos que lembram do passado chegarem "andando" (não entram no arquivo). */
+  warmup?: number;
 }
 
 /**
@@ -105,10 +128,10 @@ export function outputSize(project: Project, short: number | null): { width: num
 export async function exportProject(project: Project, settings: ExportSettings, options: ExportOptions = {}): Promise<Blob> {
   const { onProgress, signal } = options;
   const timeline = layoutProject(project);
-  if (timeline.duration <= 0) throw new Error('A timeline está vazia.');
+  if (timeline.duration <= 0) throw new Error(t('A timeline está vazia.'));
   const start = Math.max(0, settings.range?.start ?? 0);
   const end = Math.min(timeline.duration, settings.range?.end ?? timeline.duration);
-  if (end - start < 0.05) throw new Error('O trecho escolhido é curto demais.');
+  if (end - start < 0.05) throw new Error(t('O trecho escolhido é curto demais.'));
   const info = FORMAT_INFO[settings.format];
 
   if (!info.video) return exportAudioOnly(project, timeline, settings, start, end, options);
@@ -122,17 +145,24 @@ export async function exportProject(project: Project, settings: ExportSettings, 
   if (!gif) {
     const candidates: VideoCodec[] = settings.format === 'webm' ? ['vp9', 'vp8', 'av1'] : ['avc', 'hevc'];
     const found = await firstSupported(candidates, (c) => canEncodeVideo(c, { width, height, bitrate: quality }));
-    if (!found) throw new Error(`Este navegador não consegue gerar ${info.label} em ${width}×${height}.`);
+    if (!found) throw new Error(t('Este navegador não consegue gerar {format} em {width}×{height}.', { format: info.label, width, height }));
     videoCodec = found;
   }
 
   // 1. Quais instantes de cada vídeo serão necessários, quadro a quadro.
-  const frameCount = Math.max(1, Math.round((end - start) * fps));
+  // Os quadros de aquecimento (antes do trecho) só são renderizados, não gravados.
+  const warm = Math.round(Math.max(0, Math.min(options.warmup ?? 0, start)) * fps);
+  const warmStart = start - warm / fps;
+  const frameCount = warm + Math.max(1, Math.round((end - start) * fps));
   const states: FrameState[] = [];
   const timestampsByClip = new Map<string, number[]>();
   const firstTimeByClip = new Map<string, number>();
+  // Fundo removido e efeitos na pessoa: o modelo de recorte precisa estar pronto antes do primeiro quadro.
+  const masks = new Map<string, HTMLCanvasElement>();
+  const depths = new Map<string, HTMLCanvasElement>();
+  if (projectNeeds(project).person) await loadSegmenter();
   for (let k = 0; k < frameCount; k++) {
-    const state = resolveFrame(project, timeline, start + k / fps);
+    const state = resolveFrame(project, timeline, warmStart + k / fps);
     states.push(state);
     for (const active of visibleClips(state)) {
       if (active.layout.media.kind !== 'video') continue;
@@ -145,9 +175,10 @@ export async function exportProject(project: Project, settings: ExportSettings, 
 
   // 2. Todo o áudio mixado (vídeos + trilhas de áudio), recortado no trecho.
   let audio: AudioBuffer | null = null;
-  if (!gif) {
-    onProgress?.({ stage: 'Mixando o áudio', fraction: 0 });
+  if (!gif && !options.videoOnly) {
+    onProgress?.({ stage: t('Mixando o áudio'), fraction: 0 });
     audio = sliceAudio(await mixAudio(project, timeline), start, end);
+    if (audio && settings.loudness && settings.loudness !== 'off') normalizeLoudness(audio, LOUDNESS_TARGETS[settings.loudness].lufs);
     throwIfAborted(signal);
   }
 
@@ -156,7 +187,13 @@ export async function exportProject(project: Project, settings: ExportSettings, 
   const canvas = document.createElement('canvas');
   const renderer = new Renderer(canvas, width, height);
   const textCanvas = document.createElement('canvas');
+  const behindCanvas = document.createElement('canvas');
+  const needsDepth = projectNeeds(project).depth;
   await loadFonts();
+  // Elementos que dependem de dados: mapa-múndi e análise do som.
+  const elements = project.textTracks.flatMap((t) => t.clips).map((c) => c.shape);
+  if (elements.includes('map')) await loadWorld();
+  if (elements.includes('audiowave')) await prepareSpectra(project);
 
   let output: Output | null = null;
   let videoSource: CanvasSource | null = null;
@@ -176,7 +213,7 @@ export async function exportProject(project: Project, settings: ExportSettings, 
           ? new MovOutputFormat({ fastStart: 'in-memory' })
           : new Mp4OutputFormat({ fastStart: 'in-memory' });
     output = new Output({ format, target: new BufferTarget() });
-    videoSource = new CanvasSource(canvas, { codec: videoCodec, bitrate: quality });
+    videoSource = new CanvasSource(canvas, { codec: videoCodec, bitrate: quality, keyFrameInterval: options.keyFrameInterval });
     output.addVideoTrack(videoSource, { frameRate: fps });
   }
 
@@ -256,28 +293,70 @@ export async function exportProject(project: Project, settings: ExportSettings, 
         layerSources.set(clip.id, { source: videoFrame });
       }
 
-      const frame = toFrameInput(state, (active) =>
+      const sourceOf = (active: ActiveClip) =>
         active.layout.media.kind === 'image'
           ? { source: assets.bitmaps.get(active.layout.media.id) ?? null }
-          : (layerSources.get(active.layout.clip.id) ?? { source: null }),
+          : (layerSources.get(active.layout.clip.id) ?? { source: null });
+      // Profundidade (efeitos de céu, foco e neblina): uma por décimo de segundo de cada clipe, esperando a IA.
+      const time = warmStart + k / fps;
+      const behind = hasBehindText(scaled, time);
+      if (needsDepth) {
+        for (const { active, needs } of frameNeeds(state, behind)) {
+          if (!needs.depth) continue;
+          const { clip, media } = active.layout;
+          const source = sourceOf(active).source;
+          if (!source || !(source instanceof VideoFrame || source instanceof ImageBitmap)) continue;
+          const key = `export:${clip.id}:${media.kind === 'image' ? 'foto' : Math.round(active.sourceTime * 10)}`;
+          const depth = await depthFrameNow(source, media.width, media.height, clip.id, key);
+          if (depth) depths.set(clip.id, depth);
+        }
+      }
+      const frame = toFrameInput(
+        state,
+        (active, needs) => {
+          const { clip, media } = active.layout;
+          const provided = sourceOf(active);
+          if (!needs.person && !needs.depth) return provided;
+          // A máscara sai do mesmo quadro (a última calculada vale enquanto o quadro se repete).
+          const source = provided.source;
+          if (needs.person && usesObjectMask(clip)) {
+            // Recorte "objeto selecionado": a máscara guardada no clipe, no instante do arquivo.
+            const mask = objectMaskAt(clip.object!, active.sourceTime);
+            if (mask) masks.set(clip.id, mask);
+          } else if (needs.person && source && (source instanceof VideoFrame || source instanceof ImageBitmap)) {
+            const mask = segmentFrame(source, media.width, media.height, `export:${clip.id}:${active.sourceTime.toFixed(3)}`);
+            if (mask) masks.set(clip.id, mask);
+          }
+          return { ...provided, mask: masks.get(clip.id) ?? null, depth: depths.get(clip.id) ?? null };
+        },
         project.background,
+        project.luts,
+        behind,
       );
-      if (drawTexts(textCanvas, scaled, start + k / fps)) frame.overlay = textCanvas;
+      if (behind && drawTexts(behindCanvas, scaled, time, 'behind')) frame.behind = behindCanvas;
+      if (drawTexts(textCanvas, scaled, time)) frame.overlay = textCanvas;
+      // Placa de vídeo parou no meio: sem isso, o arquivo sairia com quadros congelados, sem aviso.
+      if (renderer.gl.isContextLost()) {
+        frames.forEach((f) => f.close());
+        throw new Error(t('A placa de vídeo parou de responder durante a exportação. Tente exportar de novo.'));
+      }
       renderer.render(frame);
       frames.forEach((f) => f.close());
 
-      if (gifEncoder && readback) {
+      if (k < warm) {
+        // Aquecimento: o quadro só alimenta a memória dos efeitos.
+      } else if (gifEncoder && readback) {
         readback.drawImage(canvas, 0, 0);
         gifEncoder.addFrame(readback.getImageData(0, 0, width, height).data, 100 / fps);
         // Deixa a interface respirar: o GIF é codificado aqui mesmo.
         if (k % 4 === 3) await new Promise((r) => setTimeout(r, 0));
       } else if (videoSource) {
-        await videoSource.add(k / fps, 1 / fps);
+        await videoSource.add((k - warm) / fps, 1 / fps);
       }
-      onProgress?.({ stage: gif ? 'Criando o GIF' : 'Renderizando o vídeo', fraction: (k + 1) / frameCount });
+      onProgress?.({ stage: gif ? t('Criando o GIF') : t('Renderizando o vídeo'), fraction: (k + 1) / frameCount });
     }
 
-    onProgress?.({ stage: 'Finalizando o arquivo', fraction: 1 });
+    onProgress?.({ stage: t('Finalizando o arquivo'), fraction: 1 });
     if (gifEncoder) return gifEncoder.finish();
     videoSource!.close();
     await output!.finalize();
@@ -303,10 +382,11 @@ async function exportAudioOnly(
   end: number,
   { onProgress, signal }: ExportOptions,
 ): Promise<Blob> {
-  onProgress?.({ stage: 'Mixando o áudio', fraction: 0.2 });
+  onProgress?.({ stage: t('Mixando o áudio'), fraction: 0.2 });
   const audio = sliceAudio(await mixAudio(project, timeline), start, end);
   throwIfAborted(signal);
-  if (!audio) throw new Error('O projeto não tem nenhum som para exportar.');
+  if (!audio) throw new Error(t('O projeto não tem nenhum som para exportar.'));
+  if (settings.loudness && settings.loudness !== 'off') normalizeLoudness(audio, LOUDNESS_TARGETS[settings.loudness].lufs);
   const wav = settings.format === 'wav';
   const output = new Output({
     format: wav ? new WavOutputFormat() : new Mp4OutputFormat({ fastStart: 'in-memory' }),
@@ -315,19 +395,19 @@ async function exportAudioOnly(
   const codec: AudioCodec = wav ? 'pcm-s16' : await pickAudioCodec('m4a', audio.sampleRate);
   const source = new AudioBufferSource({ codec, bitrate: QUALITIES[settings.quality] });
   output.addAudioTrack(source);
-  onProgress?.({ stage: 'Gravando o áudio', fraction: 0.6 });
+  onProgress?.({ stage: t('Gravando o áudio'), fraction: 0.6 });
   await output.start();
   await source.add(audio);
   source.close();
   await output.finalize();
-  onProgress?.({ stage: 'Finalizando o arquivo', fraction: 1 });
+  onProgress?.({ stage: t('Finalizando o arquivo'), fraction: 1 });
   return new Blob([(output.target as BufferTarget).buffer!], { type: FORMAT_INFO[settings.format].mime });
 }
 
 async function pickAudioCodec(format: ExportFormat, sampleRate: number): Promise<AudioCodec> {
   const candidates: AudioCodec[] = format === 'webm' ? ['opus', 'vorbis'] : ['aac', 'opus'];
   const found = await firstSupported(candidates, (c) => canEncodeAudio(c, { numberOfChannels: 2, sampleRate }));
-  if (!found) throw new Error('Este navegador não consegue codificar o áudio neste formato.');
+  if (!found) throw new Error(t('Este navegador não consegue codificar o áudio neste formato.'));
   return found;
 }
 
@@ -366,6 +446,16 @@ function fadeEnvelope(start: number, length: number, volume: number, fadeIn: num
 }
 
 
+/** Volume de um clipe de áudio ao longo do tempo: fades e o volume desenhado juntos. */
+function audioEnvelope(clip: AudioClip, length: number): [number, number][] {
+  if (!clip.volumeKeys?.length) return fadeEnvelope(clip.start, length, clip.volume, clip.fadeIn, clip.fadeOut);
+  const times = new Set([0, length, Math.min(clip.fadeIn, length), Math.max(0, length - clip.fadeOut)]);
+  for (const k of clip.volumeKeys) if (k.time > 0 && k.time < length) times.add(k.time);
+  return [...times]
+    .sort((a, b) => a - b)
+    .map((t): [number, number] => [clip.start + t, clip.volume * fadeGain(clip, t) * volumeAt(clip.volumeKeys, t)]);
+}
+
 export async function mixAudio(project: Project, timeline: TimelineLayout): Promise<AudioBuffer | null> {
   const sampleRate = 48000;
   const context = new OfflineAudioContext(2, Math.ceil(timeline.duration * sampleRate), sampleRate);
@@ -396,6 +486,7 @@ export async function mixAudio(project: Project, timeline: TimelineLayout): Prom
     envelope: [number, number][],
     voice?: VoiceEffect,
     target: AudioNode = context.destination,
+    eq?: AudioClip['eq'],
   ) => {
     const buffer = await decode(media);
     if (!buffer || length <= 0) return false;
@@ -404,7 +495,7 @@ export async function mixAudio(project: Project, timeline: TimelineLayout): Prom
     // Velocidade muda também o tom, igual ao preview.
     source.playbackRate.value = speed;
     const gain = context.createGain();
-    const chain = buildVoiceChain(context, voice);
+    const chain = buildAudioChain(context, voice, eq);
     if (chain) {
       source.connect(chain.input);
       chain.output.connect(gain);
@@ -420,9 +511,12 @@ export async function mixAudio(project: Project, timeline: TimelineLayout): Prom
   };
 
   let added = 0;
+  // Mixer: cada trilha entra no seu canal (volume, solo e pan) e todos passam pelo Master, igual ao preview.
+  const mix = buildMixBus(context, project);
+  const mainBus = mix.input('main');
   for (const layout of timeline.clips) {
     const { clip, media } = layout;
-    if (!media.hasAudio || clip.audioDetached || clip.volume <= 0) continue;
+    if (!mainBus || !media.hasAudio || clip.audioDetached || clip.volume <= 0) continue;
     const start = layout.start;
     const end = start + layout.length;
     const v = clip.volume;
@@ -432,23 +526,26 @@ export async function mixAudio(project: Project, timeline: TimelineLayout): Prom
       [end - layout.transitionOut, v],
       [end, layout.transitionOut > 0 ? 0 : v],
     ];
-    if (await schedule(media, start, clip.trimIn, layout.length, speedOf(clip), envelope)) added++;
+    if (await schedule(media, start, clip.trimIn, layout.length, speedOf(clip), envelope, undefined, mainBus)) added++;
   }
 
   // Som dos vídeos das trilhas extras.
   for (const layout of timeline.overlays) {
     const { clip, media } = layout;
     if (!media.hasAudio || clip.audioDetached || clip.volume <= 0 || project.videoTracks[layout.track]?.muted) continue;
+    const bus = mix.input(`video:${project.videoTracks[layout.track]?.id}`);
+    if (!bus) continue;
     const envelope = fadeEnvelope(layout.start, layout.length, clip.volume, clip.fadeIn, clip.fadeOut);
-    if (await schedule(media, layout.start, clip.trimIn, layout.length, speedOf(clip), envelope)) added++;
+    if (await schedule(media, layout.start, clip.trimIn, layout.length, speedOf(clip), envelope, undefined, bus)) added++;
   }
 
   // Trilhas de música abaixam sozinhas enquanto há voz.
   const voices = voiceIntervals(project);
   const level = project.duckLevel ?? 0.3;
   for (const track of project.audioTracks) {
-    if (track.muted) continue;
-    let target: AudioNode = context.destination;
+    const bus = mix.input(`audio:${track.id}`);
+    if (track.muted || !bus) continue;
+    let target: AudioNode = bus;
     if (track.kind === 'music' && voices.length) {
       const duck = context.createGain();
       duck.gain.setValueAtTime(1, 0);
@@ -458,15 +555,15 @@ export async function mixAudio(project: Project, timeline: TimelineLayout): Prom
         duck.gain.setValueAtTime(level, b);
         duck.gain.linearRampToValueAtTime(1, b + DUCK_RAMP);
       }
-      duck.connect(context.destination);
+      duck.connect(bus);
       target = duck;
     }
     for (const clip of track.clips) {
       const media = getMedia(project, clip.mediaId);
       if (!media || clip.volume <= 0) continue;
       const length = clipLength(clip);
-      const envelope = fadeEnvelope(clip.start, length, clip.volume, clip.fadeIn, clip.fadeOut);
-      if (await schedule(media, clip.start, clip.trimIn, length, speedOf(clip), envelope, clip.voice, target)) added++;
+      const envelope = audioEnvelope(clip, length);
+      if (await schedule(media, clip.start, clip.trimIn, length, speedOf(clip), envelope, clip.voice, target, clip.eq)) added++;
     }
   }
   return added > 0 ? context.startRendering() : null;
@@ -523,5 +620,5 @@ class FrameWindow {
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new DOMException('Exportação cancelada.', 'AbortError');
+  if (signal?.aborted) throw new DOMException(t('Exportação cancelada.'), 'AbortError');
 }

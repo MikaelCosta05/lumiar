@@ -1,0 +1,24 @@
+{
+  "name": "Película fosca",
+  "description": "Negativo de cinema de pouca saturação: contraste macio, verdes azulados e a pele preservada.",
+  "category": "Cinema",
+  "previewMedia": "pessoa",
+  "params": [
+    {
+      "id": "sat",
+      "label": "Saturação",
+      "type": "float",
+      "default": 0.55,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "lift",
+      "label": "Pretos lavados",
+      "type": "float",
+      "default": 0.35,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "Computador de 8 bits",
+  "description": "Paleta de 16 cores de microcomputador antigo, com pontilhado e pixels grandes.",
+  "category": "Retrô",
+  "previewMedia": "pessoa",
+  "params": [
+    {
+      "id": "pix",
+      "label": "Tamanho do pixel",
+      "type": "float",
+      "default": 3,
+      "min": 1,
+      "max": 10,
+      "step": 1
+    },
+    {
+      "id": "dith",
+      "label": "Pontilhado",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

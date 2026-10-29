@@ -1,11 +1,12 @@
 import {
-  CircleCheck,
   Download,
   Feather,
   Smartphone,
   FilePlus,
   FolderOpen,
-  LifeBuoy,
+  LayoutTemplate,
+  ImagePlus,
+  History,
   LoaderCircle,
   Monitor,
   Save,
@@ -15,8 +16,28 @@ import {
   SkipForward,
   StepBack,
   StepForward,
-  TriangleAlert,
   Upload,
+  Wrench,
+  Columns2,
+  Map as MapIcon,
+  AudioLines,
+  Code,
+  Boxes,
+  BadgeCheck,
+  Layers,
+  HardDrive,
+  MessagesSquare,
+  Group,
+  Trash,
+  Fish,
+  ListOrdered,
+  ChartColumn,
+  ArrowRightLeft,
+  Clapperboard,
+  Search,
+  Store,
+  Keyboard,
+  Sparkles,
 } from 'lucide-react';
 import {
   useCallback,
@@ -28,23 +49,68 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { Renderer } from './engine/renderer';
+import { audioTools } from './app/audioTools';
+import { cameraFollowTools } from './app/cameraFollow';
+import type { EditorContext } from './app/context';
+import { creationTools } from './app/creationTools';
+import { UpdateBanner, useDesktopUpdate } from './app/desktopUpdate';
+import { ExportPill, useExportQueue } from './app/exportQueue';
+import { PrerenderPill, usePrerender } from './app/prerender';
+import { GpuLostOverlay, NoWebGL2Screen } from './app/gpu';
+import {
+  BatchDialog,
+  BrandKitDialog,
+  BrollDialog,
+  ChaptersDialog,
+  CompoundDialog,
+  EffectEditor,
+  FaceBlurDialog,
+  GalleryDialog,
+  HighlightsDialog,
+  HistoryDialog,
+  HookDialog,
+  InterchangeDialog,
+  MaskDrawer,
+  MediaManagerDialog,
+  MediaSearchDialog,
+  Scopes,
+  ScreenRecordDialog,
+  ScriptAssemblyDialog,
+  ShortcutsDialog,
+  SplitScreenDialog,
+  TemplateDialog,
+  ThumbnailDialog,
+} from './app/lazyDialogs';
+import { multicamTools } from './app/multicamTools';
+import { BusyOverlay, DropOverlay, RecoveryBanner } from './app/overlays';
+import { packTools } from './app/packTools';
+import { ScreenRecordingBar, useScreenRecording } from './app/screenRecording';
+import { Toasts, useToasts } from './app/toasts';
+import { useCompounds } from './app/useCompounds';
+import { useFaceBlur } from './app/useFaceBlur';
+import { useFileDrop } from './app/useFileDrop';
+import { useKeyboardShortcuts } from './app/useKeyboardShortcuts';
+import { onShortcutsDialogRequest, shortcutLabel, useShortcutsVersion, withShortcut } from './app/shortcuts';
+import { SampleOffer, useSampleProject } from './app/sample';
+import { usePreviewPlayer } from './app/usePreviewPlayer';
+import { missingMediaText, useProjectFiles } from './app/useProjectFiles';
+import { useProxies } from './app/useProxies';
+import { useVoice } from './app/useVoice';
+import { visualTools } from './app/visualTools';
+import { stabilizeTools } from './app/stabilizeTools';
 import { getPlugin } from './engine/registry';
+import { t } from './i18n';
+import { keys } from './i18n/keys';
 import type { ShaderPlugin } from './engine/types';
-import { exportProject, FORMAT_INFO, type ExportSettings } from './media/exporter';
-import { VoiceRecorder } from './media/recorder';
-import { speak } from './media/speech';
-import { assets, PEAKS_PER_SECOND } from './media/assets';
-import { savedRecordOptions, type RecordOptions, type VoiceSession } from './ui/VoicePanel';
+import { assets } from './media/assets';
+import { savedRecordOptions } from './ui/VoicePanel';
 import { Teleprompter } from './ui/Teleprompter';
-import { grabFrame, reverseMedia } from './media/reverse';
 import { aspectLabel, presetName } from './project/formats';
 import { AspectBox, ProjectDialog } from './ui/ProjectDialog';
 import { analyzeMedia, importMedia, mediaKindOf } from './media/importer';
-import { Player } from './preview/player';
+import type { Player } from './preview/player';
 import {
   addMedia,
-  clipLength,
   createAudioClip,
   createEffect,
   createFilter,
@@ -54,12 +120,6 @@ import {
   createOverlayClip,
   createVideoClip,
   editPoints,
-  fitToBeats,
-  keepRanges,
-  insertFreezeFrame,
-  placeVoiceClip,
-  placeSfxClip,
-  updateAudioClip,
   demoteToMain,
   detachAudio,
   findAudioClip,
@@ -70,14 +130,14 @@ import {
   placeAudioClip,
   placeOverlayClip,
   removeAudioClip,
-  removeClip,
   removeOverlayClip,
   removeMedia,
   setTransition,
   splitAudioClip,
-  speedOf,
   splitOverlayClip,
   splitVideoClip,
+  trimAudioClip,
+  trimOverlayClip,
   updateClip,
   updateOverlayClip,
   type MediaItem,
@@ -87,96 +147,102 @@ import {
 import { copySelection, duplicate, pasteAt, type CopiedItem, type EditResult } from './project/clipboard';
 import { ContextMenu, type MenuEntry, type MenuState } from './ui/ContextMenu';
 import { mediaMenu, packMenu, pluginMenu, previewMenu, timelineMenu, type EditorApi } from './ui/menus';
-import { applyPack, deletePack, findPackClip, setPackFace, splitPackClip, type PackTemplate } from './project/packs';
-import { getSound, soundFile, type SoundEffect } from './media/sfx';
-import { findPackTemplate } from './ui/packStore';
-import { download, ExportDialog, type ExportState } from './ui/ExportDialog';
+import { deletePack, findPackClip, splitPackClip } from './project/packs';
+import { getSound } from './media/sfx';
+import { download, ExportDialog } from './ui/ExportDialog';
 import { formatTime } from './ui/format';
 import { Inspector } from './ui/Inspector';
 import { Button, cx, IconButton, Slider } from './ui/kit';
+import { LanguagePicker } from './ui/LanguagePicker';
 import { Library, Rail, type LibraryTab } from './ui/Library';
 import { loadFonts } from './media/fonts';
-import { trackFace, trackPoint } from './media/tracking';
 import { loadSamplePhotos, setPreviewClip } from './ui/previews';
-import { assetUrl } from './assetUrl';
-import { createCamera, evaluateCamera, screenToSource, type CameraFollow, type TrackPoint } from './project/camera';
-import { detectBeats } from './media/beats';
-import { findSpeech } from './media/silence';
-import { makeProxy, needsProxy } from './media/proxy';
-import {
-  autosave,
-  clearAutosave,
-  hasContent,
-  loadAutosave,
-  openProjectFile,
-  pickProjectFile,
-  saveProject,
-} from './project/storage';
+import { typingDuration } from './media/typingRender';
+import { addComment, CommentsDialog, removeComment, updateComment } from './ui/CommentsDialog';
+import { groupItems } from './project/groups';
+import type { MultiItem } from './ui/selection';
+import { mergeDuplicates } from './project/mediaUsage';
+import { replaceClipMedia } from './project/templates';
+import { deleteMainClip, removeTimeRanges } from './project/ripple';
+import { hasContent, loadVersion } from './project/storage';
 import {
   createTextClip,
   findTextClip,
   findTextPreset,
   placeTextClip,
   removeTextClip,
+  resizeTextClip,
   splitTextClip,
   updateTextClip,
   type TextPreset,
 } from './project/text';
-import { PLUGIN_MIME, MEDIA_MIME, TEXT_PRESET_MIME, type Selection } from './ui/selection';
+import { type Selection } from './ui/selection';
 import { Timeline, type MediaDropTarget, type TimelineTarget } from './ui/Timeline';
+import { MixerPanel } from './ui/Mixer';
 import { useHistory } from './ui/useHistory';
-
-
-interface Toast {
-  id: number;
-  text: string;
-  error?: boolean;
-}
+import { ObjectPicker } from './ui/ObjectPicker';
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playerRef = useRef<Player | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const exportAbortRef = useRef<AbortController | null>(null);
 
   const history = useHistory<Project>(createProject);
   const project = history.state;
   const setProject = history.update;
   const [selection, setSelection] = useState<Selection>(null);
+  /** Seleção de vários itens na timeline (Ctrl/Shift + clique ou retângulo) */
+  const [multi, setMulti] = useState<MultiItem[]>([]);
+
+  /** Camada com a forma sendo desenhada no vídeo */
+  const [maskEdit, setMaskEdit] = useState<string | null>(null);
+  /** Gráficos de cor por cima do preview */
+  const [scopes, setScopes] = useState(false);
+  /** Painel do mixer de áudio (acima da timeline) */
+  const [mixerOpen, setMixerOpen] = useState(false);
+  /** Janela de comentários aberta (com o comentário em foco) */
+  const [commentsOpen, setCommentsOpen] = useState<{ focus: string | null } | null>(null);
   const [tab, setTab] = useState<LibraryTab>('media');
-  const [time, setTime] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const [exportState, setExportState] = useState<ExportState | null>(null);
   const [importing, setImporting] = useState(0);
-  const [draggingFiles, setDraggingFiles] = useState(false);
   /** Mensagem de "trabalhando…" (salvar/abrir/analisar). */
   const [busy, setBusy] = useState<string | null>(null);
   /** Clipe esperando o clique no vídeo para escolher o ponto que a câmera vai seguir. */
   const [picking, setPicking] = useState<string | null>(null);
-  /** Projeto encontrado no salvamento automático, esperando o usuário decidir. */
   const [timelineHeight, startTimelineResize] = useTimelineHeight();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [clipboard, setClipboard] = useState<CopiedItem | null>(null);
   const [projectDialog, setProjectDialog] = useState(false);
-  /** Gravação de voz em andamento (o que a interface mostra) e os dados dela */
-  const [session, setSession] = useState<VoiceSession | null>(null);
-  const voiceRef = useRef<{
-    recorder: VoiceRecorder;
-    start: number;
-    until: number | null;
-    options: RecordOptions;
-    startedAt: number;
-    recording: boolean;
-  } | null>(null);
-  const [speaking, setSpeaking] = useState<string | null>(null);
-  const [recovery, setRecovery] = useState<{ project: Project; savedAt: number } | null>(null);
-  const fileHandle = useRef<FileSystemFileHandle | null>(null);
-  const savedProject = useRef<Project | null>(null);
-  /** O salvamento automático só começa depois de decidir sobre a recuperação. */
-  const autosaveReady = useRef(false);
+  const [templateDialog, setTemplateDialog] = useState(false);
+  /** Janela "Atalhos do teclado" (também abre pela tecla ? e pelo painel da direita) */
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  useEffect(() => onShortcutsDialogRequest(() => setShortcutsOpen(true)), []);
+  // As dicas com atalho (Salvar, Desfazer…) mostram a tecla atual: redesenha quando a pessoa muda.
+  useShortcutsVersion();
+  const [toolDialog, setToolDialog] = useState<'chapters' | 'highlights' | 'history' | 'hook' | 'script' | null>(null);
+  // Ferramentas: tela dividida, marca, lote, mídias…
+  const [extraDialog, setExtraDialog] = useState<'split' | 'brand' | 'batch' | 'media' | 'effects' | 'interchange' | 'search' | 'broll' | null>(null);
+  /** Quadro usado no criador de capa */
+  const [thumbFrame, setThumbFrame] = useState<ImageBitmap | null>(null);
+  /** Galeria da comunidade aberta (já filtrada em efeitos ou pacotes quando vem da aba) */
+  const [gallery, setGallery] = useState<{ kind: 'effect' | 'pack' | null } | null>(null);
 
   const timeline = useMemo(() => layoutProject(project), [project]);
+
+  // Cortes na trilha principal levam o resto junto (preferência do editor).
+  const [ripple, setRipple] = useState(() => {
+    try {
+      return localStorage.getItem('lumiar:ripple') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('lumiar:ripple', ripple ? '1' : '0');
+    } catch {
+      // Sem armazenamento: vale só nesta sessão.
+    }
+  }, [ripple]);
 
   // As prévias da biblioteca (ao passar o mouse) mostram o clipe selecionado.
   const previewTarget =
@@ -197,71 +263,10 @@ export default function App() {
       height: previewMedia.height,
     });
   }, [previewTarget?.id, previewTarget?.trimIn, previewTarget?.trimOut, previewMedia]);
-  const isDirty = hasContent(project) && project !== savedProject.current;
 
-  const notify = useCallback((text: string, error = false) => {
-    const id = Date.now() + Math.random();
-    setToasts((list) => [...list, { id, text, error }]);
-    setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), error ? 8000 : 3500);
-  }, []);
-
-  // ------------------------------------------------ Prévia leve (cópias em 540p para editar vídeos pesados)
-  const [proxyMode, setProxyMode] = useState(() => {
-    try {
-      return localStorage.getItem('lumiar:proxies') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const [proxyJob, setProxyJob] = useState<string | null>(null);
-  const proxyQueue = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    try {
-      localStorage.setItem('lumiar:proxies', proxyMode ? '1' : '0');
-    } catch {
-      // Sem armazenamento: vale só nesta sessão.
-    }
-    if (!proxyMode) return;
-    const pending = project.media.filter((m) => needsProxy(m) && !assets.proxies.has(m.id) && !proxyQueue.current.has(m.id));
-    if (pending.length === 0) return;
-    pending.forEach((m) => proxyQueue.current.add(m.id));
-    void (async () => {
-      for (const media of pending) {
-        try {
-          setProxyJob(`Prévia leve: ${media.name} 0%`);
-          const url = await makeProxy(media, (f) => setProxyJob(`Prévia leve: ${media.name} ${Math.round(f * 100)}%`));
-          assets.proxies.set(media.id, url);
-          playerRef.current?.refreshSources();
-        } catch (error) {
-          notify(`Não foi possível criar a prévia leve de "${media.name}": ${error instanceof Error ? error.message : String(error)}`, true);
-        } finally {
-          proxyQueue.current.delete(media.id);
-        }
-      }
-      setProxyJob(null);
-    })();
-  }, [proxyMode, project.media, notify]);
-
-  // Cria o motor de renderização e o player uma única vez.
-  useEffect(() => {
-    let renderer: Renderer;
-    try {
-      renderer = new Renderer(canvasRef.current!, 1280, 720);
-    } catch (error) {
-      notify(String(error instanceof Error ? error.message : error), true);
-      return;
-    }
-    renderer.onShaderError = (plugin, message) => notify(`Erro no shader "${plugin.name}": ${message}`, true);
-    const player = new Player(renderer);
-    player.onTime = setTime;
-    player.onPlayingChange = setPlaying;
-    playerRef.current = player;
-    return () => {
-      player.dispose();
-      renderer.dispose();
-      playerRef.current = null;
-    };
-  }, [notify]);
+  const { toasts, notify } = useToasts();
+  const { proxyMode, setProxyMode, proxyJob } = useProxies(project.media, playerRef, notify);
+  const { time, playing, gpu } = usePreviewPlayer(canvasRef, playerRef, notify);
 
   useEffect(() => {
     playerRef.current?.setProxies(proxyMode);
@@ -284,37 +289,37 @@ export default function App() {
     void loadSamplePhotos();
   }, []);
 
-  // Ao abrir o editor, procura um projeto não salvo no salvamento automático.
-  useEffect(() => {
-    loadAutosave()
-      .then((found) => {
-        if (found) setRecovery(found);
-        else autosaveReady.current = true;
-      })
-      .catch(() => {
-        autosaveReady.current = true;
-      });
-  }, []);
-
-  // Salvamento automático no navegador, um pouco depois de cada mudança.
-  useEffect(() => {
-    if (!autosaveReady.current) return;
-    const timer = setTimeout(() => {
-      const save = hasContent(project) ? autosave(project) : clearAutosave();
-      save.catch((error) => console.warn('[Lumiar] salvamento automático falhou', error));
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [project]);
-
-  // Aviso do navegador ao fechar com alterações não salvas em arquivo.
-  useEffect(() => {
-    if (!isDirty) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [isDirty]);
-
   const currentTime = () => playerRef.current?.currentTime ?? 0;
+
+  /** Aplica uma edição que também troca a seleção (colar, duplicar…). */
+  const applyEdit = (result: EditResult | null, fail = t('Não foi possível fazer isso aqui.')) => {
+    if (!result) {
+      notify(fail, true);
+      return;
+    }
+    setProject(() => result.project);
+    setSelection(result.selection);
+  };
+
+  // As ferramentas (em src/app) recebem o estado deste render, como se estivessem aqui dentro.
+  const ctx: EditorContext = { history, project, timeline, setProject, selection, setSelection, notify, setBusy, applyEdit, playerRef, currentTime, ripple };
+  const compounds = useCompounds(ctx);
+  const files = useProjectFiles(ctx, compounds, () => setMulti([]));
+  const { isDirty } = files;
+  const sample = useSampleProject(ctx, files);
+  const desktopUpdate = useDesktopUpdate(notify, isDirty);
+  const screen = useScreenRecording(ctx);
+  const voice = useVoice(ctx);
+  const faces = useFaceBlur(ctx);
+  const exporting = useExportQueue(project, playerRef, notify);
+  const audio = audioTools(ctx);
+  const multicam = multicamTools(ctx);
+  const visual = visualTools(ctx);
+  const follow = cameraFollowTools(ctx, setPicking);
+  const stabilizer = stabilizeTools(ctx);
+  const packs = packTools(ctx, audio);
+  const creation = creationTools(ctx);
+  const prerender = usePrerender(ctx);
 
   /** Coloca mídias na timeline: vídeos e imagens no fim da trilha de vídeo, áudios no cursor. */
   const addToTimeline = (p: Project, items: MediaItem[], audioStart = currentTime()): Project => {
@@ -332,7 +337,7 @@ export default function App() {
     async (files: File[]) => {
       const supported = files.filter((f) => mediaKindOf(f) !== null);
       if (supported.length === 0) {
-        notify('Nenhum vídeo, áudio ou imagem suportado.', true);
+        notify(t('Nenhum vídeo, áudio ou imagem suportado.'), true);
         return;
       }
       setImporting((n) => n + supported.length);
@@ -349,7 +354,7 @@ export default function App() {
       if (items.length === 0) return;
       setProject((p) => addToTimeline(addMedia(p, items), items));
       items.forEach((m) => void analyzeMedia(m));
-      notify(`${items.length} arquivo(s) adicionado(s) à timeline.`);
+      notify(t('{n} arquivo(s) adicionado(s) à timeline.', { n: items.length }));
     },
     // addToTimeline só usa funções puras e o ref do player, então não precisa estar aqui.
     [notify, setProject],
@@ -360,7 +365,7 @@ export default function App() {
     if (!media) return;
     if (target.row === 'overlay') {
       if (media.kind === 'audio') {
-        notify('Áudios vão para a trilha de áudio.', true);
+        notify(t('Áudios vão para a trilha de áudio.'), true);
         return;
       }
       const clip = createOverlayClip(media, target.time);
@@ -371,14 +376,14 @@ export default function App() {
     if (target.row === 'video') {
       if (media.kind === 'audio') {
         setProject((p) => placeAudioClip(p, createAudioClip(media, currentTime())));
-        notify('Áudios vão para a trilha de áudio.');
+        notify(t('Áudios vão para a trilha de áudio.'));
       } else {
         setProject((p) => insertVideoClips(p, [createVideoClip(media)], target.index));
       }
       return;
     }
     if (!media.hasAudio) {
-      notify('Imagens e vídeos sem som vão para a trilha de vídeo.', true);
+      notify(t('Imagens e vídeos sem som vão para a trilha de vídeo.'), true);
       return;
     }
     setProject((p) => placeAudioClip(p, createAudioClip(media, target.time), target.track));
@@ -388,15 +393,35 @@ export default function App() {
   const applyTo = (target: Selection, plugin: ShaderPlugin) => {
     if (plugin.kind === 'transition') {
       if (target?.kind !== 'transition') {
-        notify('Selecione uma transição (◆ entre dois clipes) — ou arraste até ela.', true);
+        notify(t('Selecione uma transição (◆ entre dois clipes) — ou arraste até ela.'), true);
         return;
       }
       setProject((p) => setTransition(p, target.index, createTransition(plugin.id, p.transitions[target.index]?.duration)));
       setSelection(target);
       return;
     }
+    const visuals = multi.filter((m) => m.kind === 'clip' || m.kind === 'overlay');
+    if (visuals.length > 1 && (!target || multi.some((m) => 'id' in target && m.id === target.id))) {
+      setProject((p) =>
+        visuals.reduce((acc, m) => {
+          const fn = (c: VideoClip): VideoClip => {
+            if (plugin.kind === 'filter') return { ...c, filter: createFilter(plugin.id) };
+            const effect = createEffect(plugin.id);
+            return effect ? { ...c, effects: [...c.effects, effect] } : c;
+          };
+          return m.kind === 'clip' ? updateClip(acc, m.id, fn) : updateOverlayClip(acc, m.id, (c) => ({ ...c, ...fn(c) }));
+        }, p),
+      );
+      notify(t('"{name}" aplicado em {n} clipes.', { name: t(plugin.name), n: visuals.length }));
+      return;
+    }
     if (target?.kind !== 'clip' && target?.kind !== 'overlay') {
-      notify(`Selecione um clipe de vídeo primeiro — ou arraste o ${plugin.kind === 'filter' ? 'filtro' : 'efeito'} até ele.`, true);
+      notify(
+        plugin.kind === 'filter'
+          ? t('Selecione um clipe de vídeo primeiro — ou arraste o filtro até ele.')
+          : t('Selecione um clipe de vídeo primeiro — ou arraste o efeito até ele.'),
+        true,
+      );
       return;
     }
     const update = (fn: (c: VideoClip) => VideoClip) =>
@@ -412,35 +437,35 @@ export default function App() {
       update((c) => ({ ...c, effects: [...c.effects, effect] }));
     }
     setSelection(target);
-    notify(`"${plugin.name}" aplicado.`);
+    notify(t('"{name}" aplicado.', { name: t(plugin.name) }));
   };
 
   const split = () => {
-    const t = currentTime();
+    const now = currentTime();
     let result: { project: Project; newId: string } | null = null;
     if (selection?.kind === 'audio') {
-      result = splitAudioClip(project, selection.id, t);
+      result = splitAudioClip(project, selection.id, now);
       if (result) setSelection({ kind: 'audio', id: result.newId });
     } else if (selection?.kind === 'text') {
-      result = splitTextClip(project, selection.id, t);
+      result = splitTextClip(project, selection.id, now);
       if (result) setSelection({ kind: 'text', id: result.newId });
     } else if (selection?.kind === 'overlay') {
-      result = splitOverlayClip(project, selection.id, t);
+      result = splitOverlayClip(project, selection.id, now);
       if (result) setSelection({ kind: 'overlay', id: result.newId });
     } else if (selection?.kind === 'pack') {
-      result = splitPackClip(project, selection.id, t);
+      result = splitPackClip(project, selection.id, now);
       if (result) setSelection({ kind: 'pack', id: result.newId });
     } else {
       // Clipe selecionado, ou o clipe de vídeo que está sob o cursor.
       const id =
         selection?.kind === 'clip'
           ? selection.id
-          : timeline.clips.find((l) => t > l.start && t < l.start + l.length)?.clip.id;
-      result = id ? splitVideoClip(project, id, t) : null;
+          : timeline.clips.find((l) => now > l.start && now < l.start + l.length)?.clip.id;
+      result = id ? splitVideoClip(project, id, now) : null;
       if (result) setSelection({ kind: 'clip', id: result.newId });
     }
     if (result) setProject(() => result.project);
-    else notify('Posicione o cursor dentro de um clipe para dividir.', true);
+    else notify(t('Posicione o cursor dentro de um clipe para dividir.'), true);
   };
 
   const detach = (clipId: string) => {
@@ -448,11 +473,33 @@ export default function App() {
     if (!result) return;
     setProject(() => result.project);
     setSelection({ kind: 'audio', id: result.audioId });
-    notify('Áudio separado para a trilha de áudio.');
+    notify(t('Áudio separado para a trilha de áudio.'));
   };
 
+  /** Remove um item da timeline, seja de que tipo for. */
+  const removeItem = (p: Project, item: MultiItem): Project =>
+    item.kind === 'clip'
+      ? deleteMainClip(p, item.id, ripple)
+      : item.kind === 'audio'
+        ? removeAudioClip(p, item.id)
+        : item.kind === 'text'
+          ? removeTextClip(p, item.id)
+          : item.kind === 'overlay'
+            ? removeOverlayClip(p, item.id)
+            : deletePack(p, item.id);
+
   const deleteSelection = () => {
-    if (selection?.kind === 'clip') setProject((p) => removeClip(p, selection.id));
+    if (multi.length > 1) {
+      // Da direita para a esquerda: excluir um clipe principal não muda onde os anteriores estão.
+      const order = (m: MultiItem) => layoutProject(history.current()).clips.find((l) => l.clip.id === m.id)?.start ?? 0;
+      const items = [...multi].sort((a, b) => order(b) - order(a));
+      setProject((p) => items.reduce(removeItem, p));
+      notify(t('{n} itens excluídos.', { n: items.length }));
+      setMulti([]);
+      setSelection(null);
+      return;
+    }
+    if (selection?.kind === 'clip') setProject((p) => deleteMainClip(p, selection.id, ripple));
     else if (selection?.kind === 'audio') setProject((p) => removeAudioClip(p, selection.id));
     else if (selection?.kind === 'text') setProject((p) => removeTextClip(p, selection.id));
     else if (selection?.kind === 'overlay') setProject((p) => removeOverlayClip(p, selection.id));
@@ -461,22 +508,12 @@ export default function App() {
     setSelection(null);
   };
 
-  /** Aplica uma edição que também troca a seleção (colar, duplicar…). */
-  const applyEdit = (result: EditResult | null, fail = 'Não foi possível fazer isso aqui.') => {
-    if (!result) {
-      notify(fail, true);
-      return;
-    }
-    setProject(() => result.project);
-    setSelection(result.selection);
-  };
-
   const copy = (cut = false) => {
     const item = copySelection(project, selection);
     if (!item) return;
     setClipboard(item);
     if (cut) deleteSelection();
-    else notify('Copiado. Ctrl+V cola no cursor.');
+    else notify(t('Copiado. {keys} cola no cursor.', { keys: keys('Ctrl+V') }));
   };
   const paste = () => {
     if (!clipboard || clipboard.kind === 'look') return;
@@ -499,58 +536,16 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     download(url, `${project.name || 'lumiar'}-${formatTime(currentTime()).replace(/[:.]/g, '-')}.png`);
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    notify('Quadro salvo como PNG.');
+    notify(t('Quadro salvo como PNG.'));
   };
   const copyFrame = async () => {
     try {
       const blob = await frameBlob();
       if (!blob) return;
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      notify('Quadro copiado. Cole (Ctrl+V) em outro programa.');
+      notify(t('Quadro copiado. Cole ({keys}) em outro programa.', { keys: keys('Ctrl+V') }));
     } catch {
-      notify('O navegador não deixou copiar a imagem.', true);
-    }
-  };
-
-  /** Congela o quadro do cursor: o clipe é dividido e uma imagem parada de 2s entra no meio. */
-  const freeze = async (clipId: string) => {
-    const layout = timeline.clips.find((l) => l.clip.id === clipId);
-    if (!layout || layout.media.kind !== 'video') return;
-    const t = Math.min(Math.max(currentTime(), layout.start), layout.start + layout.length - 0.01);
-    const sourceTime = layout.clip.trimIn + (t - layout.start) * speedOf(layout.clip);
-    try {
-      setBusy('Congelando o quadro…');
-      const still = { ...(await importMedia(await grabFrame(layout.media, sourceTime))), name: `Quadro congelado · ${layout.media.name}` };
-      const result = insertFreezeFrame(project, clipId, t, still);
-      applyEdit(result && { project: result.project, selection: { kind: 'clip', id: result.id } });
-      if (result) notify('Quadro congelado por 2s. Ajuste o tempo puxando a borda do clipe.');
-    } catch (error) {
-      notify(`Não foi possível congelar: ${error instanceof Error ? error.message : String(error)}`, true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  /** Cria uma cópia do trecho tocando de trás para frente e troca a mídia do clipe por ela. */
-  const reverse = async (target: { kind: 'clip' | 'overlay'; id: string }) => {
-    const clip = target.kind === 'clip' ? project.clips.find((c) => c.id === target.id) : findOverlayClip(project, target.id)?.clip;
-    const media = clip && getMedia(project, clip.mediaId);
-    if (!clip || !media || media.kind !== 'video') return;
-    try {
-      setBusy('Invertendo o clipe… 0%');
-      const file = await reverseMedia(media, clip.trimIn, clip.trimOut, (f) => setBusy(`Invertendo o clipe… ${Math.round(f * 100)}%`));
-      const reversed = await importMedia(file);
-      void analyzeMedia(reversed);
-      const swap = <T extends VideoClip>(c: T): T => ({ ...c, mediaId: reversed.id, trimIn: 0, trimOut: reversed.duration });
-      setProject((p) => {
-        const withMedia = addMedia(p, [reversed]);
-        return target.kind === 'clip' ? updateClip(withMedia, target.id, swap) : updateOverlayClip(withMedia, target.id, swap);
-      });
-      notify('Clipe invertido: agora ele toca de trás para frente.');
-    } catch (error) {
-      notify(`Não foi possível inverter: ${error instanceof Error ? error.message : String(error)}`, true);
-    } finally {
-      setBusy(null);
+      notify(t('O navegador não deixou copiar a imagem.'), true);
     }
   };
 
@@ -567,252 +562,22 @@ export default function App() {
     if (target !== undefined) playerRef.current?.seek(target);
   };
 
-  // ------------------------------------------------ Voz: narração, dublagem e voz sintética
-
-  /** Começa a gravar (narração no cursor ou dublagem no trecho de um clipe). */
-  const startRecording = async (options: RecordOptions) => {
-    const player = playerRef.current;
-    if (!player || voiceRef.current) return;
-    player.pause();
-    let from = currentTime();
-    let until: number | null = null;
-    if (options.dub) {
-      const target = options.dub;
-      const layout =
-        target.kind === 'clip'
-          ? timeline.clips.find((l) => l.clip.id === target.id)
-          : timeline.overlays.find((l) => l.clip.id === target.id);
-      if (!layout) return;
-      from = layout.start;
-      until = layout.start + layout.length;
-      if (options.muteOriginal && layout.media.hasAudio && !layout.clip.audioDetached) {
-        if (target.kind === 'clip') setProject((p) => updateClip(p, target.id, (c) => ({ ...c, volume: 0 })));
-        else setProject((p) => updateOverlayClip(p, target.id, (c) => ({ ...c, volume: 0 })));
-      }
-    }
-    let recorder: VoiceRecorder;
-    try {
-      recorder = await VoiceRecorder.open(options.deviceId);
-    } catch (error) {
-      notify(`Não foi possível usar o microfone: ${error instanceof Error ? error.message : String(error)}`, true);
+  /** Q / W: corta o clipe principal do começo até o cursor, ou do cursor até o fim (o resto anda junto). */
+  const trimToCursor = (edge: 'start' | 'end') => {
+    const now = currentTime();
+    if (selection?.kind === 'audio' || selection?.kind === 'text' || selection?.kind === 'overlay') {
+      const fn = selection.kind === 'audio' ? trimAudioClip : selection.kind === 'overlay' ? trimOverlayClip : resizeTextClip;
+      setProject((p) => fn(p, selection.id, edge === 'start' ? 'in' : 'out', now));
       return;
     }
-    const mode = options.dub ? 'dub' : 'narration';
-    const state = { recorder, start: from, until, options, startedAt: 0, recording: false };
-    voiceRef.current = state;
-    player.seek(from);
-    if (options.muteProject) player.setMuted(true);
-    if (options.countdown) {
-      for (let n = 3; n > 0; n--) {
-        if (voiceRef.current !== state) return;
-        setSession({ mode, phase: 'countdown', countdown: n, elapsed: 0, level: recorder.level() });
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      if (voiceRef.current !== state) return;
-    }
-    recorder.begin();
-    player.play();
-    state.startedAt = performance.now();
-    state.recording = true;
-    setSession({ mode, phase: 'recording', countdown: 0, elapsed: 0, level: 0 });
-  };
-
-  /** Para a gravação e coloca a voz numa trilha de narração, no ponto onde começou. */
-  const stopRecording = async () => {
-    const state = voiceRef.current;
-    if (!state) return;
-    voiceRef.current = null;
-    setSession(null);
-    playerRef.current?.pause();
-    playerRef.current?.setMuted(false);
-    if (!state.recording) {
-      state.recorder.cancel();
+    const layout = timeline.clips.find((l) => now > l.start + 0.05 && now < l.start + l.length - 0.05);
+    if (!layout) {
+      notify(t('Ponha o cursor dentro de um clipe.'), true);
       return;
     }
-    try {
-      setBusy('Salvando a gravação…');
-      const kind = state.options.dub ? 'Dublagem' : 'Narração';
-      const count = project.media.filter((m) => m.name.startsWith(kind)).length + 1;
-      const media = await importMedia(await state.recorder.stop(`${kind} ${count}`));
-      void analyzeMedia(media);
-      const clip = createAudioClip(media, state.start);
-      // Na dublagem, a voz não passa do fim do clipe.
-      if (state.until !== null) clip.trimOut = Math.min(media.duration, state.until - state.start);
-      setProject((p) => placeVoiceClip(addMedia(p, [media]), clip));
-      setSelection({ kind: 'audio', id: clip.id });
-      notify(`${kind} adicionada na trilha "Narração".`);
-    } catch (error) {
-      notify(`Não foi possível salvar a gravação: ${String(error)}`, true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  // Relógio, medidor de nível e fim automático da dublagem.
-  useEffect(() => {
-    if (session?.phase !== 'recording') return;
-    const timer = setInterval(() => {
-      const state = voiceRef.current;
-      if (!state?.recording) return;
-      setSession((s) => s && { ...s, elapsed: (performance.now() - state.startedAt) / 1000, level: state.recorder.level() });
-      if (state.until !== null && (playerRef.current?.currentTime ?? 0) >= state.until - 0.02) void stopRecording();
-    }, 80);
-    return () => clearInterval(timer);
-  }, [session?.phase]);
-
-  /** Gera voz sintética e coloca na trilha de narração (textos longos viram vários clipes em sequência). */
-  const speakText = async (text: string, voice: string, at = currentTime()) => {
-    const parts = splitSentences(text);
-    if (parts.length === 0) return;
-    let t = at;
-    let lastId: string | null = null;
-    try {
-      for (let i = 0; i < parts.length; i++) {
-        setSpeaking(parts.length > 1 ? `Gerando a voz… ${i + 1} de ${parts.length}` : 'Gerando a voz…');
-        const file = await speak(parts[i], voice, (f) => setSpeaking(`Carregando a voz… ${Math.round(f * 100)}%`));
-        const media = await importMedia(file);
-        void analyzeMedia(media);
-        const clip = createAudioClip(media, t);
-        t += media.duration;
-        lastId = clip.id;
-        setProject((p) => placeVoiceClip(addMedia(p, [media]), clip));
-      }
-      if (lastId) setSelection({ kind: 'audio', id: lastId });
-      notify(parts.length > 1 ? `${parts.length} trechos de voz adicionados.` : 'Voz adicionada na trilha "Narração".');
-    } catch (error) {
-      notify(`Não foi possível gerar a voz: ${error instanceof Error ? error.message : String(error)}`, true);
-    } finally {
-      setSpeaking(null);
-    }
-  };
-
-  /** Dublagem automática: cada legenda vira uma fala sintética no tempo dela. */
-  const speakCaptions = async (voice: string) => {
-    const captions = project.captions?.captions ?? [];
-    try {
-      for (let i = 0; i < captions.length; i++) {
-        setSpeaking(`Dublando as legendas… ${i + 1} de ${captions.length}`);
-        const media = await importMedia(await speak(captions[i].text, voice));
-        void analyzeMedia(media);
-        const clip = createAudioClip(media, Math.max(0, captions[i].start - 0.15));
-        setProject((p) => placeVoiceClip(addMedia(p, [media]), clip));
-      }
-      notify(`${captions.length} falas criadas a partir das legendas.`);
-    } catch (error) {
-      notify(`Não foi possível dublar: ${error instanceof Error ? error.message : String(error)}`, true);
-    } finally {
-      setSpeaking(null);
-    }
-  };
-
-  /** Deixa o pico do clipe de áudio em -1 dB. */
-  const normalizeAudio = (clipId: string) => {
-    const found = findAudioClip(project, clipId);
-    const peaks = found && assets.peaks.get(found.clip.mediaId);
-    if (!found || !peaks) {
-      notify('A forma de onda ainda está sendo analisada. Tente de novo em instantes.', true);
-      return;
-    }
-    let peak = 0;
-    const from = Math.floor(found.clip.trimIn * PEAKS_PER_SECOND);
-    const to = Math.ceil(found.clip.trimOut * PEAKS_PER_SECOND);
-    for (let i = from; i < Math.min(to, peaks.length); i++) peak = Math.max(peak, peaks[i]);
-    if (peak < 0.005) {
-      notify('Esse trecho está praticamente em silêncio.', true);
-      return;
-    }
-    const volume = Math.min(2, Math.max(0.05, 0.89 / peak));
-    setProject((p) => updateAudioClip(p, clipId, (c) => ({ ...c, volume })));
-    notify(`Volume ajustado para ${Math.round(volume * 100)}%.`);
-  };
-
-  /** Corta as pausas (silêncios) dos clipes da trilha principal. */
-  const cutSilences = async (clipIds: string[]) => {
-    const p = history.current();
-    const layouts = layoutProject(p).clips.filter((l) => clipIds.includes(l.clip.id) && l.media.hasAudio && !l.clip.audioDetached);
-    if (layouts.length === 0) {
-      notify('Esse clipe não tem som para encontrar as pausas.', true);
-      return;
-    }
-    const found = new Map<string, [number, number][]>();
-    try {
-      for (const [n, l] of layouts.entries()) {
-        setBusy(`Procurando as pausas… ${Math.round((n / layouts.length) * 100)}%`);
-        found.set(l.clip.id, await findSpeech(l.media.file, l.clip.trimIn, l.clip.trimOut));
-      }
-    } catch (error) {
-      notify(`Não foi possível ouvir o áudio: ${error instanceof Error ? error.message : String(error)}`, true);
-      return;
-    } finally {
-      setBusy(null);
-    }
-    let removed = 0;
-    let cuts = 0;
-    setProject((q) => {
-      let next = q;
-      for (const [id, keep] of found) {
-        const result = keepRanges(next, id, keep);
-        if (!result || result.removed < 0.05) continue;
-        next = result.project;
-        removed += result.removed;
-        // Pausas no meio, mais as do começo e do fim do clipe.
-        const clip = q.clips.find((c) => c.id === id);
-        cuts += keep.length - 1 + (clip && keep[0][0] > clip.trimIn + 0.05 ? 1 : 0) + (clip && keep[keep.length - 1][1] < clip.trimOut - 0.05 ? 1 : 0);
-      }
-      return next;
-    });
-    notify(removed > 0 ? `${cuts} pausa(s) cortada(s): o vídeo ficou ${removed.toFixed(1)}s mais curto.` : 'Não encontrei pausas para cortar.', removed === 0);
-  };
-
-  /** Corta os clipes da trilha principal nas batidas da música. */
-  const beatMontage = async (every: number, fill: boolean, t = currentTime()) => {
-    let beats = history.current().beats ?? [];
-    if (beats.length < 4) {
-      const detected = await markBeats(t);
-      if (!detected) return;
-      beats = detected.beats;
-    }
-    let cuts = 0;
-    setProject((p) => {
-      const result = fitToBeats(p, beats, every, fill);
-      cuts = result?.cuts ?? 0;
-      return result?.project ?? p;
-    });
-    notify(cuts ? `Montagem no ritmo: ${cuts} clipes, cada um trocando em cima de uma batida.` : 'Coloque vídeos ou imagens na trilha principal para montar no ritmo.', cuts === 0);
-  };
-
-  /** Deixa o projeto vertical (9:16) e cada clipe acompanha o rosto de quem aparece. */
-  const reframeVertical = async () => {
-    const p = history.current();
-    const size = p.width > p.height ? { width: p.height, height: p.width } : { width: p.width, height: p.height };
-    const layouts = layoutProject(p).clips;
-    const follows = new Map<string, CameraFollow>();
-    try {
-      for (const [n, l] of layouts.entries()) {
-        if (l.media.kind !== 'video') continue;
-        setBusy(`Reenquadrando para vertical… ${Math.round((n / layouts.length) * 100)}%`);
-        const points = await trackFace(l.media, l.clip.trimIn, l.clip.trimOut, (f) =>
-          setBusy(`Reenquadrando para vertical… ${Math.round(((n + f) / layouts.length) * 100)}%`),
-        );
-        if (points.length) follows.set(l.clip.id, { kind: 'face', points, zoom: 1, smoothness: 0.8, mode: 'center', anchorTime: l.clip.trimIn });
-      }
-    } catch (error) {
-      notify(`Não foi possível analisar o vídeo: ${error instanceof Error ? error.message : String(error)}`, true);
-      return;
-    } finally {
-      setBusy(null);
-    }
-    setProject((q) => ({
-      ...q,
-      ...size,
-      clips: q.clips.map((c) => {
-        const camera = c.camera ?? createCamera();
-        return { ...c, camera: { ...camera, fill: true, follow: follows.get(c.id) ?? camera.follow } };
-      }),
-    }));
-    notify(
-      `Projeto agora em ${size.width}×${size.height} (vertical). ${follows.size} clipe(s) acompanham o rosto; os outros ficam centralizados.`,
-    );
+    const range: [number, number] = edge === 'start' ? [layout.start, now] : [now, layout.start + layout.length];
+    setProject((p) => removeTimeRanges(p, [range], ripple).project);
+    if (edge === 'start') playerRef.current?.seek(layout.start);
   };
 
   const editorApi: EditorApi = {
@@ -829,7 +594,7 @@ export default function App() {
     notify,
     setClipboard: (item) => {
       setClipboard(item);
-      if (item && item.kind !== 'look') notify('Copiado. Ctrl+V cola no cursor.');
+      if (item && item.kind !== 'look') notify(t('Copiado. {keys} cola no cursor.', { keys: keys('Ctrl+V') }));
     },
     split: () => split(),
     detach: (id) => detach(id),
@@ -837,16 +602,53 @@ export default function App() {
     togglePlay: () => playerRef.current?.toggle(),
     saveFrame: () => void saveFrame(),
     copyFrame: () => void copyFrame(),
-    freeze: (id) => void freeze(id),
-    reverse: (target) => void reverse(target),
+    freeze: (id) => void visual.freeze(id),
+    reverse: (target) => void visual.reverse(target),
     addMarker: (t) => markHere(t),
-    dub: (target) => void startRecording({ ...savedRecordOptions(), dub: target }),
-    normalize: (id) => normalizeAudio(id),
-    addPack: (pack, t) => void addPack(pack, t),
-    markBeats: (t) => void markBeats(t),
-    cutSilences: (ids) => void cutSilences(ids),
-    beatMontage: (every, fill, t) => void beatMontage(every, fill, t),
-    reframeVertical: () => void reframeVertical(),
+    dub: (target) => void voice.startRecording({ ...savedRecordOptions(), dub: target }),
+    normalize: (id) => audio.normalizeAudio(id),
+    addPack: (pack, t) => void packs.addPack(pack, t),
+    markBeats: (t) => void audio.markBeats(t),
+    cutSilences: (ids) => void audio.cutSilences(ids),
+    beatMontage: (every, fill, t) => void audio.beatMontage(every, fill, t),
+    ripple,
+    reframeVertical: () => void visual.reframeVertical(),
+    cleanAudio: (target, strength) => void audio.cleanAudio(target, strength),
+    makeThumbnail: () => void makeThumbnail(),
+    syncAudio: (id) => void audio.syncAudioClip(id),
+    matchColor: (id, reference) => void visual.matchColor(id, reference),
+    stabilize: (target, strength) => void stabilizer.stabilize(target, strength),
+    openTool: (tool) => setToolDialog(tool),
+    syncCameras: () => void multicam.syncCameras(),
+    autoMulticam: () => void multicam.autoMulticam(),
+    compound: (from, to) => compounds.setCompoundRange({ from, to }),
+    fitMusic: (id, seconds) => void audio.fitMusic(id, seconds),
+    addComment: (t) => {
+      let id = '';
+      setProject((p) => {
+        const r = addComment(p, t);
+        id = r.id;
+        return r.project;
+      });
+      setCommentsOpen({ focus: id });
+    },
+    openComment: (id) => setCommentsOpen({ focus: id }),
+    splitScenes: (id) => void visual.splitScenes(id),
+    blurFaces: (target) => void faces.findFaces(target),
+    followEraser: (target, uid) => void visual.followEraser(target, uid),
+    photo3d: (target, motion) => void visual.photo3d(target, motion),
+    splitVoice: (target) => void audio.splitVoice(target),
+    upscalePhoto: (id) => void visual.upscalePhoto(id),
+    toggleComment: (id) => setProject((p) => updateComment(p, id, { done: !p.comments?.find((c) => c.id === id)?.done })),
+    deleteComment: (id) => setProject((p) => removeComment(p, id)),
+    openCompound: (mediaId) => compounds.enterCompound(mediaId),
+    punchIn: (id) => void multicam.autoPunchIn(id),
+    replaceMedia: (clipId, mediaId) => {
+      const media = getMedia(project, mediaId);
+      if (!media || media.kind === 'audio') return;
+      setProject((p) => replaceClipMedia(p, clipId, media));
+      notify(t('Cena trocada por "{name}".', { name: media.name }));
+    },
   };
 
   const openMenu = (e: ReactMouseEvent, entries: MenuEntry[]) => {
@@ -856,200 +658,67 @@ export default function App() {
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
-  // ------------------------------------------------ Pacotes de edição
-
-  /** Trecho do clipe selecionado (pacotes de visual cobrem ele inteiro). */
-  const selectedSpan = () => {
-    if (selection?.kind === 'clip') {
-      const layout = timeline.clips.find((l) => l.clip.id === selection.id);
-      return layout ? { start: layout.start, length: layout.length } : null;
-    }
-    if (selection?.kind === 'overlay') {
-      const layout = timeline.overlays.find((l) => l.clip.id === selection.id);
-      return layout ? { start: layout.start, length: layout.length } : null;
-    }
-    return null;
-  };
-
-  /**
-   * Música de onde tirar as batidas: o áudio selecionado, a música no cursor, qualquer áudio no cursor,
-   * a primeira música do projeto ou o som do próprio vídeo.
-   */
-  const musicAt = (p: Project, t: number) => {
-    const tl = layoutProject(p);
-    const covers = (start: number, length: number) => t >= start && t < start + length;
-    const audio = p.audioTracks.flatMap((track) => track.clips.map((clip) => ({ track, clip })));
-    const pick =
-      (selection?.kind === 'audio' && audio.find((a) => a.clip.id === selection.id)) ||
-      audio.find((a) => a.track.kind === 'music' && !a.track.muted && covers(a.clip.start, clipLength(a.clip))) ||
-      audio.find((a) => a.track.kind !== 'voice' && !a.track.muted && covers(a.clip.start, clipLength(a.clip))) ||
-      audio.find((a) => a.track.kind === 'music' && !a.track.muted);
-    if (pick) {
-      const media = getMedia(p, pick.clip.mediaId);
-      if (media) return { media, trimIn: pick.clip.trimIn, trimOut: pick.clip.trimOut, start: pick.clip.start, speed: speedOf(pick.clip) };
-    }
-    const video = tl.clips.find((l) => covers(l.start, l.length) && l.media.hasAudio && !l.clip.audioDetached);
-    return video ? { media: video.media, trimIn: video.clip.trimIn, trimOut: video.clip.trimOut, start: video.start, speed: speedOf(video.clip) } : null;
-  };
-
-  /** Detecta as batidas da música no cursor e guarda no projeto (aparecem na régua e servem de ímã). */
-  const markBeats = async (t = currentTime()) => {
-    const music = musicAt(history.current(), t);
-    if (!music) {
-      notify('Coloque uma música (ou um vídeo com som) na timeline para detectar as batidas.', true);
-      return null;
-    }
-    setBusy('Ouvindo a música…');
-    try {
-      const result = await detectBeats(music.media.file, music.trimIn, music.trimOut);
-      const beats = result.beats.map((b) => music.start + (b - music.trimIn) / music.speed);
-      const length = (music.trimOut - music.trimIn) / music.speed;
-      const span = { start: music.start, length };
-      if (beats.length < 2) {
-        notify('Não encontrei um ritmo claro nesse áudio.', true);
-        return null;
-      }
-      setProject((p) => ({
-        ...p,
-        beats: [...(p.beats ?? []).filter((b) => b < span.start || b > span.start + span.length), ...beats].sort((a, b) => a - b),
-      }));
-      notify(`${beats.length} batidas marcadas · ${Math.round(result.bpm)} BPM`);
-      return { beats, span };
-    } catch (error) {
-      notify(`Não foi possível ouvir o áudio: ${error instanceof Error ? error.message : String(error)}`, true);
-      return null;
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  /** Procura o rosto no vídeo embaixo do bloco e liga o "seguir rosto" na câmera do pacote. */
-  const faceForPack = async (packId: string, face: NonNullable<PackTemplate['face']>) => {
-    const p = history.current();
-    const found = findPackClip(p, packId);
-    if (!found) return;
-    const { start: s, duration } = found.clip;
-    const e = s + duration;
-    const points: TrackPoint[] = [];
-    const under = layoutProject(p).clips.filter((l) => l.start < e && l.start + l.length > s);
-    setBusy('Procurando rostos… 0%');
-    try {
-      for (const [n, l] of under.entries()) {
-        const speed = speedOf(l.clip);
-        const a = Math.max(s, l.start);
-        const b = Math.min(e, l.start + l.length);
-        const from = l.clip.trimIn + (a - l.start) * speed;
-        const to = l.clip.trimIn + (b - l.start) * speed;
-        const found = await trackFace(l.media, from, to, (f) => setBusy(`Procurando rostos… ${Math.round(((n + f) / under.length) * 100)}%`));
-        // Posição na imagem do clipe → posição na tela (a mídia pode ter barras em volta).
-        const ratio = p.width / p.height;
-        const mediaRatio = l.media.width / l.media.height || ratio;
-        const [fw, fh] = mediaRatio > ratio ? [1, ratio / mediaRatio] : [mediaRatio / ratio, 1];
-        for (const pt of found) {
-          points.push({
-            t: l.start + (pt.t - l.clip.trimIn) / speed - s,
-            x: 0.5 + (pt.x - 0.5) * fw,
-            y: 0.5 + (pt.y - 0.5) * fh,
-            size: pt.size * fw,
-          });
-        }
-      }
-    } catch (error) {
-      notify(`Não foi possível analisar o vídeo: ${error instanceof Error ? error.message : String(error)}`, true);
-      return;
-    } finally {
-      setBusy(null);
-    }
-    if (points.length === 0) {
-      notify('Nenhum rosto encontrado embaixo do pacote: ele ficou com a câmera no centro.', true);
-      return;
-    }
-    setProject((q) => setPackFace(q, packId, points, face));
-    notify('Rosto encontrado: a câmera do pacote vai acompanhar.');
-  };
-
-  const addPack = async (template: PackTemplate, t = currentTime(), track = 0, cover = selectedSpan()) => {
-    let beats: number[] | undefined;
-    let music: { start: number; length: number } | null = null;
-    if (template.beat) {
-      // Usa as batidas já marcadas no trecho; se não houver, ouve a música agora.
-      const p = history.current();
-      const source = musicAt(p, t);
-      const span = cover ?? (source ? { start: source.start, length: (source.trimOut - source.trimIn) / source.speed } : null);
-      const known = span ? (p.beats ?? []).filter((b) => b >= span.start && b < span.start + span.length) : [];
-      if (span && known.length >= 4) {
-        beats = known;
-        music = span;
-      } else {
-        const detected = await markBeats(t);
-        if (!detected) return;
-        beats = detected.beats;
-        music = detected.span;
-      }
-    }
-    const sounds = template.sounds?.length ? await soundMedia(template.sounds.map((s) => s.id)) : undefined;
-    let id = '';
-    let speedApplied = false;
-    setProject((p) => {
-      const result = applyPack(p, layoutProject(p), template, t, { cover, music, beats, track, sounds });
-      id = result.id;
-      speedApplied = result.speedApplied;
-      return result.project;
-    });
-    setSelection({ kind: 'pack', id });
-    if (template.speed && !speedApplied) notify(`"${template.name}" aplicado, mas a velocidade só muda em vídeos da trilha principal.`, true);
-    else if (template.beat) notify(`"${template.name}" aplicado em ${beats?.length ?? 0} batidas.`);
-    else notify(`"${template.name}" aplicado. Puxe as bordas do bloco para encaixar.`);
-    if (template.face) await faceForPack(id, template.face);
-  };
-
-  const dropPack = (packId: string, track: number, t: number) => {
-    const template = findPackTemplate(packId);
-    if (template) void addPack(template, t, track, null);
-  };
-
-  // ------------------------------------------------ Efeitos sonoros
-
-  /** Gera (ou reaproveita) a mídia de cada efeito sonoro. */
-  const soundMedia = async (ids: string[]): Promise<Map<string, MediaItem>> => {
-    const result = new Map<string, MediaItem>();
-    for (const id of new Set(ids)) {
-      const existing = history.current().media.find((m) => m.sfx === id);
-      const sound = getSound(id);
-      if (existing) result.set(id, existing);
-      else if (sound) {
-        const media: MediaItem = { ...(await importMedia(await soundFile(id))), name: sound.name, sfx: id };
-        void analyzeMedia(media);
-        result.set(id, media);
-      }
-    }
-    return result;
-  };
-
-  const addSound = async (sound: SoundEffect, t = currentTime(), track?: number) => {
-    try {
-      const media = (await soundMedia([sound.id])).get(sound.id);
-      if (!media) return;
-      const clip = createAudioClip(media, t);
-      setProject((p) => {
-        const next = p.media.some((m) => m.id === media.id) ? p : addMedia(p, [media]);
-        // Solto numa trilha livre: fica nela; senão vai para a trilha de efeitos sonoros.
-        const target = track === undefined ? undefined : next.audioTracks[track];
-        const free = target && !target.clips.some((c) => clip.start < c.start + clipLength(c) && clip.start + clipLength(clip) > c.start);
-        if (target && free) return { ...next, audioTracks: next.audioTracks.map((tr, i) => (i === track ? { ...tr, clips: [...tr.clips, clip] } : tr)) };
-        return placeSfxClip(next, clip);
-      });
-      setSelection({ kind: 'audio', id: clip.id });
-    } catch (error) {
-      notify(`Não foi possível gerar o som: ${error instanceof Error ? error.message : String(error)}`, true);
-    }
-  };
-
   // ------------------------------------------------ Textos
+
+  /** Quanto tempo o texto (ou sticker, ou elemento) fica na tela ao ser inserido. */
+  const presetDuration = (preset: TextPreset) =>
+    preset.typing
+      ? typingDuration(preset.sample, preset.typing.speed)
+      : preset.shape === 'map'
+        ? 8
+        : preset.shape === 'audiowave'
+          ? Math.max(3, timeline.duration - currentTime())
+          : preset.shape === 'progress' ? Math.max(1, timeline.duration - currentTime()) : preset.shape === 'countdown' ? 5 : preset.id.startsWith('sticker/') || preset.shape ? 3 : 4;
+
+  const toolsMenu = (e: ReactMouseEvent) => {
+    const add = (id: string) => {
+      const p = findTextPreset(id);
+      if (p) addText(p);
+    };
+    openMenu(e, [
+      { header: t('Criar') },
+      { label: t('Tela dividida…'), icon: <Columns2 size={14} />, onClick: () => setExtraDialog('split') },
+      (project.captions?.captions.length ?? 0) > 0 && { label: t('Imagens de apoio automáticas (pela fala)…'), icon: <Clapperboard size={14} />, onClick: () => setExtraDialog('broll') },
+      { label: t('Rota animada no mapa'), icon: <MapIcon size={14} />, onClick: () => add('element/mapa') },
+      { label: t('Ondas de som (barras)'), icon: <AudioLines size={14} />, onClick: () => add('element/ondas') },
+      { label: t('Ondas de som (círculo)'), icon: <AudioLines size={14} />, onClick: () => add('element/ondas-circulo') },
+      { label: t('Código digitando'), icon: <Code size={14} />, onClick: () => add('codigo') },
+      { label: t('Terminal digitando'), icon: <Code size={14} />, onClick: () => add('terminal') },
+      project.clips.length > 0 && { label: t('Gancho de abertura…'), icon: <Fish size={14} />, onClick: () => setToolDialog('hook') },
+      !!project.script.trim() && (project.captions?.captions.length ?? 0) > 0 && {
+        label: t('Montar pelo roteiro (melhores tentativas)…'),
+        icon: <ListOrdered size={14} />,
+        onClick: () => setToolDialog('script'),
+      },
+      project.clips.length > 0 && {
+        label: t('Clipe composto a partir do cursor…'),
+        icon: <Boxes size={14} />,
+        onClick: () => compounds.setCompoundRange({ from: currentTime(), to: currentTime() + 5 }),
+      },
+      'separator',
+      { header: t('Organizar') },
+      {
+        label: t('Comentários e tarefas ({n})…', { n: (project.comments ?? []).filter((c) => !c.done).length }),
+        icon: <MessagesSquare size={14} />,
+        onClick: () => setCommentsOpen({ focus: null }),
+      },
+      { label: t('Editor de efeitos (criar o seu)…'), icon: <Code size={14} />, onClick: () => setExtraDialog('effects') },
+      { label: t('Galeria da comunidade (efeitos e pacotes)…'), icon: <Store size={14} />, onClick: () => setGallery({ kind: null }) },
+      { label: t('Buscar nas mídias (o que aparece ou é falado)…'), icon: <Search size={14} />, onClick: () => setExtraDialog('search') },
+      { label: t('Kit da marca…'), icon: <BadgeCheck size={14} />, onClick: () => setExtraDialog('brand') },
+      { label: t('Processar vários vídeos…'), icon: <Layers size={14} />, onClick: () => setExtraDialog('batch') },
+      { label: t('Levar para Premiere / DaVinci (XML, EDL)…'), icon: <ArrowRightLeft size={14} />, onClick: () => setExtraDialog('interchange') },
+      { label: t('Mídias do projeto ({n})…', { n: project.media.length }), icon: <HardDrive size={14} />, onClick: () => setExtraDialog('media') },
+      'separator',
+      { header: t('Ajuda') },
+      { label: t('Atalhos do teclado…'), icon: <Keyboard size={14} />, shortcut: shortcutLabel('shortcuts'), onClick: () => setShortcutsOpen(true) },
+      { label: t('Abrir projeto de exemplo'), icon: <Sparkles size={14} />, onClick: () => void sample.openSample() },
+    ]);
+  };
 
   const addText = (preset: TextPreset) => {
     // Stickers ficam pouco tempo na tela.
-    const clip = createTextClip(preset, currentTime(), preset.id.startsWith('sticker/') ? 2 : 4);
+    const clip = createTextClip(preset, currentTime(), presetDuration(preset));
     setProject((p) => placeTextClip(p, clip));
     setSelection({ kind: 'text', id: clip.id });
   };
@@ -1057,7 +726,7 @@ export default function App() {
   const dropTextPreset = (presetId: string, track: number, time: number) => {
     const preset = findTextPreset(presetId);
     if (!preset) return;
-    const clip = createTextClip(preset, time, preset.id.startsWith('sticker/') ? 2 : 4);
+    const clip = createTextClip(preset, time, presetDuration(preset));
     setProject((p) => {
       const target = p.textTracks[track];
       const free = target && !target.clips.some((c) => clip.start < c.start + c.duration && clip.start + clip.duration > c.start);
@@ -1072,7 +741,9 @@ export default function App() {
   const onCanvasPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (picking) {
       const rect = e.currentTarget.getBoundingClientRect();
-      void followPoint(picking, { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height });
+      const screen = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+      if (picking.startsWith('text:')) void follow.followTextPoint(picking.slice(5), screen);
+      else void follow.followPoint(picking, screen);
       return;
     }
     if (e.button !== 0) return;
@@ -1109,185 +780,15 @@ export default function App() {
     setProject((p) => updateTextClip(p, drag.id, (c) => ({ ...c, x, y })));
   };
 
-  // ------------------------------------------------ Salvar e abrir
-
-  const newProject = () => {
-    if (isDirty && !confirm('Começar um projeto novo? O que não foi salvo será perdido.')) return;
-    playerRef.current?.pause();
-    history.reset(createProject());
-    fileHandle.current = null;
-    savedProject.current = null;
-    setSelection(null);
-    playerRef.current?.seek(0);
-  };
-
-  const save = async (saveAs = false) => {
-    try {
-      setBusy('Salvando projeto…');
-      const result = await saveProject(project, saveAs ? null : fileHandle.current);
-      if (result.relinked) {
-        // As mídias agora são lidas do arquivo salvo; os passos de desfazer também passam a usá-lo.
-        const media = new Map(result.relinked.media.map((m) => [m.id, m]));
-        history.rewrite((p) => ({ ...p, media: p.media.map((m) => media.get(m.id) ?? m) }));
-        savedProject.current = result.relinked;
-      } else {
-        savedProject.current = project;
-      }
-      fileHandle.current = result.handle;
-      notify(`Projeto salvo${result.handle ? ` em "${result.handle.name}"` : ''}.`);
-    } catch (error) {
-      if ((error as DOMException)?.name !== 'AbortError') notify(`Não foi possível salvar: ${String(error)}`, true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const open = async () => {
-    if (isDirty && !confirm('Abrir outro projeto? O que não foi salvo neste será perdido.')) return;
-    try {
-      const picked = await pickProjectFile();
-      if (!picked) return;
-      setBusy('Abrindo projeto…');
-      const opened = await openProjectFile(picked.file);
-      playerRef.current?.pause();
-      history.reset(opened);
-      fileHandle.current = picked.handle;
-      savedProject.current = opened;
-      setSelection(null);
-      playerRef.current?.seek(0);
-      notify(`"${opened.name}" aberto.`);
-    } catch (error) {
-      if ((error as DOMException)?.name !== 'AbortError') notify(error instanceof Error ? error.message : String(error), true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const recover = async () => {
-    const pending = recovery;
-    setRecovery(null);
-    if (!pending) return;
-    history.reset(pending.project);
-    autosaveReady.current = true;
-    notify('Projeto recuperado.');
-  };
-
-  const discardRecovery = async () => {
-    setRecovery(null);
-    autosaveReady.current = true;
-    await clearAutosave().catch(() => {});
-  };
-
-  /** Importa as mídias de exemplo (domínio público, em /public/samples). */
-  const loadSamples = async () => {
-    const samples: [string, string][] = [
-      ['entrevista.webm', 'video/webm'],
-      ['drone.webm', 'video/webm'],
-      ['paisagem.jpg', 'image/jpeg'],
-      ['astronauta.jpg', 'image/jpeg'],
-      ['cidade.jpg', 'image/jpeg'],
-    ];
-    try {
-      setBusy('Baixando mídias de exemplo…');
-      const files = await Promise.all(
-        samples.map(async ([name, type]) => new File([await (await fetch(assetUrl(`samples/${name}`))).blob()], name, { type })),
-      );
-      setBusy(null);
-      await importFiles(files);
-    } catch (error) {
-      notify(`Não foi possível carregar os exemplos: ${String(error)}`, true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  // ------------------------------------------------ Câmera que segue rosto / ponto
-
-  const setFollow = (clipId: string, follow: CameraFollow, fill: boolean) =>
-    setProject((p) =>
-      updateClip(p, clipId, (c) => {
-        const camera = c.camera ?? createCamera();
-        return { ...c, camera: { ...camera, fill: camera.fill || fill, follow } };
-      }),
-    );
-
-  const followFace = async (clipId: string) => {
-    const layout = timeline.clips.find((l) => l.clip.id === clipId);
-    if (!layout) return;
-    try {
-      setBusy('Procurando rostos… 0%');
-      const points = await trackFace(layout.media, layout.clip.trimIn, layout.clip.trimOut, (f) =>
-        setBusy(`Procurando rostos… ${Math.round(f * 100)}%`),
-      );
-      if (points.length === 0) {
-        notify('Nenhum rosto encontrado neste clipe.', true);
-        return;
-      }
-      // Zoom para o rosto ocupar ~22% da largura da tela (entre 1,2× e 3×).
-      const size = points.reduce((s, p) => s + p.size, 0) / points.length;
-      const zoom = Math.min(3, Math.max(1.2, 0.22 / Math.max(0.01, size)));
-      setFollow(clipId, { kind: 'face', points, zoom, smoothness: 0.6, mode: 'center', anchorTime: layout.clip.trimIn }, true);
-      notify(`Rosto encontrado em ${points.length} momentos. A câmera vai acompanhar.`);
-    } catch (error) {
-      console.error(error);
-      notify(`Não foi possível analisar o vídeo: ${error instanceof Error ? error.message : String(error)}`, true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const followPoint = async (clipId: string, screen: { x: number; y: number }) => {
-    setPicking(null);
-    const layout = timeline.clips.find((l) => l.clip.id === clipId);
-    if (!layout) return;
-    const t = Math.min(Math.max(currentTime(), layout.start), layout.start + layout.length);
-    const clipTime = t - layout.start;
-    const sourceTime = layout.clip.trimIn + clipTime * speedOf(layout.clip);
-    // Converte o clique na tela para a posição na imagem, desfazendo a câmera atual.
-    const view = { ...evaluateCamera(layout.clip.camera, clipTime, sourceTime), fill: layout.clip.camera?.fill ?? false };
-    const point = screenToSource(screen, view, project, layout.media);
-    if (point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
-      notify('Clique dentro da imagem do clipe.', true);
+  /** Abre o criador de capa com o quadro que está na tela. */
+  const makeThumbnail = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || timeline.duration === 0) {
+      notify(t('Coloque um vídeo ou uma foto na timeline primeiro.'), true);
       return;
     }
-    try {
-      setBusy('Acompanhando o ponto… 0%');
-      const points = await trackPoint(layout.media, sourceTime, point, layout.clip.trimIn, layout.clip.trimOut, (f) =>
-        setBusy(`Acompanhando o ponto… ${Math.round(f * 100)}%`),
-      );
-      setFollow(clipId, { kind: 'point', points, zoom: 1.4, smoothness: 0.25, mode: 'center', anchorTime: sourceTime }, false);
-      notify('Ponto rastreado. A câmera vai acompanhar.');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : String(error), true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const startExport = async (settings: ExportSettings) => {
     playerRef.current?.pause();
-    const controller = new AbortController();
-    exportAbortRef.current = controller;
-    setExportState({ status: 'running', progress: { stage: 'Preparando', fraction: 0 } });
-    try {
-      const blob = await exportProject(project, settings, {
-        signal: controller.signal,
-        onProgress: (progress) => setExportState({ status: 'running', progress }),
-      });
-      const url = URL.createObjectURL(blob);
-      const base = (project.name || 'lumiar').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'lumiar';
-      const fileName = `${base}.${FORMAT_INFO[settings.format].extension}`;
-      download(url, fileName);
-      setExportState({ status: 'done', url, fileName, size: blob.size });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        setExportState(null);
-        notify('Exportação cancelada.');
-      } else {
-        console.error(error);
-        setExportState({ status: 'error', message: error instanceof Error ? error.message : String(error) });
-      }
-    }
+    setThumbFrame(await createImageBitmap(canvas));
   };
 
   const step = (seconds: number) => {
@@ -1295,109 +796,37 @@ export default function App() {
     if (player) player.seek(player.currentTime + seconds);
   };
 
-  // Atalhos de teclado (a versão mais recente das funções fica num ref).
-  const keyActions = useRef({ split, deleteSelection, undo: history.undo, redo: history.redo, save, open, copy, paste, duplicateSelection, markHere, jumpEdit, toggleVoice: () => {} });
-  const toggleVoice = () => void (voiceRef.current ? stopRecording() : startRecording(savedRecordOptions()));
-  keyActions.current = { split, deleteSelection, undo: history.undo, redo: history.redo, save, open, copy, paste, duplicateSelection, markHere, jumpEdit, toggleVoice };
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const actions = keyActions.current;
-      const ctrl = e.ctrlKey || e.metaKey;
-      // Salvar e abrir funcionam até com o foco num campo de texto.
-      if (ctrl && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        void actions.save(e.shiftKey);
-        return;
-      }
-      if (ctrl && e.key.toLowerCase() === 'o') {
-        e.preventDefault();
-        void actions.open();
-        return;
-      }
-      const target = e.target;
-      if ((target instanceof Element && target.closest('input, select, textarea')) || exportState) return;
-      const player = playerRef.current;
-      if (!player) return;
-      const frame = 1 / project.fps;
-      if (ctrl && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) actions.redo();
-        else actions.undo();
-      } else if (ctrl && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        actions.redo();
-      } else if (ctrl && e.key.toLowerCase() === 'c') {
-        actions.copy();
-      } else if (ctrl && e.key.toLowerCase() === 'x') {
-        actions.copy(true);
-      } else if (ctrl && e.key.toLowerCase() === 'v') {
-        e.preventDefault();
-        actions.paste();
-      } else if (ctrl && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        actions.duplicateSelection();
-      } else if (e.code === 'Space') {
-        e.preventDefault();
-        player.toggle();
-      } else if (e.key.toLowerCase() === 's' && !ctrl) {
-        actions.split();
-      } else if (e.key.toLowerCase() === 'm' && !ctrl) {
-        actions.markHere();
-      } else if (e.key.toLowerCase() === 'r' && !ctrl) {
-        actions.toggleVoice();
-      } else if (ctrl && e.key === 'ArrowLeft') {
-        e.preventDefault();
-        actions.jumpEdit(-1);
-      } else if (ctrl && e.key === 'ArrowRight') {
-        e.preventDefault();
-        actions.jumpEdit(1);
-      } else if (e.key === 'ArrowLeft') {
-        player.seek(player.currentTime - (e.shiftKey ? 1 : frame));
-      } else if (e.key === 'ArrowRight') {
-        player.seek(player.currentTime + (e.shiftKey ? 1 : frame));
-      } else if (e.key === 'Home') {
-        player.seek(0);
-      } else if (e.key === 'End') {
-        player.seek(player.duration);
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        actions.deleteSelection();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [project.fps, exportState]);
-
-  // Arrastar arquivos do computador para qualquer lugar da janela
-  useEffect(() => {
-    const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
-    const onDragOver = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
-      e.preventDefault();
-      setDraggingFiles(true);
-    };
-    const onDragLeave = (e: DragEvent) => {
-      if (!e.relatedTarget) setDraggingFiles(false);
-    };
-    const onDrop = (e: DragEvent) => {
-      setDraggingFiles(false);
-      const types = e.dataTransfer?.types ?? [];
-      if (types.includes(PLUGIN_MIME) || types.includes(MEDIA_MIME) || types.includes(TEXT_PRESET_MIME)) return;
-      e.preventDefault();
-      const files = [...(e.dataTransfer?.files ?? [])];
-      if (files.length) void importFiles(files);
-    };
-    window.addEventListener('dragover', onDragOver);
-    window.addEventListener('dragleave', onDragLeave);
-    window.addEventListener('drop', onDrop);
-    return () => {
-      window.removeEventListener('dragover', onDragOver);
-      window.removeEventListener('dragleave', onDragLeave);
-      window.removeEventListener('drop', onDrop);
-    };
-  }, [importFiles]);
+  useKeyboardShortcuts(
+    {
+      split,
+      deleteSelection,
+      undo: history.undo,
+      redo: history.redo,
+      save: files.save,
+      open: files.open,
+      copy,
+      paste,
+      duplicateSelection,
+      markHere,
+      jumpEdit,
+      toggleVoice: voice.toggleVoice,
+      trimToCursor,
+      cutToCamera: multicam.cutToCamera,
+      showShortcuts: () => setShortcutsOpen(true),
+    },
+    playerRef,
+    project.fps,
+    !!exporting.exportState,
+  );
+  const draggingFiles = useFileDrop(importFiles);
 
   const openImport = () => fileInputRef.current?.click();
   const empty = project.media.length === 0;
+  /** Os diálogos que dão play num trecho para ouvir antes de usar. */
+  const seekAndPlay = (t: number) => {
+    playerRef.current?.seek(t);
+    playerRef.current?.play();
+  };
 
   return (
     <div
@@ -1413,13 +842,23 @@ export default function App() {
         </div>
         <span className="h-5 w-px bg-line" />
         <div className="flex items-center gap-0.5">
-          <IconButton label="Novo projeto" onClick={newProject}>
+          <IconButton label={t('Novo projeto')} onClick={files.newProject}>
             <FilePlus size={16} />
           </IconButton>
-          <IconButton label="Abrir projeto (Ctrl+O)" onClick={() => void open()}>
+          <IconButton label={t('Começar de um modelo (receita, viagem, review, top 5…)')} onClick={() => setTemplateDialog(true)}>
+            <LayoutTemplate size={16} />
+          </IconButton>
+          <IconButton label={t('Histórico e cópias de segurança')} onClick={() => setToolDialog('history')}>
+            <History size={16} />
+          </IconButton>
+          <IconButton label={withShortcut(t('Abrir projeto'), 'open')} onClick={() => void files.open()}>
             <FolderOpen size={16} />
           </IconButton>
-          <IconButton label="Salvar projeto (Ctrl+S) · Shift: salvar como" onClick={(e) => void save(e.shiftKey)} className="relative">
+          <IconButton
+            label={`${withShortcut(t('Salvar projeto'), 'save')} · ${t('{shift}: salvar como', { shift: keys('Shift') })}`}
+            onClick={(e) => void files.save(e.shiftKey)}
+            className="relative"
+          >
             <Save size={16} />
             {isDirty && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-amber" />}
           </IconButton>
@@ -1431,21 +870,39 @@ export default function App() {
             setProject((p) => ({ ...p, name }));
           }}
           spellCheck={false}
-          title="Nome do projeto"
+          title={t('Nome do projeto')}
           className="field-sizing-content min-w-24 max-w-72 truncate rounded-md border border-transparent bg-transparent px-2 py-1 font-medium text-fg outline-none transition-colors hover:border-line focus:border-accent"
         />
+        {compounds.compoundPath.length > 0 && (
+          <span className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 py-0.5 pl-3 pr-0.5 text-xs">
+            <span className="text-dim">{t('Dentro de')}</span>
+            <b className="max-w-48 truncate">{compounds.compoundPath.join(' › ')}</b>
+            <Button variant="primary" className="h-6 rounded-full px-2.5 text-[11px]" onClick={() => void compounds.leaveCompound()}>
+              {t('Voltar ao projeto')}
+            </Button>
+          </span>
+        )}
         {isDirty && (
-          <span className="-ml-2 flex items-center gap-1 rounded-full bg-amber/10 px-2 py-0.5 text-[10px] font-medium text-amber" title="Há mudanças que ainda não foram salvas em arquivo (Ctrl+S)">
+          <span
+            className="-ml-2 flex items-center gap-1 rounded-full bg-amber/10 px-2 py-0.5 text-[10px] font-medium text-amber"
+            title={withShortcut(t('Há mudanças que ainda não foram salvas em arquivo'), 'save')}
+          >
             <span className="size-1.5 rounded-full bg-amber" />
-            não salvo
+            {t('não salvo')}
           </span>
         )}
 
         <span className="flex-1" />
 
+        <IconButton label={withShortcut(t('Atalhos do teclado (dá para mudar)'), 'shortcuts')} onClick={() => setShortcutsOpen(true)}>
+          <Keyboard size={16} />
+        </IconButton>
+
+        <LanguagePicker />
+
         <button
           onClick={() => setProjectDialog(true)}
-          title="Formato do projeto: tamanho, proporção, fps e fundo"
+          title={t('Formato do projeto: tamanho, proporção, fps e fundo')}
           className="flex h-8 items-center gap-2 rounded-lg border border-line bg-panel-2 pl-1.5 pr-3 text-xs transition-colors hover:border-line-strong hover:bg-panel-3"
         >
           <AspectBox width={project.width} height={project.height} size={20} />
@@ -1456,8 +913,21 @@ export default function App() {
           <Monitor size={13} className="text-faint" />
         </button>
 
+        <Button
+          icon={<Wrench size={14} />}
+          className="h-8 text-xs"
+          onClick={toolsMenu}
+          title={t('Tela dividida, mapa, ondas de som, kit da marca, vários vídeos de uma vez, mídias do projeto')}
+        >
+          {t('Ferramentas')}
+        </Button>
+
+        <IconButton label={t('Criar capa (thumbnail) com o quadro atual')} onClick={() => void makeThumbnail()}>
+          <ImagePlus size={16} />
+        </IconButton>
+
         {project.width > project.height && project.clips.length > 0 && (
-          <IconButton label="Converter para vertical (Reels/TikTok/Shorts), com a câmera seguindo os rostos" onClick={() => void reframeVertical()}>
+          <IconButton label={t('Converter para vertical (Reels/TikTok/Shorts), com a câmera seguindo os rostos')} onClick={() => void visual.reframeVertical()}>
             <Smartphone size={16} />
           </IconButton>
         )}
@@ -1468,11 +938,11 @@ export default function App() {
           disabled={timeline.duration === 0}
           onClick={() => {
             playerRef.current?.pause();
-            setExportState({ status: 'setup' });
+            exporting.setExportState({ status: 'setup' });
           }}
           className="px-4"
         >
-          Exportar
+          {t('Exportar')}
         </Button>
       </header>
 
@@ -1485,12 +955,14 @@ export default function App() {
         onImport={openImport}
         onAddMedia={(media) => setProject((p) => addToTimeline(p, [media]))}
         onAddText={addText}
-        onAddSound={(sound) => void addSound(sound)}
-        onLoadSamples={() => void loadSamples()}
+        onAddSound={(sound) => void audio.addSound(sound)}
+        onRecordScreen={() => screen.setScreenDialog(true)}
+        onScriptAssembly={() => setToolDialog('script')}
         time={time}
         onChange={setProject}
         onSeek={(t) => playerRef.current?.seek(t)}
         notify={notify}
+        onGallery={(kind) => setGallery({ kind })}
         onRemoveMedia={(media) => {
           setProject((p) => removeMedia(p, media.id));
           setSelection(null);
@@ -1505,16 +977,17 @@ export default function App() {
           )
         }
         onPluginMenu={(e, plugin) => openMenu(e, pluginMenu(editorApi, plugin, () => applyTo(selection, plugin)))}
-        onAddPack={(pack) => void addPack(pack)}
+        onAddPack={(pack) => void packs.addPack(pack)}
         onPackMenu={(e, pack) => openMenu(e, packMenu(editorApi, pack))}
         voice={{
           selection,
-          session,
-          speaking,
-          onRecord: (options) => void startRecording(options),
-          onStop: () => void stopRecording(),
-          onSpeak: (text, voice) => void speakText(text, voice),
-          onSpeakCaptions: (voice) => void speakCaptions(voice),
+          session: voice.session,
+          speaking: voice.speaking,
+          onRecord: (options) => void voice.startRecording(options),
+          onStop: () => void voice.stopRecording(),
+          onSpeak: (text, v) => void voice.speakText(text, v),
+          onSpeakCaptions: (v) => void voice.speakCaptions(v),
+          onDubEnglish: () => void voice.dubInEnglish(),
           onChange: setProject,
         }}
       />
@@ -1530,10 +1003,10 @@ export default function App() {
             onContextMenu={(e) => openMenu(e, previewMenu(editorApi))}
             title={
               picking
-                ? 'Clique no ponto que a câmera deve seguir'
+                ? t('Clique no ponto que a câmera deve seguir')
                 : selection?.kind === 'text' || selection?.kind === 'overlay'
-                  ? 'Arraste para posicionar'
-                  : 'Clique para tocar/pausar'
+                  ? t('Arraste para posicionar')
+                  : t('Clique para tocar/pausar')
             }
             className={cx(
               'max-h-full max-w-full rounded-md bg-black shadow-[0_10px_40px_rgba(0,0,0,0.7)] ring-1 ring-white/5',
@@ -1553,32 +1026,56 @@ export default function App() {
               <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-accent to-accent-2 text-white shadow-xl shadow-accent/30 transition-transform group-hover:scale-110">
                 <Upload size={28} />
               </span>
-              <span className="text-lg font-semibold text-fg">Arraste vídeos, músicas e imagens aqui</span>
-              <span className="text-xs text-faint">ou clique para escolher · MP4, MOV, WebM, MP3, WAV, JPG, PNG…</span>
+              <span className="text-lg font-semibold text-fg">{t('Arraste vídeos, músicas e imagens aqui')}</span>
+              <span className="text-xs text-faint">{t('ou clique para escolher · MP4, MOV, WebM, MP3, WAV, JPG, PNG…')}</span>
             </button>
           )}
+          {empty && sample.offer && <SampleOffer onOpen={() => void sample.openSample()} onDismiss={sample.dismiss} />}
 
-          {session && (
+          {scopes && !empty && <Scopes source={canvasRef} />}
+          {maskEdit &&
+            (() => {
+              const found = findOverlayClip(project, maskEdit);
+              const layout = timeline.overlays.find((l) => l.clip.id === maskEdit);
+              if (!found || !layout) return null;
+              return (
+                <MaskDrawer
+                  project={project}
+                  clip={found.clip}
+                  media={layout.media}
+                  clipTime={Math.min(layout.length, Math.max(0, time - layout.start))}
+                  canvasRef={canvasRef}
+                  onChange={(mask) => setProject((p) => updateOverlayClip(p, maskEdit, (c) => ({ ...c, transform: { ...c.transform, mask } })))}
+                  onDone={() => setMaskEdit(null)}
+                />
+              );
+            })()}
+          <ObjectPicker project={project} timeline={timeline} time={time} setProject={setProject} notify={notify} />
+
+          {voice.session && (
             <Teleprompter
-              session={session}
-              script={voiceRef.current?.options.prompter ? project.script : ''}
-              wordsPerMinute={voiceRef.current?.options.prompterSpeed ?? 140}
-              onStop={() => void stopRecording()}
+              session={voice.session}
+              script={voice.voiceRef.current?.options.prompter ? project.script : ''}
+              wordsPerMinute={voice.voiceRef.current?.options.prompterSpeed ?? 140}
+              follow={voice.voiceRef.current?.options.prompterFollow ?? true}
+              onStop={() => void voice.stopRecording()}
             />
           )}
 
           {importing > 0 && (
             <div className="absolute bottom-6 flex animate-pop-in items-center gap-2 rounded-full bg-black/80 px-4 py-2 text-xs backdrop-blur">
               <LoaderCircle size={14} className="animate-spin text-accent" />
-              Importando {importing} arquivo(s)…
+              {t('Importando {n} arquivo(s)…', { n: importing })}
             </div>
           )}
+
+          {(gpu === 'lost' || gpu === 'failed') && <GpuLostOverlay failed={gpu === 'failed'} />}
         </div>
 
         <div className="border-t border-line bg-panel">
           <div className="px-4 pt-2">
             <Slider
-              label="Posição"
+              label={t('Posição')}
               value={time}
               min={0}
               max={timeline.duration || 1}
@@ -1592,41 +1089,52 @@ export default function App() {
               <span className="text-faint"> / {formatTime(timeline.duration)}</span>
             </span>
             <div className="flex items-center gap-1">
-              <IconButton label="Início (Home)" onClick={() => playerRef.current?.seek(0)}>
+              <IconButton label={withShortcut(t('Início'), 'goStart')} onClick={() => playerRef.current?.seek(0)}>
                 <SkipBack size={16} />
               </IconButton>
-              <IconButton label="Quadro anterior (←)" onClick={() => step(-1 / project.fps)}>
+              <IconButton label={withShortcut(t('Quadro anterior'), 'frameBack')} onClick={() => step(-1 / project.fps)}>
                 <StepBack size={16} />
               </IconButton>
               <button
-                title="Tocar / pausar (Espaço)"
+                title={withShortcut(t('Tocar / pausar'), 'playPause')}
                 disabled={timeline.duration === 0}
                 onClick={() => playerRef.current?.toggle()}
                 className="mx-1.5 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-2 text-white shadow-lg shadow-accent/30 transition hover:scale-105 hover:brightness-110 disabled:opacity-40 disabled:hover:scale-100"
               >
                 {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" className="ml-0.5" />}
               </button>
-              <IconButton label="Próximo quadro (→)" onClick={() => step(1 / project.fps)}>
+              <IconButton label={withShortcut(t('Próximo quadro'), 'frameForward')} onClick={() => step(1 / project.fps)}>
                 <StepForward size={16} />
               </IconButton>
-              <IconButton label="Fim (End)" onClick={() => playerRef.current?.seek(playerRef.current.duration)}>
+              <IconButton label={withShortcut(t('Fim'), 'goEnd')} onClick={() => playerRef.current?.seek(playerRef.current.duration)}>
                 <SkipForward size={16} />
               </IconButton>
             </div>
             <span className="flex items-center justify-end gap-2 text-right font-mono text-xs text-faint">
               {proxyJob && <span className="truncate font-sans text-[11px] text-dim">{proxyJob}</span>}
               <button
+                onClick={() => setScopes((v) => !v)}
+                title={t('Gráficos de cor: histograma, forma de onda e vetorscópio do quadro atual,\npara acertar a exposição e a cor com precisão')}
+                className={cx(
+                  'flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-sans text-[11px] transition-colors',
+                  scopes ? 'border-accent/60 bg-accent/15 text-fg' : 'border-line text-faint hover:border-line-strong hover:text-dim',
+                )}
+              >
+                <ChartColumn size={11} />
+                {t('Gráficos')}
+              </button>
+              <button
                 onClick={() => setProxyMode((v) => !v)}
-                title={
-                  'Prévia leve: cria cópias em 540p dos vídeos pesados (4K, 1080p) só para editar.\nTocar e pular na timeline fica mais rápido; a exportação continua usando os arquivos originais.'
-                }
+                title={t(
+                  'Prévia leve: cria cópias em 540p dos vídeos pesados (4K, 1080p) só para editar.\nTocar e pular na timeline fica mais rápido; a exportação continua usando os arquivos originais.',
+                )}
                 className={cx(
                   'flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-sans text-[11px] transition-colors',
                   proxyMode ? 'border-accent/60 bg-accent/15 text-fg' : 'border-line text-faint hover:border-line-strong hover:text-dim',
                 )}
               >
                 <Feather size={11} />
-                Prévia leve
+                {t('Prévia leve')}
               </button>
               {project.width}×{project.height} · {project.fps} fps
             </span>
@@ -1642,15 +1150,28 @@ export default function App() {
         onChange={setProject}
         onSelect={setSelection}
         onDetach={detach}
-        onFollowFace={(id) => void followFace(id)}
+        onFollowFace={(id) => void follow.followFace(id)}
+        onDrawMask={(id) => {
+          setMaskEdit(id);
+          const layout = timeline.overlays.find((l) => l.clip.id === id);
+          // O cursor vai para dentro da camada, para ela aparecer enquanto desenha.
+          if (layout && (time < layout.start || time >= layout.start + layout.length)) playerRef.current?.seek(layout.start + Math.min(0.5, layout.length / 2));
+        }}
         onPickPoint={(id) => {
           playerRef.current?.pause();
           setPicking((p) => (p === id ? null : id));
-          notify('Clique no ponto do vídeo que a câmera deve acompanhar.');
+          notify(t('Clique no ponto do vídeo que a câmera deve acompanhar.'));
         }}
         picking={picking}
-        onNormalize={(id) => normalizeAudio(id)}
+        onPickTextPoint={(id) => {
+          playerRef.current?.pause();
+          setPicking((p) => (p === `text:${id}` ? null : `text:${id}`));
+          notify(t('Clique no que o texto deve seguir (com o cursor num quadro em que aparece).'));
+        }}
+        onNormalize={(id) => audio.normalizeAudio(id)}
+        onCleanAudio={(target, strength) => void audio.cleanAudio(target, strength)}
         notify={(text) => notify(text)}
+        ripple={ripple}
         onToMain={(id) => {
           const result = demoteToMain(project, id);
           applyEdit(result && { project: result.project, selection: { kind: 'clip', id: result.id } });
@@ -1661,7 +1182,7 @@ export default function App() {
       <div className="relative col-span-4 min-h-0">
         {/* Divisória: arraste para dar mais espaço à timeline ou ao vídeo. */}
         <div
-          title="Arraste para redimensionar"
+          title={t('Arraste para redimensionar')}
           onPointerDown={startTimelineResize}
           className="group absolute inset-x-0 -top-1.5 z-40 flex h-3 cursor-row-resize items-center justify-center"
         >
@@ -1676,6 +1197,9 @@ export default function App() {
           canUndo={history.canUndo}
           canRedo={history.canRedo}
           onSelect={setSelection}
+          multi={multi}
+          onMulti={setMulti}
+          onComment={(id) => setCommentsOpen({ focus: id })}
           onSeek={(t) => playerRef.current?.seek(t)}
           onEdit={setProject}
           onImport={openImport}
@@ -1690,16 +1214,47 @@ export default function App() {
           }}
           onDropMedia={dropMedia}
           onDropTextPreset={dropTextPreset}
-          onDropPack={dropPack}
+          onDropPack={packs.dropPack}
           onDropSound={(soundId, track, t) => {
             const sound = getSound(soundId);
-            if (sound) void addSound(sound, t, track);
+            if (sound) void audio.addSound(sound, t, track);
           }}
-          onContextMenu={(e, target: TimelineTarget) => openMenu(e, timelineMenu(editorApi, target))}
+          onContextMenu={(e, target: TimelineTarget) => {
+            // Botão direito num dos itens selecionados: menu para todos eles.
+            if (multi.length > 1 && 'id' in target && multi.some((m) => m.id === target.id)) {
+              openMenu(e, [
+                { header: t('{n} itens selecionados', { n: multi.length }) },
+                {
+                  label: t('Agrupar (andam juntos)'),
+                  icon: <Group size={14} />,
+                  onClick: () => {
+                    setProject((p) => groupItems(p, multi.filter((m) => m.kind !== 'clip').map((m) => m.id)));
+                    notify(t('Agrupados: arraste qualquer um e os outros vão junto.'));
+                  },
+                },
+                { label: t('Excluir os {n}', { n: multi.length }), icon: <Trash size={14} />, danger: true, onClick: deleteSelection },
+                { label: t('Limpar a seleção'), onClick: () => setMulti([]) },
+              ]);
+              return;
+            }
+            openMenu(e, prerender.withEntries(timelineMenu(editorApi, target), target));
+          }}
           onAddMarker={() => markHere()}
-          recording={session ? session.elapsed : null}
-          onToggleRecord={() => void (session ? stopRecording() : startRecording(savedRecordOptions()))}
+          recording={voice.session ? voice.session.elapsed : null}
+          onToggleRecord={() => void (voice.session ? voice.stopRecording() : voice.startRecording(savedRecordOptions()))}
+          ripple={ripple}
+          onToggleRipple={() => {
+            setRipple((r) => !r);
+            notify(
+              ripple
+                ? t('Mover o resto junto desligado: cortes na trilha principal não mexem nas outras trilhas.')
+                : t('Mover o resto junto ligado: textos, áudios e legendas acompanham os cortes da trilha principal.'),
+            );
+          }}
+          mixerOpen={mixerOpen}
+          onToggleMixer={() => setMixerOpen((o) => !o)}
         />
+        {mixerOpen && <MixerPanel project={project} onEdit={setProject} playerRef={playerRef} playing={playing} onClose={() => setMixerOpen(false)} />}
       </div>
 
       <input
@@ -1714,60 +1269,195 @@ export default function App() {
         }}
       />
 
-      {recovery && (
-        <div className="fixed left-1/2 top-16 z-50 flex w-[min(560px,calc(100vw-32px))] -translate-x-1/2 animate-pop-in items-center gap-3 rounded-2xl border border-accent/40 bg-panel-2/95 px-4 py-3 shadow-2xl backdrop-blur">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-            <LifeBuoy size={18} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold">Recuperar o projeto anterior?</p>
-            <p className="truncate text-xs text-dim">
-              “{recovery.project.name}” · salvo automaticamente em {new Date(recovery.savedAt).toLocaleString('pt-BR')}
-            </p>
-          </div>
-          <Button onClick={() => void discardRecovery()}>Descartar</Button>
-          <Button variant="primary" onClick={() => void recover()}>
-            Recuperar
-          </Button>
-        </div>
-      )}
+      {files.recovery && <RecoveryBanner recovery={files.recovery} onRecover={() => void files.recover()} onDiscard={() => void files.discardRecovery()} />}
 
-      {busy && (
-        <div className="fixed inset-0 z-40 flex animate-fade-in items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="flex items-center gap-3 rounded-xl border border-line bg-panel px-5 py-4 shadow-2xl">
-            <LoaderCircle size={18} className="animate-spin text-accent" />
-            {busy}
-          </div>
-        </div>
-      )}
+      {busy && <BusyOverlay text={busy} />}
 
-      {draggingFiles && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-bg/80 p-6 backdrop-blur-sm">
-          <div className="flex size-full flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-accent bg-accent/5">
-            <Upload size={40} className="text-accent" />
-            <p className="text-xl font-semibold">Solte para importar</p>
-            <p className="text-sm text-dim">Vídeos, músicas e imagens</p>
-          </div>
-        </div>
-      )}
+      {draggingFiles && <DropOverlay />}
 
-      {exportState && (
+      {exporting.exportState && (
         <ExportDialog
-          state={exportState}
+          state={exporting.exportState}
           project={project}
           duration={timeline.duration}
           time={time}
-          onStart={(settings) => void startExport(settings)}
+          onStart={(settings) => exporting.startExport(settings)}
+          onStartBatch={(jobs) => exporting.startBatchExport(jobs)}
+          onBackground={exporting.exportInBackground}
           onSnapshot={() => {
-            setExportState(null);
+            exporting.setExportState(null);
             void saveFrame();
           }}
-          onCancel={() => exportAbortRef.current?.abort()}
-          onClose={() => setExportState(null)}
+          onCancel={exporting.cancelExport}
+          onClose={() => exporting.setExportState(null)}
         />
       )}
 
       {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
+
+      {exporting.exportPill && !exporting.exportState && <ExportPill pill={exporting.exportPill} onCancel={exporting.cancelAllExports} />}
+      {prerender.progress && <PrerenderPill progress={prerender.progress} onCancel={prerender.cancel} />}
+
+      {thumbFrame && (
+        <ThumbnailDialog frame={thumbFrame} vertical={project.height > project.width} notify={notify} onClose={() => setThumbFrame(null)} />
+      )}
+      {toolDialog === 'history' && (
+        <HistoryDialog
+          entries={history.entries()}
+          onJump={(steps) => {
+            history.jump(steps);
+            setToolDialog(null);
+          }}
+          onRestore={async (key) => {
+            if (!confirm(t('Abrir esta cópia? O projeto atual continua no histórico ({keys} volta).', { keys: keys('Ctrl+Z') }))) return;
+            const restored = await loadVersion(key).catch(() => null);
+            if (!restored) return notify(t('Não foi possível abrir essa cópia.'), true);
+            setProject(() => restored.project);
+            setSelection(null);
+            setToolDialog(null);
+            if (restored.missing.length)
+              notify(t('Cópia aberta, mas sem {missing}. {keys} volta ao que estava antes.', { missing: missingMediaText(restored.missing), keys: keys('Ctrl+Z') }), true);
+            else notify(t('Cópia aberta. {keys} volta ao que estava antes.', { keys: keys('Ctrl+Z') }));
+          }}
+          onClose={() => setToolDialog(null)}
+        />
+      )}
+      {toolDialog === 'hook' && (
+        <HookDialog
+          project={project}
+          onSeek={seekAndPlay}
+          onUse={(start, end) => {
+            setToolDialog(null);
+            creation.applyHook(start, end);
+          }}
+          onClose={() => setToolDialog(null)}
+        />
+      )}
+      {toolDialog === 'script' && (
+        <ScriptAssemblyDialog
+          project={project}
+          onSeek={seekAndPlay}
+          onApply={(kept) => {
+            setToolDialog(null);
+            creation.assembleFromScript(kept);
+          }}
+          onClose={() => setToolDialog(null)}
+        />
+      )}
+      {faces.faceChoice && <FaceBlurDialog tracks={faces.faceChoice.tracks} onApply={faces.blurFaces} onClose={faces.closeFaceChoice} />}
+      {toolDialog === 'chapters' && <ChaptersDialog project={project} notify={notify} onClose={() => setToolDialog(null)} />}
+      {toolDialog === 'highlights' && (
+        <HighlightsDialog
+          project={project}
+          onClose={() => setToolDialog(null)}
+          onSeek={seekAndPlay}
+          onExport={(highlights) => {
+            setToolDialog(null);
+            exporting.exportHighlights(highlights);
+          }}
+          onMark={(highlights) => {
+            setProject((p) =>
+              highlights.reduce((acc, h, i) => {
+                const added = addMarker(acc, h.start);
+                return { ...added.project, markers: added.project.markers.map((m) => (m.id === added.id ? { ...m, label: t('Destaque {n}', { n: i + 1 }) } : m)) };
+              }, p),
+            );
+            setToolDialog(null);
+            notify(t('Destaques marcados na régua.'));
+          }}
+        />
+      )}
+      {commentsOpen && (
+        <CommentsDialog
+          project={project}
+          time={time}
+          focus={commentsOpen.focus}
+          onChange={setProject}
+          onSeek={(t) => playerRef.current?.seek(t)}
+          onClose={() => setCommentsOpen(null)}
+        />
+      )}
+      {extraDialog === 'split' && (
+        <SplitScreenDialog
+          project={project}
+          time={time}
+          onImport={creation.importOne}
+          onApply={(choice) => {
+            setExtraDialog(null);
+            void creation.applySplit(choice);
+          }}
+          onClose={() => setExtraDialog(null)}
+        />
+      )}
+      {extraDialog === 'brand' && (
+        <BrandKitDialog
+          onApply={(kit, options) => {
+            setExtraDialog(null);
+            void creation.applyBrandKit(kit, options);
+          }}
+          onClose={() => setExtraDialog(null)}
+        />
+      )}
+      {extraDialog === 'batch' && <BatchDialog notify={notify} onClose={() => setExtraDialog(null)} />}
+      {extraDialog === 'search' && <MediaSearchDialog project={project} notify={notify} onInsert={visual.insertHit} onClose={() => setExtraDialog(null)} />}
+      {extraDialog === 'broll' && (
+        <BrollDialog
+          project={project}
+          onApply={(picks) => {
+            setExtraDialog(null);
+            creation.applyBroll(picks);
+          }}
+          onClose={() => setExtraDialog(null)}
+        />
+      )}
+      {extraDialog === 'effects' && <EffectEditor notify={notify} onClose={() => setExtraDialog(null)} />}
+      {gallery && <GalleryDialog initialKind={gallery.kind} notify={notify} onClose={() => setGallery(null)} />}
+      {extraDialog === 'interchange' && (
+        <InterchangeDialog project={project} notify={notify} onImport={(next) => setProject(() => next)} onClose={() => setExtraDialog(null)} />
+      )}
+      {extraDialog === 'media' && (
+        <MediaManagerDialog
+          project={project}
+          onRemove={(ids) => {
+            setProject((p) => ids.reduce((acc, id) => removeMedia(acc, id), p));
+            notify(t('{n} mídia(s) tirada(s) do projeto.', { n: ids.length }));
+          }}
+          onMerge={() => {
+            let removed = 0;
+            setProject((p) => {
+              const result = mergeDuplicates(p);
+              removed = result.removed;
+              return result.project;
+            });
+            notify(t('{n} mídia(s) repetida(s) juntada(s).', { n: removed }));
+          }}
+          onReplace={creation.replaceMediaWithFile}
+          onClose={() => setExtraDialog(null)}
+        />
+      )}
+      {compounds.compoundRange && (
+        <CompoundDialog
+          project={project}
+          from={compounds.compoundRange.from}
+          to={compounds.compoundRange.to}
+          onCreate={(from, to) => void compounds.createCompound(from, to)}
+          onClose={() => compounds.setCompoundRange(null)}
+        />
+      )}
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+      {templateDialog && (
+        <TemplateDialog
+          onPick={(t) => {
+            setTemplateDialog(false);
+            void files.startTemplate(t);
+          }}
+          onClose={() => setTemplateDialog(false)}
+        />
+      )}
+      {screen.screenDialog && (
+        <ScreenRecordDialog hasScript={!!project.script.trim()} onStart={(options) => void screen.startScreenRecording(options)} onClose={() => screen.setScreenDialog(false)} />
+      )}
+      <ScreenRecordingBar screen={screen} script={project.script} />
 
       {projectDialog && (
         <ProjectDialog
@@ -1777,24 +1467,13 @@ export default function App() {
         />
       )}
 
-      <div className="fixed bottom-4 right-4 z-50 flex max-w-sm flex-col gap-2">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={cx(
-              'flex animate-toast-in items-start gap-2.5 rounded-xl border bg-panel-2/95 px-3.5 py-3 text-xs shadow-2xl backdrop-blur',
-              t.error ? 'border-danger/40' : 'border-line',
-            )}
-          >
-            {t.error ? (
-              <TriangleAlert size={15} className="mt-px shrink-0 text-danger" />
-            ) : (
-              <CircleCheck size={15} className="mt-px shrink-0 text-success" />
-            )}
-            <span className="whitespace-pre-wrap leading-relaxed">{t.text}</span>
-          </div>
-        ))}
-      </div>
+      {desktopUpdate.update && (
+        <UpdateBanner update={desktopUpdate.update} onInstall={() => void desktopUpdate.installUpdate()} onDismiss={desktopUpdate.dismissUpdate} />
+      )}
+
+      <Toasts toasts={toasts} />
+
+      {gpu === 'unsupported' && <NoWebGL2Screen />}
     </div>
   );
 }
@@ -1844,21 +1523,4 @@ function useTimelineHeight(): [number, (e: ReactPointerEvent) => void] {
     window.addEventListener('pointerup', up);
   };
   return [height, start];
-}
-
-/** Divide um texto longo em frases (a voz sintética funciona melhor com trechos curtos). */
-function splitSentences(text: string): string[] {
-  const sentences = text
-    .replace(/\s+/g, ' ')
-    .split(/(?<=[.!?…;:])\s+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-  // Junta frases curtas até ~180 letras.
-  const parts: string[] = [];
-  for (const sentence of sentences) {
-    const last = parts[parts.length - 1];
-    if (last && last.length + sentence.length < 180) parts[parts.length - 1] = `${last} ${sentence}`;
-    else parts.push(sentence);
-  }
-  return parts;
 }

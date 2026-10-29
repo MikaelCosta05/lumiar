@@ -1,0 +1,24 @@
+{
+  "name": "Difusor preto",
+  "description": "A versão preta do difusor: halo suave só nas luzes, pretos fundos e pele mais lisa.",
+  "category": "Retrato",
+  "previewMedia": "retrato",
+  "params": [
+    {
+      "id": "halo",
+      "label": "Halo",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "size",
+      "label": "Tamanho do halo",
+      "type": "float",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

@@ -8,10 +8,10 @@ import { CameraPanel } from './CameraPanel';
 import { formatTime } from './format';
 import { Chip, EffectsPanel, FilterPanel, LabeledSlider, Tip } from './Inspector';
 import { InspectorHeader, InspectorPanel } from './InspectorPanel';
-import { cx, IconButton, SectionTitle, Segmented, Switch, Tabs, type TabItem } from './kit';
+import { cx, IconButton, SectionTitle, Segmented, SwitchRow, Tabs, type TabItem } from './kit';
 import type { KeyframeContext } from './keyframeUi';
-import type { Project } from '../project/model';
 import { saveUserPack } from './packStore';
+import { t, tc } from '../i18n';
 
 export type PackTab = 'pack' | 'color' | 'effects' | 'camera';
 
@@ -27,7 +27,6 @@ export function PackInspector({
   notify,
   onMuteSlow,
   attachedCount,
-  project,
 }: {
   clip: PackClip;
   trackName: string;
@@ -39,29 +38,28 @@ export function PackInspector({
   notify: (text: string) => void;
   /** Liga/desliga o som do vídeo no trecho lento (pacotes de velocidade) */
   onMuteSlow: (muted: boolean) => void;
-  /** Textos, stickers e sons que vieram com o pacote */
+  /** Textos, stickers e sons que vieram com o pacote (só em blocos de versões antigas) */
   attachedCount: number;
-  project: Project;
 }) {
   const setEffects = (update: (effects: EffectInstance[]) => EffectInstance[]) => onChange((c) => ({ ...c, effects: update(c.effects) }));
   const moving = !!clip.camera && Object.keys(clip.camera.keyframes).length > 0;
   const zoomed = !!clip.camera && (clip.camera.base.zoom !== 1 || clip.camera.base.rotation !== 0);
   const dot = <span className="size-1.5 shrink-0 rounded-full bg-accent" />;
   const save = () => {
-    saveUserPack(templateFromClip(clip, 'cursor', project));
-    notify(`"${clip.name}" salvo em Pacotes → Meus pacotes.`);
+    saveUserPack(templateFromClip(clip, 'cursor'));
+    notify(t('"{name}" salvo em Pacotes → Meus pacotes.', { name: clip.name }));
   };
 
   const tabs: TabItem<PackTab>[] = [
-    { id: 'pack', label: 'Pacote', icon: <SlidersHorizontal size={14} /> },
-    { id: 'color', label: 'Cor', icon: <Palette size={14} />, badge: clip.filter ? dot : undefined },
+    { id: 'pack', label: t('Pacote'), icon: <SlidersHorizontal size={14} /> },
+    { id: 'color', label: t('Cor'), icon: <Palette size={14} />, badge: clip.filter ? dot : undefined },
     {
       id: 'effects',
-      label: 'Efeitos',
+      label: t('Efeitos'),
       icon: <Sparkles size={14} />,
       badge: clip.effects.length > 0 ? <span className="rounded-full bg-accent-2 px-1 text-[9px] leading-[14px] text-white">{clip.effects.length}</span> : undefined,
     },
-    { id: 'camera', label: 'Câmera', icon: <Video size={14} />, badge: moving || zoomed ? dot : undefined },
+    { id: 'camera', label: t('Câmera'), icon: <Video size={14} />, badge: moving || zoomed ? dot : undefined },
   ];
 
   const maxFade = Math.min(3, clip.duration / 2);
@@ -75,7 +73,7 @@ export function PackInspector({
               <Package size={20} />
             </span>
           }
-          kicker={`Pacote de edição · ${trackName}`}
+          kicker={t('Pacote de edição · {track}', { track: trackName })}
           title={clip.name}
           chips={
             <>
@@ -85,10 +83,10 @@ export function PackInspector({
           }
           actions={
             <>
-              <IconButton label="Salvar como meu pacote" onClick={save}>
+              <IconButton label={t('Salvar como meu pacote')} onClick={save}>
                 <PackagePlus size={14} />
               </IconButton>
-              <IconButton label="Remover bloco" className="hover:!text-danger" onClick={onRemove}>
+              <IconButton label={t('Remover bloco')} className="hover:!text-danger" onClick={onRemove}>
                 <Trash size={14} />
               </IconButton>
             </>
@@ -99,7 +97,7 @@ export function PackInspector({
     >
       {tab === 'pack' && (
         <>
-          <SectionTitle>Nome</SectionTitle>
+          <SectionTitle>{t('Nome')}</SectionTitle>
           <input
             className="field w-full"
             value={clip.name}
@@ -109,9 +107,9 @@ export function PackInspector({
             }}
           />
 
-          <SectionTitle>Quanto aparece</SectionTitle>
+          <SectionTitle>{t('Quanto aparece')}</SectionTitle>
           <LabeledSlider
-            label="Intensidade"
+            label={t('Intensidade')}
             value={clip.intensity}
             display={`${Math.round(clip.intensity * 100)}%`}
             min={0}
@@ -120,7 +118,7 @@ export function PackInspector({
             onChange={(intensity) => onChange((c) => ({ ...c, intensity }))}
           />
           <LabeledSlider
-            label="Entrada suave"
+            label={t('Entrada suave')}
             value={Math.min(clip.fadeIn, maxFade)}
             display={`${clip.fadeIn.toFixed(1)}s`}
             min={0}
@@ -129,7 +127,7 @@ export function PackInspector({
             onChange={(fadeIn) => onChange((c) => ({ ...c, fadeIn }))}
           />
           <LabeledSlider
-            label="Saída suave"
+            label={t('Saída suave')}
             value={Math.min(clip.fadeOut, maxFade)}
             display={`${clip.fadeOut.toFixed(1)}s`}
             min={0}
@@ -138,9 +136,9 @@ export function PackInspector({
             onChange={(fadeOut) => onChange((c) => ({ ...c, fadeOut }))}
           />
 
-          <SectionTitle>Tempo</SectionTitle>
+          <SectionTitle>{tc('seção', 'Tempo')}</SectionTitle>
           <LabeledSlider
-            label="Duração"
+            label={t('Duração')}
             value={clip.duration}
             display={formatTime(clip.duration)}
             min={MIN_PACK_LENGTH}
@@ -148,51 +146,51 @@ export function PackInspector({
             step={0.05}
             onChange={(d) => onChange((c) => retimePack(c, d))}
           />
-          <p className="mb-1.5 mt-2 text-xs text-dim">Ao mudar o tamanho do bloco</p>
+          <p className="mb-1.5 mt-2 text-xs text-dim">{t('Ao mudar o tamanho do bloco')}</p>
           <Segmented
             value={clip.timing}
             onChange={(timing) => onChange((c) => ({ ...c, timing }))}
             options={[
-              { value: 'edges', label: 'Entrada e saída', title: 'O que acontece no começo e no fim mantém a duração; o meio estica' },
-              { value: 'stretch', label: 'Esticar tudo', title: 'A animação inteira fica mais lenta ou mais rápida junto com o bloco' },
-              { value: 'fixed', label: 'Fixo', title: 'Nada se move: as animações ficam no mesmo instante (ideal para pacotes presos às batidas)' },
+              { value: 'edges', label: t('Entrada e saída'), title: t('O que acontece no começo e no fim mantém a duração; o meio estica') },
+              { value: 'stretch', label: t('Esticar tudo'), title: t('A animação inteira fica mais lenta ou mais rápida junto com o bloco') },
+              { value: 'fixed', label: t('Fixo'), title: t('Nada se move: as animações ficam no mesmo instante (ideal para pacotes presos às batidas)') },
             ]}
           />
 
           {clip.speed && (
             <>
-              <SectionTitle>Câmera lenta</SectionTitle>
+              <SectionTitle>{t('Câmera lenta')}</SectionTitle>
               <Tip>
-                A linha branca com ◆ no bloco marca o momento da câmera lenta. Arraste-a até o instante exato (o tombo, o susto…) e o
-                vídeo é refeito ali, levando junto os textos e sons do pacote.
+                {t('A linha branca com ◆ no bloco marca o momento da câmera lenta. Arraste-a até o instante exato (o tombo, o susto…) e o vídeo é refeito ali.')}
               </Tip>
               {clip.speed.speeds.some((v) => v < 1) && (
                 <div className="mt-2">
-                  <Switch checked={!!clip.speed.muted} onChange={onMuteSlow} label="Silenciar o som do vídeo no trecho lento" />
+                  <SwitchRow checked={!!clip.speed.muted} onChange={onMuteSlow} label={t('Silenciar o som do vídeo no trecho lento')} />
                 </div>
               )}
             </>
           )}
           {attachedCount > 0 && (
             <p className="mt-3 text-[11px] leading-relaxed text-faint">
-              {attachedCount === 1 ? '1 texto, sticker ou som veio' : `${attachedCount} textos, stickers e sons vieram`} com o pacote: eles andam junto
-              com o bloco e saem quando ele é excluído.
+              {attachedCount === 1
+                ? t('1 texto, sticker ou som veio com o pacote: eles andam junto com o bloco e saem quando ele é excluído.')
+                : t('{n} textos, stickers e sons vieram com o pacote: eles andam junto com o bloco e saem quando ele é excluído.', { n: attachedCount })}
             </p>
           )}
 
-          <SectionTitle>O que tem neste pacote</SectionTitle>
+          <SectionTitle>{t('O que tem neste pacote')}</SectionTitle>
           <div className="space-y-1.5">
             <Part
               icon={<Palette size={13} />}
-              label="Filtro"
-              detail={clip.filter ? (getPlugin(clip.filter.pluginId)?.name ?? 'Filtro') : 'Nenhum'}
+              label={t('Filtro')}
+              detail={clip.filter ? (getPlugin(clip.filter.pluginId)?.name ?? t('Filtro')) : t('Nenhum')}
               onOpen={() => onTab('color')}
             />
             {clip.effects.map((effect) => (
               <Part
                 key={effect.uid}
                 icon={<Sparkles size={13} />}
-                label="Efeito"
+                label={t('Efeito')}
                 detail={getPlugin(effect.pluginId)?.name ?? effect.pluginId}
                 dim={!effect.enabled}
                 onOpen={() => onTab('effects')}
@@ -204,21 +202,20 @@ export function PackInspector({
             ))}
             <Part
               icon={<Video size={13} />}
-              label="Câmera"
-              detail={moving ? 'Com movimento' : zoomed ? 'Enquadramento fixo' : 'Parada'}
+              label={t('Câmera')}
+              detail={moving ? t('Com movimento') : zoomed ? t('Enquadramento fixo') : t('Parada')}
               onOpen={() => onTab('camera')}
             />
           </div>
           <Tip>
-            O pacote vale para tudo o que está embaixo dele na timeline (vídeo principal e sobreposições), só neste trecho.
-            Arraste as bordas do bloco para encaixar no seu vídeo.
+            {t('O pacote vale para tudo o que está embaixo dele na timeline (vídeo principal e sobreposições), só neste trecho. Arraste as bordas do bloco para encaixar no seu vídeo.')}
           </Tip>
         </>
       )}
 
       {tab === 'color' && <FilterPanel ctx={ctx} filter={clip.filter} onChange={(filter) => onChange((c) => ({ ...c, filter }))} />}
 
-      {tab === 'effects' && <EffectsPanel ctx={ctx} effects={clip.effects} onChange={setEffects} title="Neste pacote" />}
+      {tab === 'effects' && <EffectsPanel ctx={ctx} effects={clip.effects} onChange={setEffects} title={t('Neste pacote')} />}
 
       {tab === 'camera' && (
         <CameraPanel
@@ -249,12 +246,12 @@ function Part({
 }) {
   return (
     <div className={cx('flex items-center gap-2 rounded-lg border border-line bg-panel-2 px-2.5 py-1.5', dim && 'opacity-50')}>
-      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left" title="Abrir para ajustar">
+      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left" title={t('Abrir para ajustar')}>
         <span className="text-faint">{icon}</span>
         <span className="text-[11px] text-faint">{label}</span>
         <span className="truncate text-xs text-fg">{detail}</span>
       </button>
-      {toggle && <Switch checked={toggle.checked} label={`Ligar ${detail}`} onChange={toggle.onChange} />}
+      {toggle && <SwitchRow checked={toggle.checked} label={t('Ligar {name}', { name: detail })} onChange={toggle.onChange} />}
     </div>
   );
 }

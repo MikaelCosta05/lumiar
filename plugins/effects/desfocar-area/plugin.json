@@ -1,0 +1,57 @@
+{
+  "name": "Desfocar área",
+  "description": "Esconde uma parte da imagem (placa de carro, rosto, tela) com desfoque ou pixels. Posicione e ajuste o tamanho.",
+  "category": "Desfoque",
+  "params": [
+    {
+      "id": "center",
+      "label": "Posição",
+      "type": "vec2",
+      "default": [0.5, 0.5],
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "size",
+      "label": "Tamanho (largura, altura)",
+      "type": "vec2",
+      "default": [0.25, 0.3],
+      "min": 0.02,
+      "max": 1
+    },
+    {
+      "id": "oval",
+      "label": "Formato (0 = retângulo, 1 = oval)",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 1,
+      "step": 1
+    },
+    {
+      "id": "pixelate",
+      "label": "Pixelar em vez de desfocar",
+      "type": "float",
+      "default": 0,
+      "min": 0,
+      "max": 1,
+      "step": 1
+    },
+    {
+      "id": "strength",
+      "label": "Força",
+      "type": "float",
+      "default": 0.6,
+      "min": 0.05,
+      "max": 1
+    },
+    {
+      "id": "feather",
+      "label": "Borda suave",
+      "type": "float",
+      "default": 0.15,
+      "min": 0,
+      "max": 0.5
+    }
+  ]
+}

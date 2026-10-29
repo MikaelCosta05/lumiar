@@ -1,0 +1,12 @@
+{
+  "name": "Entrelaçado",
+  "description": "Vídeo de TV antiga em campos: uma linha sim, outra não, vem do quadro anterior, e o que se mexe fica serrilhado (efeito pente). Funciona tocando.",
+  "category": "Analógico",
+  "params": [
+    { "id": "forca", "label": "Força", "type": "float", "default": 1, "min": 0, "max": 1 },
+    { "id": "espessura", "label": "Espessura das linhas (px)", "type": "float", "default": 2, "min": 1, "max": 6, "step": 1 },
+    { "id": "desvio", "label": "Desvio das linhas", "type": "float", "default": 0.002, "min": 0, "max": 0.02, "step": 0.0005 },
+    { "id": "escurecer", "label": "Escurecer as linhas", "type": "float", "default": 0.15, "min": 0, "max": 0.6 }
+  ],
+  "previewMedia": "silhueta"
+}

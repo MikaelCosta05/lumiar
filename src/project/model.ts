@@ -1,18 +1,25 @@
 import { defaultParams, getPlugin } from '../engine/registry';
-import type { AdjustInput, FrameInput, LayerInput, PlacedLayer } from '../engine/renderer';
+import { t } from '../i18n';
+import type { AdjustInput, FrameInput, LayerInput, LayerMask, PlacedLayer } from '../engine/renderer';
+import { gradeInput, type ColorGrade } from './grade';
+import { lutInput, type SavedLut } from './lut';
 import { resolveParams, shiftKeyframes } from '../engine/keyframes';
+import { pluginInputs } from '../engine/shaders';
 import type { EffectInstance, FilterInstance, ParamValues } from '../engine/types';
 import { evaluateCamera, type Camera } from './camera';
 import type { CaptionTrack } from './captions';
 import { createPackTrack, packsAt, type ActivePack, type PackTrack } from './packs';
 import { createTextTrack, type TextTrack } from './text';
+import type { CursorFx, CursorTrack } from './cursorFx';
+import type { ObjectSelection } from './objectMask';
 
 export type MediaKind = 'video' | 'audio' | 'image';
 
 /** Imagens não têm duração própria: o clipe pode ter qualquer tamanho até isso. */
 export const IMAGE_MAX_DURATION = 3600;
 export const DEFAULT_IMAGE_DURATION = 5;
-const MIN_LENGTH = 0.1;
+/** Menor duração de um clipe na timeline (s). */
+export const MIN_LENGTH = 0.1;
 
 /** Um arquivo importado. Os clipes apontam para ele pelo id. */
 export interface MediaItem {
@@ -28,6 +35,10 @@ export interface MediaItem {
   hasAudio: boolean;
   /** Efeito sonoro gerado pelo Lumiar (id do som), para não gerar o mesmo duas vezes */
   sfx?: string;
+  /** Gravação de tela: por onde o mouse andou e os cliques */
+  cursor?: CursorTrack;
+  /** Clipe composto: o trecho de timeline que este vídeo renderiza (abre para editar) */
+  compound?: Omit<Project, 'media'>;
 }
 
 /** Clipe da trilha de vídeo principal (vídeo ou imagem). */
@@ -53,6 +64,16 @@ export interface VideoClip {
   flipY?: boolean;
   /** Girar em passos de 90° (sentido horário) */
   turn?: 0 | 90 | 180 | 270;
+  /** Remover o fundo (sem tela verde): recortar, desfocar ou trocar por uma cor */
+  matte?: { mode: 'cut' | 'blur' | 'color'; color: string };
+  /** Correção de cor manual (rodas, saturação e curvas) */
+  grade?: ColorGrade;
+  /** LUT 3D importada (.cube), com intensidade */
+  lut?: { id: string; amount: number };
+  /** Gravação de tela: destacar o cursor e os cliques */
+  cursorFx?: CursorFx;
+  /** Objeto selecionado com cliques (máscara ao longo do clipe); com `use`, substitui a pessoa */
+  object?: ObjectSelection;
 }
 
 /** O que aparece onde a mídia não cobre a tela (barras). */
@@ -67,6 +88,14 @@ export interface Marker {
   time: number;
   label: string;
   color: string;
+}
+
+/** Comentário com tempo marcado ("trocar essa música"): vira uma tarefa para marcar como feita. */
+export interface TimelineComment {
+  id: string;
+  time: number;
+  text: string;
+  done: boolean;
 }
 
 /** none = repete quadros; blend = mistura quadros vizinhos; flow = estima o movimento (mais fluido). */
@@ -86,6 +115,35 @@ export interface AudioClip {
   speed?: number;
   /** Efeito de voz (telefone, rádio, eco…) */
   voice?: VoiceEffect;
+  /** Equalizador: graves, médios e agudos (dB, -12 a 12) */
+  eq?: Equalizer;
+  /** Volume desenhado por trecho: pontos [tempo desde o início do clipe, multiplicador 0 a 2] */
+  volumeKeys?: VolumeKey[];
+  /** Grupo de itens que andam juntos */
+  group?: string;
+}
+
+export interface Equalizer {
+  low: number;
+  mid: number;
+  high: number;
+}
+
+export interface VolumeKey {
+  time: number;
+  value: number;
+}
+
+/** Volume desenhado no instante (1 sem pontos; entre dois pontos, em linha reta). */
+export function volumeAt(keys: VolumeKey[] | undefined, local: number): number {
+  if (!keys?.length) return 1;
+  if (local <= keys[0].time) return keys[0].value;
+  const last = keys[keys.length - 1];
+  if (local >= last.time) return last.value;
+  const i = keys.findIndex((k) => k.time > local);
+  const a = keys[i - 1];
+  const b = keys[i];
+  return a.value + ((b.value - a.value) * (local - a.time)) / Math.max(1e-6, b.time - a.time);
 }
 
 export type VoiceEffect =
@@ -110,6 +168,17 @@ export interface AudioTrack {
   muted: boolean;
   clips: AudioClip[];
   kind?: AudioTrackKind;
+  /** Mixer: volume da trilha, solo e pan (ausente = 0 dB, sem solo, no centro) */
+  mix?: TrackMix;
+}
+
+/** Ajustes do mixer de uma trilha. O silenciar continua no `muted` da própria trilha. */
+export interface TrackMix {
+  /** Volume da trilha em dB (-60 ou menos = sem som, até +6) */
+  gainDb?: number;
+  /** -1 = só esquerda, 0 = centro, 1 = só direita */
+  pan?: number;
+  solo?: boolean;
 }
 
 /** Como a camada se mistura com o que está embaixo. */
@@ -137,6 +206,8 @@ export interface LayerTransform {
   chroma: ChromaKey | null;
   /** Cantos arredondados (0 a 0.5 do lado menor) */
   radius: number;
+  /** Forma que recorta a camada (círculo, coração, estrela…) */
+  mask?: LayerMask | null;
 }
 
 /** Clipe numa trilha de vídeo extra: posição livre na timeline e na tela. */
@@ -146,6 +217,10 @@ export interface OverlayClip extends VideoClip {
   /** Aparecer/sumir aos poucos (s) */
   fadeIn: number;
   fadeOut: number;
+  /** Câmera extra da multicâmera (sincronizada pelo som) */
+  multicam?: boolean;
+  /** Grupo de itens que andam juntos */
+  group?: string;
 }
 
 export interface VideoTrack {
@@ -154,6 +229,8 @@ export interface VideoTrack {
   hidden: boolean;
   muted: boolean;
   clips: OverlayClip[];
+  /** Mixer: volume, solo e pan do som desta trilha */
+  mix?: TrackMix;
 }
 
 export interface TransitionInstance {
@@ -191,6 +268,13 @@ export interface Project {
   beats?: number[];
   /** Legendas (ausente em projetos antigos) */
   captions?: CaptionTrack;
+  /** LUTs importadas (.cube) */
+  luts?: SavedLut[];
+  /** Comentários e tarefas na timeline */
+  comments?: TimelineComment[];
+  /** Mixer: som da trilha principal (que não tem `muted` próprio) e volume geral (Master) */
+  mainMix?: TrackMix & { muted?: boolean };
+  masterMix?: { gainDb?: number };
 }
 
 export const DEFAULT_TRANSITION_ID = 'transitions/dissolver';
@@ -201,7 +285,7 @@ export function uid(): string {
 
 export function createProject(): Project {
   return {
-    name: 'Projeto sem título',
+    name: t('Projeto sem título'),
     width: 1280,
     height: 720,
     fps: 30,
@@ -226,7 +310,7 @@ export function addMarker(project: Project, time: number): { project: Project; i
   const marker: Marker = {
     id,
     time,
-    label: `Marcador ${project.markers.length + 1}`,
+    label: t('Marcador {n}', { n: project.markers.length + 1 }),
     color: MARKER_COLORS[project.markers.length % MARKER_COLORS.length],
   };
   return { project: { ...project, markers: [...project.markers, marker].sort((a, b) => a.time - b.time) }, id };
@@ -256,7 +340,7 @@ export function editPoints(project: Project, timeline: TimelineLayout): number[]
 }
 
 function createAudioTrack(number: number): AudioTrack {
-  return { id: uid(), name: `Áudio ${number}`, muted: false, clips: [] };
+  return { id: uid(), name: t('Áudio {n}', { n: number }), muted: false, clips: [] };
 }
 
 export function createTransition(pluginId: string, duration = 0.8): TransitionInstance | null {
@@ -541,7 +625,7 @@ export function placeVoiceClip(project: Project, clip: AudioClip): Project {
     return { ...project, audioTracks: project.audioTracks.map((t, i) => (i === free ? { ...t, clips: [...t.clips, clip] } : t)) };
   }
   const voices = project.audioTracks.filter((t) => t.kind === 'voice').length;
-  const track: AudioTrack = { id: uid(), name: voices ? `Narração ${voices + 1}` : 'Narração', muted: false, kind: 'voice', clips: [clip] };
+  const track: AudioTrack = { id: uid(), name: voices ? t('Narração {n}', { n: voices + 1 }) : t('Narração'), muted: false, kind: 'voice', clips: [clip] };
   return { ...project, audioTracks: [...project.audioTracks, track] };
 }
 
@@ -553,7 +637,7 @@ export function placeSfxClip(project: Project, clip: AudioClip): Project {
     return { ...project, audioTracks: project.audioTracks.map((t, i) => (i === free ? { ...t, clips: [...t.clips, clip] } : t)) };
   }
   const count = project.audioTracks.filter((t) => t.kind === 'sfx').length;
-  const track: AudioTrack = { id: uid(), name: count ? `Efeitos sonoros ${count + 1}` : 'Efeitos sonoros', muted: false, kind: 'sfx', clips: [clip] };
+  const track: AudioTrack = { id: uid(), name: count ? t('Efeitos sonoros {n}', { n: count + 1 }) : t('Efeitos sonoros'), muted: false, kind: 'sfx', clips: [clip] };
   return { ...project, audioTracks: [...project.audioTracks, track] };
 }
 
@@ -675,7 +759,8 @@ export function trimAudioClip(project: Project, clipId: string, edge: 'in' | 'ou
     }
     // A borda esquerda move o início na timeline junto com o corte.
     const trimIn = clamp(c.trimIn + (timelineTime - c.start) * speed, 0, c.trimOut - MIN_LENGTH);
-    return { ...c, trimIn, start: Math.max(0, c.start + (trimIn - c.trimIn) / speed) };
+    const start = Math.max(0, c.start + (trimIn - c.trimIn) / speed);
+    return { ...c, trimIn, start, volumeKeys: c.volumeKeys?.map((k) => ({ ...k, time: k.time - (start - c.start) })) };
   });
 }
 
@@ -687,7 +772,14 @@ export function splitAudioClip(project: Project, clipId: string, t: number): { p
   if (offset < MIN_LENGTH || offset > clipLength(clip) - MIN_LENGTH) return null;
   const cut = clip.trimIn + offset * speedOf(clip);
   const first: AudioClip = { ...clip, trimOut: cut, fadeOut: 0 };
-  const second: AudioClip = { ...clip, id: uid(), start: t, trimIn: cut, fadeIn: 0 };
+  const second: AudioClip = {
+    ...clip,
+    id: uid(),
+    start: t,
+    trimIn: cut,
+    fadeIn: 0,
+    volumeKeys: clip.volumeKeys?.map((k) => ({ ...k, time: k.time - offset })),
+  };
   return {
     project: {
       ...project,
@@ -745,7 +837,7 @@ export function createOverlayClip(media: MediaItem, start: number, transform: Pa
 }
 
 function createVideoTrack(number: number): VideoTrack {
-  return { id: uid(), name: `Vídeo ${number}`, hidden: false, muted: false, clips: [] };
+  return { id: uid(), name: t('Vídeo {n}', { n: number }), hidden: false, muted: false, clips: [] };
 }
 
 export function addVideoTrack(project: Project): Project {
@@ -1094,7 +1186,7 @@ export function audioAt(project: Project, timeline: TimelineLayout, t: number): 
         clipId: clip.id,
         media,
         sourceTime: clip.trimIn + local * speedOf(clip),
-        gain: clip.volume * fadeGain(clip, local) * duck,
+        gain: clip.volume * fadeGain(clip, local) * duck * volumeAt(clip.volumeKeys, local),
         speed: speedOf(clip),
       });
     }
@@ -1113,8 +1205,89 @@ export function fadeGain(
   return clamp(gain, 0, 1);
 }
 
+/** Forma desenhada no instante t do clipe: entre dois keyframes, os pontos andam em linha reta. */
+export function maskAt(mask: LayerMask | null | undefined, t: number): LayerMask | null | undefined {
+  if (!mask || mask.shape !== 'path' || !mask.keys?.length) return mask;
+  const keys = [...mask.keys].sort((a, b) => a.time - b.time);
+  if (t <= keys[0].time) return { ...mask, points: keys[0].points };
+  const last = keys[keys.length - 1];
+  if (t >= last.time) return { ...mask, points: last.points };
+  const i = keys.findIndex((k) => k.time > t);
+  const a = keys[i - 1];
+  const b = keys[i];
+  const k = (t - a.time) / Math.max(1e-6, b.time - a.time);
+  const n = Math.min(a.points.length, b.points.length);
+  return { ...mask, points: Array.from({ length: n }, (_, j) => a.points[j] + (b.points[j] - a.points[j]) * k) };
+}
+
+/** O que precisa ser calculado para um clipe além do quadro. */
+export interface LayerNeeds {
+  /** Onde está a pessoa (fundo removido, efeitos na pessoa, texto atrás dela) */
+  person: boolean;
+  /** Profundidade (efeitos com o céu, o foco e a neblina) */
+  depth: boolean;
+}
+
+const NO_NEEDS: LayerNeeds = { person: false, depth: false };
+
+function effectNeeds(effects: EffectInstance[]): LayerNeeds {
+  const needs = { ...NO_NEEDS };
+  for (const effect of effects) {
+    const plugin = effect.enabled ? getPlugin(effect.pluginId) : undefined;
+    if (!plugin) continue;
+    const inputs = pluginInputs(plugin);
+    needs.person ||= inputs.person;
+    needs.depth ||= inputs.depth;
+  }
+  return needs;
+}
+
+function joinNeeds(...list: LayerNeeds[]): LayerNeeds {
+  return { person: list.some((n) => n.person), depth: list.some((n) => n.depth) };
+}
+
+/** O clipe precisa da pessoa ou da profundidade (pelos próprios efeitos ou pelo fundo removido)? */
+export function clipNeeds(clip: Pick<VideoClip, 'effects' | 'matte'>): LayerNeeds {
+  const needs = effectNeeds(clip.effects);
+  return { person: needs.person || !!clip.matte, depth: needs.depth };
+}
+
+/** Algo no projeto usa a pessoa ou a profundidade? (para carregar os modelos antes de exportar) */
+export function projectNeeds(project: Project): LayerNeeds {
+  const clips = [...project.clips, ...project.videoTracks.flatMap((t) => t.clips)];
+  const transitions = project.transitions.map((tr) => (tr ? getPlugin(tr.pluginId) : undefined));
+  return joinNeeds(
+    ...clips.map(clipNeeds),
+    ...project.packTracks.flatMap((t) => t.clips).map((c) => effectNeeds(c.effects)),
+    { person: transitions.some((p) => p && pluginInputs(p).person) || project.textTracks.some((t) => t.clips.some((c) => c.behind)), depth: false },
+  );
+}
+
+/** Pacotes, transições e textos atrás da pessoa usam a pessoa e a profundidade da trilha principal. */
+function baseNeeds(state: FrameState, behind: boolean): LayerNeeds {
+  const transitionPlugin = state.transition ? getPlugin(state.transition.instance.pluginId) : undefined;
+  return joinNeeds(...state.packs.map((p) => effectNeeds(p.clip.effects)), {
+    person: behind || (!!transitionPlugin && pluginInputs(transitionPlugin).person),
+    depth: false,
+  });
+}
+
+/** Cada clipe visível no quadro e o que ele precisa (para calcular antes de desenhar). */
+export function frameNeeds(state: FrameState, behind = false): { active: ActiveClip; needs: LayerNeeds }[] {
+  const base = baseNeeds(state, behind);
+  const list: { active: ActiveClip; needs: LayerNeeds }[] = [];
+  for (const active of [state.a, state.b]) if (active) list.push({ active, needs: joinNeeds(clipNeeds(active.layout.clip), base) });
+  for (const o of state.overlays) list.push({ active: o.active, needs: clipNeeds(o.active.layout.clip) });
+  return list;
+}
+
 /** O que o player/exportador fornece para cada clipe visível: o quadro (e o anterior, na câmera lenta suave). */
-export type SourceProvider = (active: ActiveClip) => Pick<LayerInput, 'source' | 'interpolation'>;
+export type SourceProvider = (active: ActiveClip, needs: LayerNeeds) => Pick<LayerInput, 'source' | 'interpolation'> & {
+  /** Máscara da pessoa no quadro (fundo removido, efeitos na pessoa) */
+  mask?: TexImageSource | null;
+  /** Profundidade do quadro (claro = perto) */
+  depth?: TexImageSource | null;
+};
 
 /** Efeitos e filtro com os keyframes resolvidos no instante t: o renderizador só recebe valores prontos. */
 function resolveLook(source: { effects: EffectInstance[]; filter: FilterInstance | null }, t: number) {
@@ -1128,17 +1301,32 @@ function resolveLook(source: { effects: EffectInstance[]; filter: FilterInstance
   return { effects, filter };
 }
 
-export function toFrameInput(state: FrameState, provide: SourceProvider, background: Background | null = null): FrameInput {
-  const layer = (active: ActiveClip | null): LayerInput | null => {
+export function toFrameInput(
+  state: FrameState,
+  provide: SourceProvider,
+  background: Background | null = null,
+  luts: SavedLut[] | undefined = undefined,
+  /** Há textos atrás da pessoa neste instante (a trilha principal precisa da máscara dela) */
+  behind = false,
+): FrameInput {
+  const base = baseNeeds(state, behind);
+  const layer = (active: ActiveClip | null, extra: LayerNeeds): LayerInput | null => {
     if (!active) return null;
     const { clip, media, length } = active.layout;
     const t = active.clipTime;
+    const needs = joinNeeds(clipNeeds(clip), extra);
+    const { mask, depth, ...provided } = provide(active, needs);
+    const color = { ...gradeInput(clip.grade), lut: lutInput(luts, clip.lut) };
     const { effects, filter } = resolveLook(clip, t);
     const camera = clip.camera ? { ...evaluateCamera(clip.camera, t, active.sourceTime), fill: clip.camera.fill } : null;
     const sideways = clip.turn === 90 || clip.turn === 270;
     return {
       key: clip.id,
-      ...provide(active),
+      ...provided,
+      person: needs.person ? (mask ?? null) : null,
+      depth: needs.depth ? (depth ?? null) : null,
+      matte: clip.matte && mask ? { mode: clip.matte.mode, color: clip.matte.color } : null,
+      color: color.grade || color.curves || color.lut ? color : null,
       width: sideways ? media.height : media.width,
       height: sideways ? media.width : media.height,
       turn: clip.turn ?? 0,
@@ -1153,15 +1341,16 @@ export function toFrameInput(state: FrameState, provide: SourceProvider, backgro
     };
   };
   return {
-    a: layer(state.a),
-    b: layer(state.b),
+    a: layer(state.a, base),
+    b: layer(state.b, base),
     layers: state.overlays.map((o): PlacedLayer => ({
-      ...layer(o.active)!,
+      ...layer(o.active, NO_NEEDS)!,
       // A camada é processada "esticada" (a mídia ocupa o quadro todo) e depois posicionada.
       stretch: true,
-      place: { ...o.transform, opacity: o.opacity },
+      place: { ...o.transform, mask: maskAt(o.transform.mask, o.active.clipTime), opacity: o.opacity },
     })),
     adjust: state.packs.map(({ clip, local, amount }): AdjustInput => ({
+      key: `pacote:${clip.id}`,
       ...resolveLook(clip, local),
       time: local,
       duration: clip.duration,

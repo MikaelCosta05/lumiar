@@ -1,0 +1,12 @@
+{
+  "name": "Melhorar imagem",
+  "description": "Para vídeo escuro, granulado ou sem nitidez (celular à noite, webcam): clareia as sombras sem estourar o claro, tira o granulado e devolve a nitidez.",
+  "category": "Correção",
+  "params": [
+    { "id": "clarear", "label": "Clarear o escuro", "type": "float", "default": 0.35, "min": 0, "max": 1 },
+    { "id": "granulado", "label": "Tirar granulado", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "nitidez", "label": "Nitidez", "type": "float", "default": 0.45, "min": 0, "max": 1 },
+    { "id": "cor", "label": "Cor mais viva", "type": "float", "default": 0.15, "min": 0, "max": 1 }
+  ],
+  "preview": { "clarear": 0.7, "nitidez": 0.8 }
+}

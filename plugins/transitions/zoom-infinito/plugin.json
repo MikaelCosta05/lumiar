@@ -1,0 +1,10 @@
+{
+  "name": "Zoom infinito",
+  "description": "A câmera entra num ponto da imagem e sai já no próximo clipe, sem corte visível (o próximo clipe está escondido dentro daquele ponto).",
+  "category": "Movimento",
+  "params": [
+    { "id": "ponto", "label": "Ponto onde entra", "type": "vec2", "default": [0.5, 0.5], "min": 0, "max": 1 },
+    { "id": "profundidade", "label": "Profundidade do mergulho", "type": "float", "default": 16, "min": 4, "max": 40 },
+    { "id": "desfoque", "label": "Desfoque de velocidade", "type": "float", "default": 0.5, "min": 0, "max": 1 }
+  ]
+}

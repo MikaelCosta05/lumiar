@@ -1,0 +1,32 @@
+{
+  "name": "Drama de época",
+  "description": "Luz de vela: âmbar nas luzes, verdes oliva apagados e pretos castanhos.",
+  "category": "Cinema",
+  "previewMedia": "retrato",
+  "params": [
+    {
+      "id": "candle",
+      "label": "Luz de vela",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "lift",
+      "label": "Pretos lavados",
+      "type": "float",
+      "default": 0.3,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "vig",
+      "label": "Vinheta",
+      "type": "float",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

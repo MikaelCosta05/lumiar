@@ -1,21 +1,22 @@
 import { assetUrl } from '../assetUrl';
+import { t } from '../i18n';
 import { groupWords, type Caption } from '../project/captions';
 import { layoutProject, type Project } from '../project/model';
 import { mixAudio } from './exporter';
 import type { TranscribeMessage, TranscribeRequest } from './transcribe.worker';
 
 export const CAPTION_MODELS = [
-  { id: 'Xenova/whisper-tiny', label: 'Rápida', size: '~40 MB' },
-  { id: 'Xenova/whisper-base', label: 'Equilibrada', size: '~80 MB' },
-  { id: 'Xenova/whisper-small', label: 'Precisa', size: '~250 MB' },
+  { id: 'Xenova/whisper-tiny', label: t('Rápida'), size: '~40 MB' },
+  { id: 'Xenova/whisper-base', label: t('Equilibrada'), size: '~80 MB' },
+  { id: 'Xenova/whisper-small', label: t('Precisa'), size: '~250 MB' },
 ];
 
 export const CAPTION_LANGUAGES: { id: string | null; label: string }[] = [
-  { id: 'portuguese', label: 'Português' },
-  { id: 'english', label: 'Inglês' },
-  { id: 'spanish', label: 'Espanhol' },
-  { id: 'french', label: 'Francês' },
-  { id: null, label: 'Detectar sozinho' },
+  { id: 'portuguese', label: t('Português') },
+  { id: 'english', label: t('Inglês') },
+  { id: 'spanish', label: t('Espanhol') },
+  { id: 'french', label: t('Francês') },
+  { id: null, label: t('Detectar sozinho') },
 ];
 
 export type CaptionProgress = (stage: string, fraction: number | null) => void;
@@ -28,12 +29,12 @@ let worker: Worker | null = null;
  */
 export async function transcribeProject(
   project: Project,
-  options: { model: string; language: string | null; maxWords: number },
+  options: { model: string; language: string | null; maxWords: number; translate?: boolean },
   onProgress: CaptionProgress,
 ): Promise<Caption[]> {
-  onProgress('Preparando o áudio', null);
+  onProgress(t('Preparando o áudio'), null);
   const mixed = await mixAudio(project, layoutProject(project));
-  if (!mixed) throw new Error('Este projeto não tem áudio para legendar.');
+  if (!mixed) throw new Error(t('Este projeto não tem áudio para legendar.'));
 
   // O Whisper trabalha com áudio mono a 16 kHz.
   const context = new OfflineAudioContext(1, Math.ceil(mixed.duration * 16000), 16000);
@@ -48,8 +49,8 @@ export async function transcribeProject(
   return new Promise((resolve, reject) => {
     w.onmessage = (event: MessageEvent<TranscribeMessage>) => {
       const msg = event.data;
-      if (msg.type === 'download') onProgress('Carregando o modelo de fala', msg.fraction);
-      else if (msg.type === 'transcribing') onProgress(`Reconhecendo a fala${msg.device === 'webgpu' ? ' (placa de vídeo)' : ''}`, null);
+      if (msg.type === 'download') onProgress(t('Carregando o modelo de fala'), msg.fraction);
+      else if (msg.type === 'transcribing') onProgress(msg.device === 'webgpu' ? t('Reconhecendo a fala (placa de vídeo)') : t('Reconhecendo a fala'), null);
       else if (msg.type === 'error') reject(new Error(msg.message));
       else {
         const words = msg.chunks
@@ -58,8 +59,8 @@ export async function transcribeProject(
         resolve(groupWords(words, options.maxWords));
       }
     };
-    w.onerror = (event) => reject(new Error(event.message || 'Falha no reconhecimento de fala.'));
-    const request: TranscribeRequest = { audio, model: options.model, language: options.language, baseUrl: assetUrl('') };
+    w.onerror = (event) => reject(new Error(event.message || t('Falha no reconhecimento de fala.')));
+    const request: TranscribeRequest = { audio, model: options.model, language: options.language, baseUrl: assetUrl(''), translate: options.translate };
     w.postMessage(request, [audio.buffer]);
   });
 }

@@ -15,9 +15,11 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "app": "npm run build && electron .",
     "dist:win": "npm run build && electron-builder --win nsis --x64",
-    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64"
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64 --x64"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -44,7 +46,8 @@
     "react-dom": "^19.3.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest": "5.0.4"
   },
   "desktopName": "lumiar.desktop",
   "build": {
@@ -57,6 +60,7 @@
     "files": [
       "dist/**/*",
       "electron/main.cjs",
+      "electron/preload.cjs",
       "electron/icon.png",
       "package.json"
     ],
@@ -103,6 +107,39 @@
       "syncDesktopName": true,
       "maintainer": "Lumiar",
       "executableName": "lumiar"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/icon.png",
+      "category": "public.app-category.video",
+      "artifactName": "Lumiar-${version}-macOS-${arch}.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "O Lumiar usa o microfone para gravar a narração, a dublagem e o som junto com a gravação da tela.",
+        "NSCameraUsageDescription": "O Lumiar usa a câmera para gravar a webcam junto com a gravação da tela."
+      }
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "MikaelCosta05",
+      "repo": "lumiar"
     }
   }
 }

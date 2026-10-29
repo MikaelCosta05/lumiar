@@ -1,0 +1,68 @@
+// Atalhos do teclado: o registro (app/shortcuts.ts), a janela para mudar (ui/ShortcutsDialog.tsx) e as dicas com o atalho atual.
+export default {
+  // Grupos
+  'Tocar e navegar': 'Reproducción y navegación',
+  'Linha do tempo': 'Línea de tiempo',
+  'Editar': 'Editar',
+  'Projeto': 'Proyecto',
+  'Multicâmera': 'Multicámara',
+
+  // Ações
+  'Tocar para trás (de novo: 2× e 4×)': 'Reproducir hacia atrás (otra vez: 2× y 4×)',
+  'Tocar para frente (de novo: 2× e 4×)': 'Reproducir hacia adelante (otra vez: 2× y 4×)',
+  'Um quadro para trás': 'Un fotograma atrás',
+  'Um quadro para frente': 'Un fotograma adelante',
+  'Um segundo para trás': 'Un segundo atrás',
+  'Um segundo para frente': 'Un segundo adelante',
+  'Pular para o corte ou marcador anterior': 'Saltar al corte o marcador anterior',
+  'Pular para o corte ou marcador seguinte': 'Saltar al corte o marcador siguiente',
+  'Ir para o início': 'Ir al inicio',
+  'Ir para o fim': 'Ir al final',
+  'Dividir o clipe no cursor': 'Dividir el clip en el cabezal',
+  'Cortar do começo do clipe até o cursor': 'Recortar desde el inicio del clip hasta el cabezal',
+  'Cortar do cursor até o fim do clipe': 'Recortar desde el cabezal hasta el final del clip',
+  'Gravar / parar a narração': 'Grabar / detener la narración',
+  'Excluir o que está selecionado': 'Eliminar la selección',
+  'Salvar projeto': 'Guardar proyecto',
+  'Salvar como…': 'Guardar como…',
+  'Abrir projeto': 'Abrir proyecto',
+  'Atalhos do teclado': 'Atajos de teclado',
+  'Cortar para a câmera {n}': 'Cortar a la cámara {n}',
+
+  // Janela
+  'Clique em Mudar e aperte a nova combinação (Esc cancela). Fica guardado neste computador.':
+    'Haz clic en Cambiar y pulsa la nueva combinación (Esc cancela). Se guarda en este equipo.',
+  '{ctrl} e {cmd} valem o mesmo.': '{ctrl} y {cmd} funcionan igual.',
+  'Buscar pela ação ou pela tecla…': 'Buscar por acción o por tecla…',
+  'Nenhum atalho encontrado.': 'No se encontró ningún atajo.',
+  'mudado': 'cambiado',
+  'Aperte a combinação… (Esc cancela)': 'Pulsa la combinación… (Esc cancela)',
+  'sem atalho': 'sin atajo',
+  'Tirar este atalho': 'Quitar este atajo',
+  'Mudar': 'Cambiar',
+  'Adicionar outro atalho': 'Añadir otro atajo',
+  'Restaurar padrão': 'Restaurar predeterminado',
+  'O mesmo atalho também está em “{name}”: só um deles vai funcionar.': 'El mismo atajo también está en “{name}”: solo uno de ellos funcionará.',
+  'Também: {alt} + arrastar duplica o item arrastado, e o botão direito abre o menu de qualquer coisa.':
+    'Además: {alt} + arrastrar duplica el elemento arrastrado, y el clic derecho abre el menú de cualquier cosa.',
+  '{n} ações com atalho': '{n} acciones con atajo',
+  'Voltar todos os atalhos ao padrão?': '¿Restaurar todos los atajos predeterminados?',
+  'Restaurar todos os padrões': 'Restaurar todos los predeterminados',
+  'Pronto': 'Listo',
+  '{keys} já é usado em {names}.': '{keys} ya se usa en {names}.',
+  'A outra ação fica com o atalho que esta tinha': 'La otra acción se queda con el atajo que tenía esta',
+  'Trocar entre as duas': 'Intercambiarlos',
+  'A outra ação fica sem esse atalho': 'La otra acción se queda sin ese atajo',
+  'Usar aqui e tirar de lá': 'Usarlo aquí y quitarlo de allá',
+
+  // Onde aparecem os atalhos
+  'Ajuda': 'Ayuda',
+  'Atalhos do teclado…': 'Atajos de teclado…',
+  'Atalhos do teclado (dá para mudar)': 'Atajos de teclado (se pueden cambiar)',
+  '{shift}: salvar como': '{shift}: guardar como',
+  'Há mudanças que ainda não foram salvas em arquivo': 'Hay cambios que aún no se guardaron en un archivo',
+  'Quadro anterior': 'Fotograma anterior',
+  'Próximo quadro': 'Fotograma siguiente',
+  'Ver todos e mudar as teclas': 'Ver todos y cambiar las teclas',
+  'Ver todos / mudar': 'Ver todos / cambiar',
+} satisfies Record<string, string>;

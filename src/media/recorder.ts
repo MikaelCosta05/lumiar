@@ -1,4 +1,5 @@
 import { AudioBufferSource, BufferTarget, Output, WavOutputFormat } from 'mediabunny';
+import { t } from '../i18n';
 
 /**
  * Grava a voz pelo microfone (narração/dublagem), com cancelamento de eco e redução de ruído do navegador.
@@ -33,7 +34,7 @@ export class VoiceRecorder {
   }
 
   static async open(deviceId?: string): Promise<VoiceRecorder> {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este navegador não deixa gravar áudio.');
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error(t('Este navegador não deixa gravar áudio.'));
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         ...(deviceId ? { deviceId: { exact: deviceId } } : {}),

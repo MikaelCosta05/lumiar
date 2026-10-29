@@ -1,0 +1,16 @@
+{
+  "name": "Rosto deformado",
+  "description": "O rosto estica, a boca alarga demais, os traços escorrem e tudo dá trancos: alguém que parece a pessoa, mas não é. Coloque o rosto no centro (os pacotes usam o seguir rosto).",
+  "category": "Distorção",
+  "params": [
+    { "id": "forca", "label": "Força", "type": "float", "default": 0.8, "min": 0, "max": 1 },
+    { "id": "esticar", "label": "Esticar para cima", "type": "float", "default": 0.6, "min": 0, "max": 1.5 },
+    { "id": "sorriso", "label": "Boca larga", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "derreter", "label": "Traços escorrendo", "type": "float", "default": 0.3, "min": 0, "max": 1 },
+    { "id": "tremor", "label": "Trancos", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "centro", "label": "Centro do rosto", "type": "vec2", "default": [0.5, 0.55], "min": 0, "max": 1 },
+    { "id": "raio", "label": "Tamanho", "type": "float", "default": 0.35, "min": 0.1, "max": 0.8 }
+  ],
+  "previewMedia": "silhueta",
+  "preview": { "centro": [0.62, 0.72], "raio": 0.2 }
+}

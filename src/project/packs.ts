@@ -1,25 +1,22 @@
 import { shiftKeyframes, type Easing, type Keyframe, type KeyframeMap } from '../engine/keyframes';
+import { t } from '../i18n';
 import { defaultParams, getPlugin } from '../engine/registry';
 import type { EffectInstance, FilterInstance, ParamValues } from '../engine/types';
 import { createCamera, type Camera, type CameraTransform, type TrackPoint } from './camera';
 import {
-  addMedia,
-  createAudioClip,
   findAudioClip,
   layoutProject,
-  placeSfxClip,
   removeAudioClip,
   speedOf,
   splitVideoClip,
   uid,
   updateAudioClip,
   updateClip,
-  type MediaItem,
   type Project,
   type TimelineLayout,
   type VideoClip,
 } from './model';
-import { createTextClip, findTextClip, findTextPreset, placeTextClip, removeTextClip, STICKERS, updateTextClip } from './text';
+import { findTextClip, shiftText, removeTextClip, updateTextClip } from './text';
 
 /**
  * Pacotes de edição: um bloco na timeline que aplica de uma vez filtro, efeitos e movimento de câmera
@@ -106,10 +103,12 @@ export interface PackClip {
   filter: FilterInstance | null;
   camera: Camera | null;
   timing: PackTiming;
-  /** Textos, stickers e sons que entraram junto (andam com o bloco e saem com ele) */
+  /** Textos, stickers e sons que entraram junto em versões antigas (andam com o bloco e saem com ele) */
   attached?: string[];
   /** Pacotes que mudaram a velocidade do vídeo embaixo */
   speed?: SpeedLink;
+  /** Grupo de itens que andam juntos */
+  group?: string;
 }
 
 export interface PackTrack {
@@ -135,12 +134,6 @@ export interface PackTemplate {
   effects: { pluginId: string; params?: ParamValues; keyframes?: KeyframeMap }[];
   filter: { pluginId: string; intensity: number; params?: ParamValues; keyframes?: KeyframeMap } | null;
   camera: { base?: Partial<CameraTransform>; keyframes: KeyframeMap } | null;
-  /** Texto que entra junto, numa trilha de texto (título, faixa de nome…) */
-  text?: { preset: string; text: string; offset?: number; duration?: number };
-  /** Stickers (emojis animados) que entram junto. Tempos em segundos desde o começo do bloco. */
-  stickers?: { id: string; offset?: number; duration?: number; x?: number; y?: number; size?: number; rotation?: number }[];
-  /** Efeitos sonoros (ids de SOUNDS) que entram junto */
-  sounds?: { id: string; offset?: number; volume?: number }[];
   /** Silencia o som do vídeo no trecho lento (os efeitos sonoros fazem o clima) */
   muteSlow?: boolean;
   /**
@@ -159,7 +152,7 @@ export interface PackTemplate {
 export const MIN_PACK_LENGTH = 0.2;
 
 export function createPackTrack(number: number): PackTrack {
-  return { id: uid(), name: number > 1 ? `Pacotes ${number}` : 'Pacotes', hidden: false, clips: [] };
+  return { id: uid(), name: number > 1 ? t('Pacotes {number}', { number }) : t('Pacotes'), hidden: false, clips: [] };
 }
 
 // ---------------------------------------------------------------- Criar a partir de um pacote
@@ -202,45 +195,20 @@ export function createPackClip(template: PackTemplate, start: number, duration =
   return retimePack(clip, Math.max(MIN_PACK_LENGTH, duration));
 }
 
-/**
- * Guarda um bloco (ou o visual de um clipe) como pacote do usuário.
- * Com o projeto, leva junto a câmera lenta, os stickers e os efeitos sonoros que vieram com o bloco.
- */
+/** Guarda um bloco (ou o visual de um clipe) como pacote do usuário, com a câmera lenta se tiver. */
 export function templateFromClip(
   original: Pick<PackClip, 'name' | 'color' | 'duration' | 'intensity' | 'fadeIn' | 'fadeOut' | 'effects' | 'filter' | 'camera' | 'timing'> &
-    Partial<Pick<PackClip, 'start' | 'attached' | 'speed'>>,
+    Partial<Pick<PackClip, 'speed'>>,
   anchor: PackAnchor = 'clip',
-  project?: Project,
 ): PackTemplate {
   // Pacote de velocidade: a duração do pacote é a do trecho antes de mudar a velocidade.
   const link = original.speed;
   const clip = link ? retimePack(original as PackClip, link.span) : original;
-  const start = original.start ?? 0;
-  const sounds: NonNullable<PackTemplate['sounds']> = [];
-  const stickers: NonNullable<PackTemplate['stickers']> = [];
-  for (const id of project ? (original.attached ?? []) : []) {
-    const audio = findAudioClip(project!, id)?.clip;
-    const sfx = audio && project!.media.find((m) => m.id === audio.mediaId)?.sfx;
-    if (audio && sfx) sounds.push({ id: sfx, offset: Math.max(0, audio.start - start), volume: audio.volume });
-    const text = findTextClip(project!, id)?.clip;
-    const sticker = text && STICKERS.find((p) => p.sample === text.text);
-    if (text && sticker) {
-      stickers.push({
-        id: sticker.id,
-        offset: Math.max(0, text.start - start),
-        duration: text.duration,
-        x: text.x,
-        y: text.y,
-        size: text.style.size,
-        rotation: text.rotation,
-      });
-    }
-  }
   return {
     id: `custom/${uid()}`,
     name: clip.name,
     category: 'Meus pacotes',
-    description: 'Criado por você.',
+    description: t('Criado por você.'),
     color: clip.color,
     duration: clip.duration,
     timing: clip.timing,
@@ -255,74 +223,16 @@ export function templateFromClip(
     face: clip.camera?.follow?.kind === 'face' ? { zoom: clip.camera.follow.zoom, smoothness: clip.camera.follow.smoothness } : undefined,
     speed: link?.speeds,
     muteSlow: link?.muted,
-    sounds: sounds.length ? sounds : undefined,
-    stickers: stickers.length ? stickers : undefined,
     custom: true,
   };
 }
 
-/** Texto que o pacote traz junto, já no lugar. */
-export function addPackText(project: Project, template: PackTemplate, clip: PackClip): { project: Project; id: string } | null {
-  const spec = template.text;
-  const preset = spec && findTextPreset(spec.preset);
-  if (!spec || !preset) return null;
-  const offset = Math.min(spec.offset ?? 0, clip.duration - MIN_PACK_LENGTH);
-  const text = {
-    ...createTextClip(preset, clip.start + offset, Math.min(spec.duration ?? clip.duration, clip.duration - offset)),
-    text: spec.text,
-  };
-  return { project: placeTextClip(project, text), id: text.id };
-}
-
-/** Stickers que o pacote traz junto. */
-export function addPackStickers(project: Project, template: PackTemplate, clip: PackClip): { project: Project; ids: string[] } {
-  let next = project;
-  const ids: string[] = [];
-  for (const spec of template.stickers ?? []) {
-    const preset = STICKERS.find((p) => p.id === spec.id);
-    if (!preset) continue;
-    const offset = Math.min(spec.offset ?? 0, clip.duration - MIN_PACK_LENGTH);
-    const base = createTextClip(preset, clip.start + offset, Math.max(MIN_PACK_LENGTH, Math.min(spec.duration ?? 1.5, clip.duration - offset)));
-    const sticker = {
-      ...base,
-      x: spec.x ?? base.x,
-      y: spec.y ?? base.y,
-      rotation: spec.rotation ?? base.rotation,
-      style: { ...base.style, size: spec.size ?? base.style.size },
-    };
-    next = placeTextClip(next, sticker);
-    ids.push(sticker.id);
-  }
-  return { project: next, ids };
-}
-
-/** Efeitos sonoros que o pacote traz junto (as mídias já foram geradas: `media` por id do som). */
-export function addPackSounds(
-  project: Project,
-  template: PackTemplate,
-  clip: PackClip,
-  media: Map<string, MediaItem>,
-): { project: Project; ids: string[] } {
-  let next = project;
-  const ids: string[] = [];
-  for (const spec of template.sounds ?? []) {
-    const item = media.get(spec.id);
-    if (!item) continue;
-    if (!next.media.some((m) => m.id === item.id)) next = addMedia(next, [item]);
-    const offset = Math.min(spec.offset ?? 0, clip.duration);
-    const audio = { ...createAudioClip(item, clip.start + offset), volume: spec.volume ?? 1 };
-    next = placeSfxClip(next, audio);
-    ids.push(audio.id);
-  }
-  return { project: next, ids };
-}
-
-/** Empurra no tempo os textos, stickers e sons que vieram com o pacote. */
+/** Empurra no tempo os textos, stickers e sons que vieram com o pacote (blocos de projetos antigos). */
 export function shiftAttached(project: Project, ids: string[] | undefined, delta: number): Project {
   if (!ids?.length || Math.abs(delta) < 1e-9) return project;
   let next = project;
   for (const id of ids) {
-    if (findTextClip(next, id)) next = updateTextClip(next, id, (c) => ({ ...c, start: Math.max(0, c.start + delta) }));
+    if (findTextClip(next, id)) next = updateTextClip(next, id, (c) => shiftText(c, Math.max(-c.start, delta)));
     else if (findAudioClip(next, id)) next = updateAudioClip(next, id, (c) => ({ ...c, start: Math.max(0, c.start + delta) }));
   }
   return next;
@@ -381,13 +291,11 @@ export interface ApplyOptions {
   /** Trilha de pacotes preferida */
   track?: number;
   id?: string;
-  /** Efeitos sonoros já gerados, por id do som */
-  sounds?: Map<string, MediaItem>;
 }
 
 /**
- * Aplica o pacote: muda a velocidade do trecho (se o pacote mexe nisso), põe o bloco na trilha de pacotes,
- * gera as animações nas batidas e acrescenta o texto, se tiver.
+ * Aplica o pacote: muda a velocidade do trecho (se o pacote mexe nisso), põe o bloco na trilha de pacotes
+ * e gera as animações nas batidas. Pacotes não trazem textos nem stickers: isso fica a cargo de quem edita.
  */
 export function applyPack(
   project: Project,
@@ -412,17 +320,7 @@ export function applyPack(
     const local = (options.beats ?? []).map((b) => b - span.start).filter((b) => b >= -1e-6 && b < span.duration);
     clip = applyBeatPattern(clip, template.beat, local);
   }
-  const attached: string[] = [];
-  const text = addPackText(next, template, clip);
-  if (text) {
-    next = text.project;
-    attached.push(text.id);
-  }
-  const stickers = addPackStickers(next, template, clip);
-  const sounds = addPackSounds(stickers.project, template, clip, options.sounds ?? new Map());
-  next = sounds.project;
-  attached.push(...stickers.ids, ...sounds.ids);
-  clip = { ...clip, attached: attached.length ? attached : undefined, speed: link };
+  clip = { ...clip, speed: link };
   next = placePackClip(next, clip, options.track ?? 0);
   if (link && template.muteSlow) next = setSlowMuted(next, clip.id, true);
   return { project: next, id: clip.id, speedApplied: !!link };
@@ -653,7 +551,7 @@ export function bakePack<T extends VideoClip>(template: PackTemplate, clip: T, l
     effects: [...clip.effects, ...pack.effects],
     filter: pack.filter ? { ...pack.filter, intensity: pack.filter.intensity * scale } : clip.filter,
     camera: pack.camera
-      ? { ...pack.camera, fill: clip.camera?.fill ?? false, follow: clip.camera?.follow ?? null }
+      ? { ...pack.camera, fill: clip.camera?.fill ?? false, follow: clip.camera?.follow ?? null, stabilize: clip.camera?.stabilize }
       : clip.camera,
   };
 }

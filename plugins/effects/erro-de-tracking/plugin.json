@@ -1,0 +1,12 @@
+{
+  "name": "Erro de tracking",
+  "description": "A faixa de chiado da fita mal ajustada: um bloco de linhas tortas e riscos brancos que sobe e desce pela tela.",
+  "category": "Analógico",
+  "params": [
+    { "id": "intensidade", "label": "Intensidade", "type": "float", "default": 0.7, "min": 0, "max": 1 },
+    { "id": "largura", "label": "Altura da faixa", "type": "float", "default": 0.1, "min": 0.02, "max": 0.4 },
+    { "id": "velocidade", "label": "Velocidade", "type": "float", "default": 1, "min": 0, "max": 4 },
+    { "id": "ruido", "label": "Riscos brancos", "type": "float", "default": 0.6, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "silhueta"
+}

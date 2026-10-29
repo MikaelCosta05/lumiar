@@ -4,6 +4,8 @@
  * e vira um WAV, que entra no projeto como qualquer outra mídia.
  */
 
+import { t } from '../i18n';
+
 export type SoundCategory = 'Comédia e memes' | 'Passagens' | 'Impacto' | 'Câmera lenta e tensão' | 'Jogos e alertas';
 
 export const SOUND_CATEGORIES: SoundCategory[] = ['Comédia e memes', 'Passagens', 'Impacto', 'Câmera lenta e tensão', 'Jogos e alertas'];
@@ -175,7 +177,7 @@ export const SOUNDS: SoundEffect[] = [
     name: 'Vine boom',
     category: 'Comédia e memes',
     duration: 1.6,
-    description: 'O "BUM" grave e estourado dos memes.',
+    description: t('O "BUM" grave e estourado dos memes.'),
     build(ctx, out) {
       const mix = gain(ctx, [[0, 0.9]]);
       for (const [from, to, level] of [
@@ -193,10 +195,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'trombone-triste',
-    name: 'Trombone triste',
+    name: t('Trombone triste'),
     category: 'Comédia e memes',
     duration: 2.9,
-    description: '"Uá, uá, uá, uááá…" para quando tudo dá errado.',
+    description: t('"Uá, uá, uá, uááá…" para quando tudo dá errado.'),
     build(ctx, out) {
       const notes: [number, number, number][] = [
         [NOTE.Bb3, 0, 0.42],
@@ -223,10 +225,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'grilos',
-    name: 'Grilos (cri cri)',
+    name: t('Grilos (cri cri)'),
     category: 'Comédia e memes',
     duration: 3,
-    description: 'Silêncio constrangedor depois da piada.',
+    description: t('Silêncio constrangedor depois da piada.'),
     build(ctx, out) {
       for (const [freq, pan, offset] of [
         [4400, -0.5, 0],
@@ -255,7 +257,7 @@ export const SOUNDS: SoundEffect[] = [
     name: 'Ba dum tss',
     category: 'Comédia e memes',
     duration: 1.8,
-    description: 'A bateria da piada (ruim).',
+    description: t('A bateria da piada (ruim).'),
     build(ctx, out) {
       thump(ctx, out, 0, 230, 160, 0.18, 0.7);
       burst(ctx, out, 0, 0.12, 'bandpass', 1800, 0.35, 2);
@@ -270,7 +272,7 @@ export const SOUNDS: SoundEffect[] = [
     name: 'Boing',
     category: 'Comédia e memes',
     duration: 1,
-    description: 'Mola de desenho animado.',
+    description: t('Mola de desenho animado.'),
     build(ctx, out) {
       const osc = tone(ctx, 'sine', 160, 0, 1);
       osc.frequency.linearRampToValueAtTime(260, 0.9);
@@ -281,10 +283,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'disco-arranhado',
-    name: 'Disco arranhado',
+    name: t('Disco arranhado'),
     category: 'Comédia e memes',
     duration: 0.8,
-    description: 'Tudo para de repente: "rrriiic".',
+    description: t('Tudo para de repente: "rrriiic".'),
     build(ctx, out) {
       const band = filter(ctx, 'bandpass', 2000, 3);
       env(band.frequency, [[0, 2800], [0.12, 500, 'exp'], [0.26, 2600, 'exp'], [0.45, 380, 'exp'], [0.7, 900, 'exp']]);
@@ -296,10 +298,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'erro',
-    name: 'Resposta errada',
+    name: t('Resposta errada'),
     category: 'Comédia e memes',
     duration: 0.9,
-    description: 'A campainha de "errou!" dos programas de TV.',
+    description: t('A campainha de "errou!" dos programas de TV.'),
     build(ctx, out) {
       for (const [at, length] of [
         [0, 0.24],
@@ -313,10 +315,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'escorregao',
-    name: 'Escorregão',
+    name: t('Escorregão'),
     category: 'Comédia e memes',
     duration: 1,
-    description: 'Apito que desce: alguém caiu.',
+    description: t('Apito que desce: alguém caiu.'),
     build(ctx, out) {
       const osc = tone(ctx, 'sine', 1800, 0, 1);
       osc.frequency.exponentialRampToValueAtTime(260, 0.9);
@@ -328,10 +330,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'apito-subindo',
-    name: 'Apito subindo',
+    name: t('Apito subindo'),
     category: 'Comédia e memes',
     duration: 0.8,
-    description: 'Algo sobe (ou alguém pula).',
+    description: t('Algo sobe (ou alguém pula).'),
     build(ctx, out) {
       const osc = tone(ctx, 'sine', 380, 0, 0.8);
       osc.frequency.exponentialRampToValueAtTime(1900, 0.7);
@@ -340,10 +342,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'bip',
-    name: 'Bip de censura',
+    name: t('Bip de censura'),
     category: 'Comédia e memes',
     duration: 0.9,
-    description: 'O "piiii" que cobre o palavrão.',
+    description: t('O "piiii" que cobre o palavrão.'),
     build(ctx, out) {
       chain(tone(ctx, 'sine', 1000, 0, 0.9), gain(ctx, [[0, 0], [0.01, 0.5], [0.86, 0.5], [0.9, 0]]), out);
     },
@@ -353,7 +355,7 @@ export const SOUNDS: SoundEffect[] = [
     name: 'Pop',
     category: 'Comédia e memes',
     duration: 0.3,
-    description: 'Bolha estourando: bom para stickers e textos.',
+    description: t('Bolha estourando: bom para stickers e textos.'),
     build(ctx, out) {
       const osc = tone(ctx, 'sine', 380, 0, 0.3);
       osc.frequency.exponentialRampToValueAtTime(1300, 0.035);
@@ -362,10 +364,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'aplausos',
-    name: 'Aplausos',
+    name: t('Aplausos'),
     category: 'Comédia e memes',
     duration: 3,
-    description: 'Plateia aplaudindo.',
+    description: t('Plateia aplaudindo.'),
     build(ctx, out) {
       const rnd = random(11);
       const claps = ctx.createGain();
@@ -384,7 +386,7 @@ export const SOUNDS: SoundEffect[] = [
     name: 'Whoosh',
     category: 'Passagens',
     duration: 0.9,
-    description: 'Vento passando: combina com cortes rápidos.',
+    description: t('Vento passando: combina com cortes rápidos.'),
     build(ctx, out) {
       const band = filter(ctx, 'bandpass', 400, 1.1);
       env(band.frequency, [[0, 300], [0.45, 2600, 'exp'], [0.9, 500, 'exp']]);
@@ -395,10 +397,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'swish',
-    name: 'Swish rápido',
+    name: t('Swish rápido'),
     category: 'Passagens',
     duration: 0.4,
-    description: 'Passada curta e aguda.',
+    description: t('Passada curta e aguda.'),
     build(ctx, out) {
       const band = filter(ctx, 'bandpass', 2000, 1.4);
       env(band.frequency, [[0, 1200], [0.18, 5500, 'exp'], [0.38, 2000, 'exp']]);
@@ -407,10 +409,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'subida',
-    name: 'Subida (riser)',
+    name: t('Subida (riser)'),
     category: 'Passagens',
     duration: 2.2,
-    description: 'Tensão que sobe até o corte.',
+    description: t('Tensão que sobe até o corte.'),
     build(ctx, out) {
       const band = filter(ctx, 'bandpass', 200, 1.5);
       env(band.frequency, [[0, 200], [2.1, 7000, 'exp']]);
@@ -422,10 +424,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'whoosh-reverso',
-    name: 'Sucção (reverso)',
+    name: t('Sucção (reverso)'),
     category: 'Passagens',
     duration: 1.2,
-    description: 'Som "puxado de trás pra frente", antes de um impacto.',
+    description: t('Som "puxado de trás pra frente", antes de um impacto.'),
     build(ctx, out) {
       const band = filter(ctx, 'bandpass', 600, 0.9);
       env(band.frequency, [[0, 500], [1.15, 4000, 'exp']]);
@@ -440,7 +442,7 @@ export const SOUNDS: SoundEffect[] = [
     name: 'Glitch',
     category: 'Passagens',
     duration: 0.7,
-    description: 'Falha digital picotada.',
+    description: t('Falha digital picotada.'),
     build(ctx, out) {
       const rnd = random(21);
       let t = 0;
@@ -461,10 +463,10 @@ export const SOUNDS: SoundEffect[] = [
   // -------- Impacto
   {
     id: 'impacto',
-    name: 'Impacto',
+    name: t('Impacto'),
     category: 'Impacto',
     duration: 1.3,
-    description: 'Soco forte, para zooms e cortes secos.',
+    description: t('Soco forte, para zooms e cortes secos.'),
     build(ctx, out) {
       const mix = ctx.createGain();
       thump(ctx, mix, 0, 160, 40, 0.5, 1);
@@ -474,10 +476,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'boom-cinema',
-    name: 'Boom de cinema',
+    name: t('Boom de cinema'),
     category: 'Impacto',
     duration: 3,
-    description: 'Estrondo grave de trailer.',
+    description: t('Estrondo grave de trailer.'),
     build(ctx, out) {
       const mix = ctx.createGain();
       thump(ctx, mix, 0, 70, 28, 2.6, 1);
@@ -487,10 +489,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'soco',
-    name: 'Soco',
+    name: t('Soco'),
     category: 'Impacto',
     duration: 0.5,
-    description: 'Pancada seca de luta.',
+    description: t('Pancada seca de luta.'),
     build(ctx, out) {
       thump(ctx, out, 0, 200, 60, 0.18, 0.9);
       burst(ctx, out, 0, 0.09, 'bandpass', 1400, 0.9, 33, 0.8);
@@ -499,10 +501,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'flash-camera',
-    name: 'Clique de câmera',
+    name: t('Clique de câmera'),
     category: 'Impacto',
     duration: 0.4,
-    description: 'Obturador de foto: bom para congelar o quadro.',
+    description: t('Obturador de foto: bom para congelar o quadro.'),
     build(ctx, out) {
       burst(ctx, out, 0, 0.025, 'highpass', 3000, 0.9, 41);
       burst(ctx, out, 0.11, 0.04, 'bandpass', 2200, 0.7, 42, 2);
@@ -513,10 +515,10 @@ export const SOUNDS: SoundEffect[] = [
   // -------- Câmera lenta e tensão
   {
     id: 'camera-lenta',
-    name: 'Entrando em câmera lenta',
+    name: t('Entrando em câmera lenta'),
     category: 'Câmera lenta e tensão',
     duration: 2.4,
-    description: '"Bwooom": o som desacelerando, como fita freando.',
+    description: t('"Bwooom": o som desacelerando, como fita freando.'),
     build(ctx, out) {
       const mix = ctx.createGain();
       for (const [freq, type, level] of [
@@ -535,10 +537,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'saindo-camera-lenta',
-    name: 'Voltando ao normal',
+    name: t('Voltando ao normal'),
     category: 'Câmera lenta e tensão',
     duration: 1.4,
-    description: 'O som acelerando de volta (fim da câmera lenta).',
+    description: t('O som acelerando de volta (fim da câmera lenta).'),
     build(ctx, out) {
       const mix = ctx.createGain();
       for (const [freq, level] of [
@@ -556,10 +558,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'coracao',
-    name: 'Coração batendo',
+    name: t('Coração batendo'),
     category: 'Câmera lenta e tensão',
     duration: 2.6,
-    description: '"Tum-tum… tum-tum…" de suspense.',
+    description: t('"Tum-tum… tum-tum…" de suspense.'),
     build(ctx, out) {
       const lp = filter(ctx, 'lowpass', 160);
       lp.connect(out);
@@ -571,10 +573,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'tique-taque',
-    name: 'Tique-taque',
+    name: t('Tique-taque'),
     category: 'Câmera lenta e tensão',
     duration: 3,
-    description: 'Relógio contando o tempo.',
+    description: t('Relógio contando o tempo.'),
     build(ctx, out) {
       for (let k = 0; k < 6; k++) {
         const at = k * 0.5;
@@ -585,10 +587,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'suspense',
-    name: 'Dun dun duuun',
+    name: t('Dun dun duuun'),
     category: 'Câmera lenta e tensão',
     duration: 3,
-    description: 'Revelação dramática.',
+    description: t('Revelação dramática.'),
     build(ctx, out) {
       const brass = ctx.createGain();
       const lp = filter(ctx, 'lowpass', 900, 1);
@@ -608,10 +610,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'rufar',
-    name: 'Rufar de tambor',
+    name: t('Rufar de tambor'),
     category: 'Câmera lenta e tensão',
     duration: 2.6,
-    description: 'Expectativa… e o prato no fim.',
+    description: t('Expectativa… e o prato no fim.'),
     build(ctx, out) {
       let t = 0;
       let k = 0;
@@ -632,17 +634,17 @@ export const SOUNDS: SoundEffect[] = [
     name: 'Ding',
     category: 'Jogos e alertas',
     duration: 1.6,
-    description: 'Sininho de ideia ou acerto.',
+    description: t('Sininho de ideia ou acerto.'),
     build(ctx, out) {
       bell(ctx, out, 0, 1320, 1.5, 0.35);
     },
   },
   {
     id: 'moeda',
-    name: 'Moeda',
+    name: t('Moeda'),
     category: 'Jogos e alertas',
     duration: 0.7,
-    description: 'Pegou a moeda (videogame).',
+    description: t('Pegou a moeda (videogame).'),
     build(ctx, out) {
       chain(tone(ctx, 'square', 988, 0, 0.08), gain(ctx, [[0, 0.16], [0.08, 0.16]]), out);
       chain(tone(ctx, 'square', 1319, 0.08, 0.7), gain(ctx, [[0.08, 0.16], [0.65, 0.001, 'exp']]), out);
@@ -650,10 +652,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'vitoria',
-    name: 'Vitória (tcharam)',
+    name: t('Vitória (tcharam)'),
     category: 'Jogos e alertas',
     duration: 1.8,
-    description: 'Fanfarra curta de conquista.',
+    description: t('Fanfarra curta de conquista.'),
     build(ctx, out) {
       const input = filter(ctx, 'lowpass', 3200);
       input.connect(out);
@@ -670,10 +672,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'level-up',
-    name: 'Subiu de nível',
+    name: t('Subiu de nível'),
     category: 'Jogos e alertas',
     duration: 1,
-    description: 'Arpejo rápido de 8 bits.',
+    description: t('Arpejo rápido de 8 bits.'),
     build(ctx, out) {
       [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568].forEach((freq, i) =>
         chain(tone(ctx, 'square', freq, i * 0.07, i * 0.07 + 0.3), gain(ctx, [[i * 0.07, 0.12], [i * 0.07 + 0.28, 0.001, 'exp']]), out),
@@ -682,20 +684,20 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'sino-luta',
-    name: 'Sino de luta',
+    name: t('Sino de luta'),
     category: 'Jogos e alertas',
     duration: 2.4,
-    description: '"Ding ding ding": começou a briga.',
+    description: t('"Ding ding ding": começou a briga.'),
     build(ctx, out) {
       for (const at of [0, 0.2, 0.4]) bell(ctx, out, at, 620, 1.9, 0.3);
     },
   },
   {
     id: 'notificacao',
-    name: 'Notificação',
+    name: t('Notificação'),
     category: 'Jogos e alertas',
     duration: 0.7,
-    description: 'Mensagem chegando.',
+    description: t('Mensagem chegando.'),
     build(ctx, out) {
       note(ctx, out, 'sine', 1046.5, 0, 0.25, 0.4, 0.005);
       note(ctx, out, 'sine', 1568, 0.12, 0.5, 0.4, 0.005);
@@ -703,10 +705,10 @@ export const SOUNDS: SoundEffect[] = [
   },
   {
     id: 'sirene',
-    name: 'Sirene',
+    name: t('Sirene'),
     category: 'Jogos e alertas',
     duration: 2.5,
-    description: 'Alarme subindo e descendo.',
+    description: t('Alarme subindo e descendo.'),
     build(ctx, out) {
       const osc = tone(ctx, 'triangle', 800, 0, 2.5);
       const lfo = tone(ctx, 'sine', 1.6, 0, 2.5);
@@ -747,7 +749,7 @@ export async function soundUrl(id: string): Promise<string> {
 
 async function render(id: string): Promise<File> {
   const sound = getSound(id);
-  if (!sound) throw new Error(`Som desconhecido: ${id}`);
+  if (!sound) throw new Error(t('Som desconhecido: {id}', { id }));
   const ctx = new OfflineAudioContext(2, Math.ceil(sound.duration * SAMPLE_RATE), SAMPLE_RATE);
   // Um limitador no fim deixa todos os sons com volume parecido e sem estourar.
   const limiter = ctx.createDynamicsCompressor();

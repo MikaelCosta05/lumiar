@@ -5,12 +5,14 @@ const MERGE_WINDOW_MS = 600;
 const LIMIT = 200;
 
 /** Estado com desfazer/refazer. Cada estado é imutável, então guardar a referência basta. */
-export function useHistory<T>(initial: () => T) {
+export function useHistory<T extends object>(initial: () => T) {
   const [state, setState] = useState(initial);
   const current = useRef(state);
   const past = useRef<T[]>([]);
   const future = useRef<T[]>([]);
   const lastChange = useRef(0);
+  /** Quando cada estado passou a valer (para a lista do histórico). */
+  const times = useRef(new WeakMap<T, number>());
 
   const update = useCallback((updater: (value: T) => T) => {
     const prev = current.current;
@@ -23,6 +25,7 @@ export function useHistory<T>(initial: () => T) {
     }
     future.current = [];
     lastChange.current = now;
+    times.current.set(next, Date.now());
     current.current = next;
     setState(next);
   }, []);
@@ -56,6 +59,20 @@ export function useHistory<T>(initial: () => T) {
     setState(value);
   }, []);
 
+  /** Anda vários passos de uma vez (negativo = desfazer, positivo = refazer). */
+  const jump = useCallback(
+    (steps: number) => {
+      for (let i = 0; i < Math.abs(steps); i++) (steps < 0 ? undo : redo)();
+    },
+    [undo, redo],
+  );
+
+  /** Todos os estados guardados: os anteriores, o atual e os que dá para refazer (em ordem). */
+  const entries = useCallback(
+    () => ({ past: [...past.current], current: current.current, future: [...future.current].reverse(), timeOf: (value: T) => times.current.get(value) }),
+    [],
+  );
+
   /** Aplica uma transformação em todos os estados guardados, sem criar passo novo. */
   const rewrite = useCallback((fn: (value: T) => T) => {
     past.current = past.current.map(fn);
@@ -73,6 +90,8 @@ export function useHistory<T>(initial: () => T) {
     redo,
     reset,
     rewrite,
+    jump,
+    entries,
     canUndo: past.current.length > 0,
     canRedo: future.current.length > 0,
   };

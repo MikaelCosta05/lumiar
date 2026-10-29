@@ -1,0 +1,11 @@
+{
+  "name": "Desligar a TV",
+  "description": "Como uma TV de tubo: a imagem se espreme numa linha branca e some num ponto de luz. No modo ligar, faz o caminho de volta. Acontece sozinho no fim (ou no começo) do clipe.",
+  "category": "Analógico",
+  "params": [
+    { "id": "modo", "label": "Modo (0 = desliga no fim, 1 = liga no começo)", "type": "float", "default": 0, "min": 0, "max": 1, "step": 1 },
+    { "id": "duracaoTv", "label": "Duração (s)", "type": "float", "default": 0.7, "min": 0.2, "max": 3 },
+    { "id": "brilhoLinha", "label": "Brilho da linha", "type": "float", "default": 0.8, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "silhueta"
+}

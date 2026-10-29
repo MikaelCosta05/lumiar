@@ -1,20 +1,24 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { assetUrl } from '../assetUrl';
-import { defaultParams, plugins } from '../engine/registry';
+import { defaultParams, getPlugin, plugins } from '../engine/registry';
 import { Renderer, type LayerInput } from '../engine/renderer';
-import type { ShaderPlugin } from '../engine/types';
+import { pluginInputs } from '../engine/shaders';
+import { depthFrame } from '../media/depthVideo';
+import { onSegmenterReady, segmentFrame } from '../media/segment';
+import type { PreviewMedia, ShaderPlugin } from '../engine/types';
 import { createProject, layoutProject, resolveFrame, toFrameInput } from '../project/model';
 import { createPackClip, type PackTemplate } from '../project/packs';
+import { PREVIEW_SOURCES, packMedia, pluginMedia, secondMedia } from './previewMedia';
 
 const WIDTH = 256;
 const HEIGHT = 144;
 
 /**
- * Cenas de exemplo desenhadas no canvas, com detalhes, texturas e todas as cores
- * (verde, azul, vermelho, pele...) para que cada efeito e filtro mostre a diferença.
- * 0 = paisagem de dia, 1 = cidade neon à noite (o "próximo clipe" das transições).
+ * Cenas desenhadas no canvas, só enquanto as mídias reais carregam (sem gente: a pessoa das
+ * prévias é sempre o vídeo real). 0 = paisagem de dia, 1 = cidade neon à noite,
+ * 2 = fundo abstrato no lugar dos vídeos com pessoa.
  */
-function drawScene(variant: 0 | 1): HTMLCanvasElement {
+function drawScene(variant: 0 | 1 | 2): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
@@ -36,6 +40,34 @@ function drawScene(variant: 0 | 1): HTMLCanvasElement {
     stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
     return g;
   };
+
+  if (variant === 2) {
+    // Fundo de estúdio escuro com manchas de luz coloridas (vermelho, verde, azul, tom de pele):
+    // os filtros de cor ainda mostram a diferença enquanto o vídeo da pessoa carrega.
+    ctx.fillStyle = gradient(['#1d2433', '#141821', '#0c0e13']);
+    ctx.fillRect(0, 0, W, H);
+    for (const [x, y, r, c] of [
+      [0.5, 0.55, 0.55, '224,160,120'],
+      [0.18, 0.3, 0.35, '64,140,255'],
+      [0.84, 0.28, 0.32, '255,80,90'],
+      [0.75, 0.85, 0.3, '80,210,120'],
+      [0.25, 0.85, 0.28, '255,210,90'],
+    ] as const) {
+      const g = ctx.createRadialGradient(x * W, y * H, 1, x * W, y * H, r * H);
+      g.addColorStop(0, `rgba(${c},0.85)`);
+      g.addColorStop(1, `rgba(${c},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
+    // Pontinhos de luz desfocados, para os efeitos de borda e brilho terem detalhe.
+    for (let i = 0; i < 26; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.15 + rand() * 0.4})`;
+      ctx.beginPath();
+      ctx.arc(rand() * W, rand() * H, 1 + rand() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return canvas;
+  }
 
   if (variant === 0) {
     ctx.fillStyle = gradient(['#2f6fd6', '#7fb6f0', '#ffd6a8']);
@@ -132,27 +164,72 @@ function drawScene(variant: 0 | 1): HTMLCanvasElement {
   return canvas;
 }
 
-// ---------------------------------------------------------------- Cenas de exemplo
+// ---------------------------------------------------------------- Mídias de exemplo
 
 /**
- * Fotos e vídeo reais (domínio público/CC0, em /public/samples) usados nas miniaturas.
- * Enquanto carregam, as cenas desenhadas acima ficam no lugar.
+ * Vídeos e fotos reais (do Pexels, em /public/previews, ver CREDITOS.md). Cada um só
+ * carrega quando alguma miniatura pede. Dos vídeos sai uma sequência curta de quadros parados que
+ * termina no quadro da miniatura: os efeitos que olham para o passado (clones, rastro, eco…) têm
+ * movimento de verdade para mostrar. Ao passar o mouse, o vídeo toca em loop.
  */
-const PHOTOS: Record<0 | 1, string> = { 0: 'samples/paisagem.jpg', 1: 'samples/cidade.jpg' };
-const SAMPLE_VIDEO = 'samples/drone.webm';
+const SEQUENCE = 16;
+const STEP = 1 / 15;
+/** Máscaras da prévia ao vivo: uma a cada 1/12 s do vídeo (depois da primeira volta, nada é recalculado). */
+const LIVE_RATE = 12;
 
-const scenes = new Map<number, HTMLCanvasElement>();
-let photosLoaded = false;
+interface Sample {
+  state: 'idle' | 'loading' | 'ready' | 'failed';
+  /** Tentativas de carregar (o vídeo pode demorar enquanto o app ainda abre) */
+  tries: number;
+  /** Quadros parados (WIDTH×HEIGHT); as fotos têm um só */
+  stills: HTMLCanvasElement[] | null;
+  /** Vídeo tocando em loop (prévia ao passar o mouse) */
+  video: HTMLVideoElement | null;
+  /** Máscara da pessoa e profundidade de cada quadro já analisado */
+  masks: Map<string, HTMLCanvasElement>;
+  depths: Map<string, HTMLCanvasElement>;
+}
+
+const samples = new Map<PreviewMedia, Sample>();
+const fallbacks = new Map<number, HTMLCanvasElement>();
 let version = 0;
 const listeners = new Set<() => void>();
 
-/** Cena de exemplo (0 = paisagem, 1 = cidade à noite). */
-export function sceneCanvas(variant: 0 | 1): HTMLCanvasElement {
-  if (!scenes.has(variant)) scenes.set(variant, drawScene(variant));
-  return scenes.get(variant)!;
+function sample(media: PreviewMedia): Sample {
+  let found = samples.get(media);
+  if (!found) {
+    found = { state: 'idle', tries: 0, stills: null, video: null, masks: new Map(), depths: new Map() };
+    samples.set(media, found);
+  }
+  return found;
 }
 
-/** Para a interface redesenhar as miniaturas quando as fotos reais chegarem. */
+/** Cena desenhada que fica no lugar da mídia enquanto ela carrega. */
+function fallbackScene(media: PreviewMedia): HTMLCanvasElement {
+  const variant = media === 'paisagem' || media === 'drone' ? 0 : media === 'cidade' ? 1 : 2;
+  if (!fallbacks.has(variant)) fallbacks.set(variant, drawScene(variant));
+  return fallbacks.get(variant)!;
+}
+
+/** Quadros parados da mídia (null enquanto carregam; o carregamento começa no primeiro pedido). */
+function stillsOf(media: PreviewMedia): HTMLCanvasElement[] | null {
+  const s = sample(media);
+  if (s.state === 'idle') void loadStills(media);
+  return s.stills;
+}
+
+/** O quadro das miniaturas paradas (ou a cena desenhada enquanto carrega). */
+export function sampleImage(media: PreviewMedia): HTMLCanvasElement {
+  const stills = stillsOf(media);
+  return stills ? stills[stills.length - 1] : fallbackScene(media);
+}
+
+/** Cena de exemplo (0 = paisagem, 1 = cidade à noite), para fundos de miniaturas de texto. */
+export function sceneCanvas(variant: 0 | 1): HTMLCanvasElement {
+  return sampleImage(variant === 0 ? 'paisagem' : 'cidade');
+}
+
+/** Para a interface redesenhar as miniaturas quando as mídias reais (ou o recorte da pessoa) chegarem. */
 export const previewStore = {
   subscribe(listener: () => void) {
     listeners.add(listener);
@@ -161,54 +238,241 @@ export const previewStore = {
   getVersion: () => version,
 };
 
-/** Recorta a foto no formato das miniaturas (preenchendo, sem barras). */
-function coverCanvas(image: CanvasImageSource & { width: number; height: number }): HTMLCanvasElement {
+/** Recorta a imagem no formato das miniaturas (preenchendo, sem barras). `focusY` = altura que fica no centro. */
+function coverCanvas(image: CanvasImageSource, width: number, height: number, focusY = 0.5): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
-  const scale = Math.max(WIDTH / image.width, HEIGHT / image.height);
-  canvas
-    .getContext('2d')!
-    .drawImage(image, (WIDTH - image.width * scale) / 2, (HEIGHT - image.height * scale) / 2, image.width * scale, image.height * scale);
+  const scale = Math.max(WIDTH / width, HEIGHT / height);
+  const w = width * scale;
+  const h = height * scale;
+  const y = Math.min(0, Math.max(HEIGHT - h, HEIGHT / 2 - focusY * h));
+  canvas.getContext('2d')!.drawImage(image, (WIDTH - w) / 2, y, w, h);
   return canvas;
 }
 
-/** Troca as cenas desenhadas pelas fotos reais e regenera as miniaturas. */
-export async function loadSamplePhotos(): Promise<void> {
-  if (photosLoaded) return;
-  photosLoaded = true;
+function hiddenVideo(): HTMLVideoElement {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none';
+  document.body.appendChild(video);
+  return video;
+}
+
+/** Espera o evento (ou desiste depois de `ms`, para um vídeo travado não segurar as miniaturas). */
+function once(target: HTMLMediaElement, event: string, ms = 15000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => done(new Error(`[Lumiar] prévia: ${event} demorou demais`)), ms);
+    const ok = () => done();
+    const fail = () => done(new Error('[Lumiar] prévia: vídeo indisponível'));
+    const done = (error?: Error) => {
+      clearTimeout(timer);
+      target.removeEventListener(event, ok);
+      target.removeEventListener('error', fail);
+      if (error) reject(error);
+      else resolve();
+    };
+    target.addEventListener(event, ok);
+    target.addEventListener('error', fail);
+  });
+}
+
+async function loadStills(media: PreviewMedia): Promise<void> {
+  const s = sample(media);
+  const source = PREVIEW_SOURCES[media];
+  s.state = 'loading';
+  s.tries++;
   try {
-    for (const variant of [0, 1] as const) {
-      const blob = await (await fetch(assetUrl(PHOTOS[variant]))).blob();
+    if (!source.video) {
+      const blob = await (await fetch(assetUrl(source.file))).blob();
       const bitmap = await createImageBitmap(blob);
-      scenes.set(variant, coverCanvas(bitmap));
+      s.stills = [coverCanvas(bitmap, bitmap.width, bitmap.height, source.focusY)];
       bitmap.close();
+    } else {
+      // Um vídeo só para tirar os quadros (o da prévia ao vivo fica tocando sem ser interrompido).
+      const video = hiddenVideo();
+      video.preload = 'auto';
+      try {
+        video.src = assetUrl(source.file);
+        await once(video, 'loadeddata');
+        const stills: HTMLCanvasElement[] = [];
+        for (let i = 0; i < SEQUENCE; i++) {
+          video.currentTime = Math.max(0, (source.still ?? 0) - (SEQUENCE - 1 - i) * STEP);
+          await once(video, 'seeked');
+          stills.push(coverCanvas(video, video.videoWidth, video.videoHeight));
+        }
+        s.stills = stills;
+      } finally {
+        video.removeAttribute('src');
+        video.load();
+        video.remove();
+      }
     }
-    cache = null;
-    packCache.clear();
-    version++;
-    listeners.forEach((l) => l());
+    s.state = 'ready';
+    refresh();
   } catch (error) {
-    console.warn('[Lumiar] fotos de exemplo indisponíveis; usando cenas desenhadas', error);
+    // Tenta de novo daqui a pouco; depois de três vezes, fica a cena desenhada.
+    s.state = s.tries < 3 ? 'idle' : 'failed';
+    if (s.state === 'idle') setTimeout(() => stillsOf(media), 3000);
+    else console.warn(`[Lumiar] mídia de exemplo indisponível (${media}); usando a cena desenhada`, error);
   }
 }
 
-let sampleVideo: HTMLVideoElement | null = null;
-
-/** Vídeo real tocando em loop (mudo), usado no preview ao passar o mouse. */
-function getSampleVideo(): HTMLVideoElement | null {
-  if (!sampleVideo) {
-    sampleVideo = document.createElement('video');
-    sampleVideo.src = assetUrl(SAMPLE_VIDEO);
-    sampleVideo.muted = true;
-    sampleVideo.loop = true;
-    sampleVideo.playsInline = true;
-    sampleVideo.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none';
-    document.body.appendChild(sampleVideo);
-  }
-  if (sampleVideo.paused) sampleVideo.play().catch(() => {});
-  return sampleVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? sampleVideo : null;
+/** Já começa a carregar as mídias mais usadas (a pessoa e as fotos), antes de abrir a biblioteca. */
+export async function loadSamplePhotos(): Promise<void> {
+  for (const media of ['pessoa', 'retrato', 'paisagem', 'cidade'] as const) stillsOf(media);
 }
+
+/** Guarda no máximo `limit` itens (sai o mais antigo). */
+function remember<T>(map: Map<string, T>, key: string, value: T, limit = 140): T {
+  map.set(key, value);
+  if (map.size > limit) map.delete(map.keys().next().value!);
+  return value;
+}
+
+/** Vídeo da mídia tocando em loop (mudo), para a prévia ao passar o mouse. */
+function sampleVideo(media: PreviewMedia): HTMLVideoElement | null {
+  const s = sample(media);
+  if (!s.video) {
+    s.video = hiddenVideo();
+    s.video.loop = true;
+    s.video.src = assetUrl(PREVIEW_SOURCES[media].file);
+  }
+  keepPlaying(s.video);
+  return s.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? s.video : null;
+}
+
+const lastUse = new WeakMap<HTMLVideoElement, number>();
+
+/** Toca o vídeo enquanto alguma prévia está na tela; parado por um tempo, pausa para não gastar processamento. */
+function keepPlaying(video: HTMLVideoElement): void {
+  lastUse.set(video, performance.now());
+  if (!video.paused) return;
+  video.play().catch(() => {});
+  const check = () => {
+    if (performance.now() - (lastUse.get(video) ?? 0) > 400) video.pause();
+    else setTimeout(check, 400);
+  };
+  setTimeout(check, 400);
+}
+
+// ---------------------------------------------------------------- Pessoa e profundidade
+
+interface Needs {
+  person: boolean;
+  depth: boolean;
+}
+
+/** Um quadro pronto para o motor: a imagem, a máscara da pessoa e a profundidade (o que o plugin usa). */
+interface Frame {
+  source: TexImageSource;
+  width: number;
+  height: number;
+  person: TexImageSource | null;
+  depth: TexImageSource | null;
+  /** false = falta algo (mídia ou recorte carregando): a miniatura é refeita quando chegar */
+  ready: boolean;
+}
+
+let landscapeDepth: HTMLCanvasElement | null = null;
+
+/**
+ * Profundidade simples das paisagens (sem IA): céu longe em cima, o chão chegando perto embaixo.
+ * Basta para trocar o céu, a neblina e o foco nas miniaturas.
+ */
+function sceneDepth(): HTMLCanvasElement {
+  if (landscapeDepth) return landscapeDepth;
+  const canvas = document.createElement('canvas');
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+  const ctx = canvas.getContext('2d')!;
+  const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+  g.addColorStop(0, '#000');
+  g.addColorStop(0.22, '#000');
+  g.addColorStop(0.34, '#4a4a4a');
+  g.addColorStop(0.6, '#8a8a8a');
+  g.addColorStop(1, '#d0d0d0');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  landscapeDepth = canvas;
+  return canvas;
+}
+
+/** Profundidade a partir do recorte: a pessoa perto, o fundo longe (sem baixar o modelo de profundidade). */
+function personDepth(mask: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = mask.width;
+  canvas.height = mask.height;
+  const ctx = canvas.getContext('2d')!;
+  const g = ctx.createLinearGradient(0, 0, 0, mask.height);
+  g.addColorStop(0, '#0c0c0c');
+  g.addColorStop(1, '#3c3c3c');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, mask.width, mask.height);
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.drawImage(mask, 0, 0);
+  return canvas;
+}
+
+/**
+ * Máscara e profundidade de um quadro da mídia de exemplo, guardadas por `key` (o quadro parado ou o
+ * instante do vídeo): cada quadro é recortado uma vez só. Nada é calculado se o plugin não usa a pessoa.
+ */
+function analyzeSample(media: PreviewMedia, image: CanvasImageSource, width: number, height: number, key: string, needs: Needs): Omit<Frame, 'source' | 'width' | 'height'> {
+  if (!needs.person && !needs.depth) return { person: null, depth: null, ready: true };
+  if (!PREVIEW_SOURCES[media].person) return { person: null, depth: needs.depth ? sceneDepth() : null, ready: true };
+  const s = sample(media);
+  let mask = s.masks.get(key);
+  if (!mask) {
+    const found = segmentFrame(image, width, height, `prévia:${media}:${key}`, false);
+    if (!found) return { person: null, depth: null, ready: false };
+    mask = remember(s.masks, key, found);
+  }
+  const depth = needs.depth ? (s.depths.get(key) ?? remember(s.depths, key, personDepth(mask))) : null;
+  return { person: needs.person ? mask : null, depth, ready: true };
+}
+
+/** Quadro parado `index` da sequência da mídia (miniaturas). */
+function stillFrame(media: PreviewMedia, index: number, needs: Needs): Frame {
+  const stills = stillsOf(media);
+  if (!stills) {
+    const depth = needs.depth && !PREVIEW_SOURCES[media].person ? sceneDepth() : null;
+    return { source: fallbackScene(media), width: WIDTH, height: HEIGHT, person: null, depth, ready: false };
+  }
+  const i = Math.min(index, stills.length - 1);
+  return { source: stills[i], width: WIDTH, height: HEIGHT, ...analyzeSample(media, stills[i], WIDTH, HEIGHT, `parado:${i}`, needs) };
+}
+
+/** Quadro da mídia agora (prévia ao passar o mouse): o vídeo tocando, a foto ou o quadro parado. */
+function liveFrame(media: PreviewMedia, needs: Needs): Frame {
+  const video = PREVIEW_SOURCES[media].video ? sampleVideo(media) : null;
+  if (!video) return stillFrame(media, SEQUENCE - 1, needs);
+  const { videoWidth: w, videoHeight: h } = video;
+  const key = `t:${Math.round(video.currentTime * LIVE_RATE)}`;
+  return { source: video, width: w, height: h, ...analyzeSample(media, video, w, h, key, needs) };
+}
+
+/** Miniaturas que foram feitas sem tudo pronto (refeitas quando a mídia ou o recorte chegam). */
+const provisional = new Set<string>();
+const packProvisional = new Set<string>();
+
+function refresh(): void {
+  if (cache) {
+    for (const id of provisional) cache.delete(id);
+    // Outro Map: quem guardou o anterior percebe a mudança.
+    cache = new Map(cache);
+  }
+  for (const id of packProvisional) packCache.delete(id);
+  provisional.clear();
+  packProvisional.clear();
+  version++;
+  listeners.forEach((l) => l());
+}
+
+onSegmenterReady(refresh);
+
+// ---------------------------------------------------------------- Clipe selecionado
 
 /** Clipe selecionado na timeline: as prévias ao passar o mouse mostram o vídeo da pessoa. */
 interface PreviewClip {
@@ -223,9 +487,8 @@ interface PreviewClip {
 
 let previewClip: PreviewClip | null = null;
 let clipVideo: HTMLVideoElement | null = null;
-let lastUse = 0;
 
-/** Troca o vídeo das prévias pelo trecho do clipe selecionado (null volta ao vídeo de exemplo). */
+/** Troca o vídeo das prévias pelo trecho do clipe selecionado (null volta às mídias de exemplo). */
 export function setPreviewClip(clip: PreviewClip | null): void {
   if (clip?.key === previewClip?.key && clip?.url === previewClip?.url) {
     previewClip = clip;
@@ -238,75 +501,99 @@ export function setPreviewClip(clip: PreviewClip | null): void {
     clipVideo.load();
   }
   if (clip && !clip.image) {
-    clipVideo ??= hiddenVideo();
+    if (!clipVideo) {
+      clipVideo = hiddenVideo();
+      // Toca só o trecho do clipe, em loop.
+      const video = clipVideo;
+      video.addEventListener('timeupdate', () => {
+        const clip = previewClip;
+        if (clip && (video.currentTime >= clip.to - 0.05 || video.currentTime < clip.from - 0.5)) video.currentTime = clip.from;
+      });
+    }
     clipVideo.src = clip.url;
     clipVideo.currentTime = clip.from;
   }
 }
 
-function hiddenVideo(): HTMLVideoElement {
-  const video = document.createElement('video');
-  video.muted = true;
-  video.playsInline = true;
-  video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none';
-  // Toca só o trecho do clipe, em loop.
-  video.addEventListener('timeupdate', () => {
-    const clip = previewClip;
-    if (clip && (video.currentTime >= clip.to - 0.05 || video.currentTime < clip.from - 0.5)) video.currentTime = clip.from;
-  });
-  document.body.appendChild(video);
-  return video;
-}
-
-/** A imagem do clipe selecionado agora (ou null para usar o exemplo). */
-function clipSource(): { source: TexImageSource; width: number; height: number } | null {
+/** A imagem do clipe selecionado agora (ou null para usar o exemplo). `at` = instante no clipe, para reaproveitar a análise. */
+function clipSource(): { source: TexImageSource & CanvasImageSource; width: number; height: number; at: number } | null {
   const clip = previewClip;
   if (!clip) return null;
-  if (clip.image) return { source: clip.image, width: clip.width, height: clip.height };
+  if (clip.image) return { source: clip.image, width: clip.width, height: clip.height, at: 0 };
   const video = clipVideo;
   if (!video) return null;
-  lastUse = performance.now();
-  if (video.paused) {
-    video.play().catch(() => {});
-    // Sem prévia na tela por um tempo: pausa para não gastar processamento.
-    const check = () => {
-      if (performance.now() - lastUse > 400) video.pause();
-      else setTimeout(check, 400);
-    };
-    setTimeout(check, 400);
-  }
-  return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? { source: video, width: clip.width, height: clip.height } : null;
+  keepPlaying(video);
+  return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? { source: video, width: clip.width, height: clip.height, at: video.currentTime } : null;
 }
 
-/** Vídeo das prévias: o clipe selecionado ou o vídeo de exemplo. */
-function liveSource(): { source: TexImageSource; width: number; height: number } {
-  const clip = clipSource();
-  if (clip) return clip;
-  const video = getSampleVideo();
-  return video ? { source: video, width: 854, height: 480 } : { source: sceneCanvas(0), width: WIDTH, height: HEIGHT };
+const clipMasks = new Map<string, HTMLCanvasElement>();
+
+/** O clipe selecionado com a pessoa (recorte da IA) e a profundidade (modelo de profundidade) do próprio vídeo. */
+function clipFrame(clip: NonNullable<ReturnType<typeof clipSource>>, needs: Needs): Frame {
+  const key = `prévia:${previewClip?.key}:${Math.round(clip.at * LIVE_RATE)}`;
+  let person: HTMLCanvasElement | null = null;
+  if (needs.person) {
+    person = clipMasks.get(key) ?? null;
+    if (!person) {
+      person = segmentFrame(clip.source, clip.width, clip.height, key, false);
+      if (person) remember(clipMasks, key, person, 100);
+    }
+  }
+  const depth = needs.depth ? depthFrame(clip.source, clip.width, clip.height, 'prévia', key) : null;
+  return { source: clip.source, width: clip.width, height: clip.height, person, depth, ready: true };
 }
+
+// ---------------------------------------------------------------- Miniaturas dos plugins
 
 let cache: Map<string, string> | null = null;
 
+/** Refaz a miniatura de um plugin (efeito editado no editor de efeitos). */
+export function forgetPluginPreview(id: string): void {
+  cache?.delete(id);
+}
+
+const needsOf = (plugin: ShaderPlugin): Needs => {
+  const inputs = pluginInputs(plugin);
+  return { person: inputs.person, depth: inputs.depth };
+};
+
 /**
  * Miniatura de cada efeito/transição/filtro, gerada pelo próprio motor de efeitos
- * (o que se vê no card é exatamente o que o shader faz).
+ * (o que se vê no card é exatamente o que o shader faz), na mídia de exemplo do plugin.
  */
 export function getPluginPreviews(): Map<string, string> {
-  if (cache) return cache;
-  cache = new Map();
+  if (cache && plugins.every((p) => cache!.has(p.id))) return cache;
+  cache ??= new Map();
   const stage = getStage();
   if (!stage) return cache;
   for (const plugin of plugins) {
-    drawPlugin(stage, plugin, 1.3, plugin.kind === 'transition' ? 0.35 : 1, sceneCanvas(0));
+    if (cache.has(plugin.id)) continue;
+    const inputs = pluginInputs(plugin);
+    const needs = needsOf(plugin);
+    const media = pluginMedia(plugin, inputs);
+    const transition = plugin.kind === 'transition';
+    // Quem olha para o passado recebe a sequência inteira (o vídeo andando); os outros, só o último quadro.
+    const first = inputs.history || inputs.state || inputs.motion || inputs.background ? 0 : SEQUENCE - 1;
+    let ready = true;
+    // O último quadro fica em 1,3 s do clipe (efeitos que começam num instante já aparecem).
+    for (let i = first; i < SEQUENCE; i++) {
+      const k = first === SEQUENCE - 1 ? 1 : i / (SEQUENCE - 1);
+      const a = stillFrame(media, i, needs);
+      const b = transition ? stillFrame(secondMedia(media), i, needs) : null;
+      const value = transition ? (first === 0 ? 0.2 + k * 0.4 : 0.35) : 1;
+      drawPlugin(stage, plugin, 1.3 - (SEQUENCE - 1 - i) * STEP, value, a, b);
+      ready &&= a.ready && (b?.ready ?? true);
+    }
     cache.set(plugin.id, stage.canvas.toDataURL('image/jpeg', 0.85));
+    if (ready) provisional.delete(plugin.id);
+    else provisional.add(plugin.id);
   }
   return cache;
 }
 
 /**
- * Desenha um quadro animado do plugin num canvas 2D (preview ao passar o mouse),
- * por cima do vídeo de exemplo: efeitos correm no tempo, transições tocam do início
+ * Desenha um quadro animado do plugin num canvas 2D (preview ao passar o mouse), sobre o clipe
+ * selecionado ou o vídeo de exemplo: efeitos correm no tempo, transições tocam do início
  * ao fim e filtros vão do original até a intensidade máxima e voltam.
  */
 export function drawLivePreview(plugin: ShaderPlugin, seconds: number, target: CanvasRenderingContext2D): void {
@@ -318,8 +605,12 @@ export function drawLivePreview(plugin: ShaderPlugin, seconds: number, target: C
     plugin.kind === 'transition'
       ? smoothstep(0.15, 0.85, phase)
       : smoothstep(0.1, 0.9, 1 - Math.abs(phase * 2 - 1));
-  const live = liveSource();
-  drawPlugin(stage, plugin, 1.3 + seconds, value, live.source, live.width, live.height);
+  const needs = needsOf(plugin);
+  const media = pluginMedia(plugin, pluginInputs(plugin));
+  const clip = clipSource();
+  const a = clip ? clipFrame(clip, needs) : liveFrame(media, needs);
+  const b = plugin.kind === 'transition' ? liveFrame(secondMedia(clip ? 'pessoa' : media), needs) : null;
+  drawPlugin(stage, plugin, 1.3 + seconds, value, a, b);
   target.drawImage(stage.canvas, 0, 0, target.canvas.width, target.canvas.height);
 }
 
@@ -342,40 +633,37 @@ function getStage(): Stage | null {
   return stage;
 }
 
-/** `value` é o progresso (transições) ou a intensidade (filtros). */
-function drawPlugin(
-  stage: Stage,
-  plugin: ShaderPlugin,
-  time: number,
-  value: number,
-  sourceA: TexImageSource,
-  widthA = WIDTH,
-  heightA = HEIGHT,
-): void {
-  const params = { ...defaultParams(plugin), ...plugin.previewParams };
-  const layer = (key: string, source: TexImageSource, w: number, h: number, extra: Partial<LayerInput> = {}): LayerInput => ({
+/** A camada de um quadro de exemplo para o motor. */
+function layerOf(key: string, frame: Frame, time: number, duration: number, extra: Partial<LayerInput> = {}): LayerInput {
+  return {
     key,
-    source,
-    width: w,
-    height: h,
+    source: frame.source,
+    width: frame.width,
+    height: frame.height,
     time,
-    duration: 3,
+    duration,
     effects: [],
     filter: null,
     camera: { zoom: 1, x: 0.5, y: 0.5, rotation: 0, fill: true },
+    person: frame.person,
+    depth: frame.depth,
     ...extra,
-  });
-  const a = (extra: Partial<LayerInput> = {}) => layer('a', sourceA, widthA, heightA, extra);
+  };
+}
+
+/** `value` é o progresso (transições) ou a intensidade (filtros). `b` = o próximo clipe das transições. */
+function drawPlugin(stage: Stage, plugin: ShaderPlugin, time: number, value: number, a: Frame, b: Frame | null): void {
+  const params = { ...defaultParams(plugin), ...plugin.previewParams };
   if (plugin.kind === 'effect') {
     const effect = { uid: plugin.id, pluginId: plugin.id, enabled: true, params };
-    stage.renderer.render({ a: a({ effects: [effect] }), b: null, transition: null });
+    stage.renderer.render({ a: layerOf('a', a, time, 3, { effects: [effect] }), b: null, transition: null });
   } else if (plugin.kind === 'filter') {
     const filter = { pluginId: plugin.id, intensity: value, params };
-    stage.renderer.render({ a: a({ filter }), b: null, transition: null });
+    stage.renderer.render({ a: layerOf('a', a, time, 3, { filter }), b: null, transition: null });
   } else {
     stage.renderer.render({
-      a: a(),
-      b: layer('b', sceneCanvas(1), WIDTH, HEIGHT),
+      a: layerOf('a', a, time, 3),
+      b: b ? layerOf('b', b, time, 3) : null,
       transition: { pluginId: plugin.id, params, progress: value },
     });
   }
@@ -390,26 +678,29 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 
 const packCache = new Map<string, string>();
 
+/** O que os efeitos e o filtro do pacote usam da pessoa e da profundidade. */
+function packNeeds(template: PackTemplate): Needs {
+  const needs: Needs = { person: false, depth: false };
+  for (const id of [...template.effects.map((e) => e.pluginId), template.filter?.pluginId]) {
+    const plugin = id ? getPlugin(id) : undefined;
+    if (!plugin) continue;
+    const inputs = pluginInputs(plugin);
+    needs.person ||= inputs.person;
+    needs.depth ||= inputs.depth;
+  }
+  return needs;
+}
+
 /**
- * Desenha o pacote sobre uma cena de exemplo no instante `time` do bloco,
+ * Desenha o pacote sobre um quadro de exemplo no instante `time` do bloco,
  * pelo mesmo caminho do player (modelo → quadro → renderizador).
  */
-function drawPack(stage: Stage, template: PackTemplate, time: number, source: TexImageSource, w: number, h: number): void {
+function drawPack(stage: Stage, template: PackTemplate, time: number, source: Frame): void {
   const clip = createPackClip(template, 0);
   const project = { ...createProject(), packTracks: [{ id: 'preview', name: '', hidden: false, clips: [clip] }] };
   const local = Math.min(time, clip.duration - 0.001);
   const frame = toFrameInput(resolveFrame(project, layoutProject(project), local), () => ({ source: null }));
-  frame.a = {
-    key: 'a',
-    source,
-    width: w,
-    height: h,
-    time,
-    duration: clip.duration,
-    effects: [],
-    filter: null,
-    camera: { zoom: 1, x: 0.5, y: 0.5, rotation: 0, fill: true },
-  };
+  frame.a = layerOf('a', source, time, clip.duration);
   stage.renderer.render(frame);
 }
 
@@ -426,11 +717,12 @@ export function getPackPreview(template: PackTemplate): string | null {
     : template.timing === 'stretch'
       ? template.duration * (template.anchor === 'cut' ? 0.5 : 0.12)
       : template.duration * 0.5;
-  // Metade dos pacotes aparece sobre a paisagem e metade sobre a cidade à noite, para variar as miniaturas.
-  const variant = [...template.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 2 === 0 ? 0 : 1;
-  drawPack(stage, template, at, sceneCanvas(variant), WIDTH, HEIGHT);
+  const frame = stillFrame(packMedia(template), SEQUENCE - 1, packNeeds(template));
+  drawPack(stage, template, at, frame);
   const url = stage.canvas.toDataURL('image/jpeg', 0.85);
   packCache.set(template.id, url);
+  if (frame.ready) packProvisional.delete(template.id);
+  else packProvisional.add(template.id);
   return url;
 }
 
@@ -440,18 +732,19 @@ export function drawPackLive(template: PackTemplate, seconds: number, target: Ca
   if (!stage) return;
   // Uma pausa no fim do loop dá tempo de ver o efeito de novo.
   const cycle = Math.max(1.6, template.duration + (template.timing === 'stretch' ? 0.8 : 0.4));
-  const live = liveSource();
-  drawPack(stage, template, seconds % cycle, live.source, live.width, live.height);
+  const needs = packNeeds(template);
+  const clip = clipSource();
+  drawPack(stage, template, seconds % cycle, clip ? clipFrame(clip, needs) : liveFrame(packMedia(template), needs));
   target.drawImage(stage.canvas, 0, 0, target.canvas.width, target.canvas.height);
 }
 
-/** Miniaturas dos plugins, atualizadas quando as fotos reais terminam de carregar. */
+/** Miniaturas dos plugins, atualizadas quando as mídias reais terminam de carregar. */
 export function usePluginPreviews(): Map<string, string> {
   const v = useSyncExternalStore(previewStore.subscribe, previewStore.getVersion);
   return useMemo(() => getPluginPreviews(), [v]);
 }
 
-/** Muda quando as fotos reais de exemplo chegam (para refazer as miniaturas). */
+/** Muda quando as mídias de exemplo chegam (para refazer as miniaturas). */
 export function usePreviewVersion(): number {
   return useSyncExternalStore(previewStore.subscribe, previewStore.getVersion);
 }

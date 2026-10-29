@@ -1,0 +1,24 @@
+{
+  "name": "Polarizador",
+  "description": "Como um filtro polarizador: céu azul mais escuro, menos reflexo nas folhas e na água, cores mais densas.",
+  "category": "Ferramentas",
+  "previewMedia": "paisagem",
+  "params": [
+    {
+      "id": "sky",
+      "label": "Céu azul",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "glare",
+      "label": "Reflexos",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

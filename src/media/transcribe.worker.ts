@@ -6,6 +6,8 @@ export interface TranscribeRequest {
   audio: Float32Array;
   model: string;
   language: string | null;
+  /** Traduz a fala para o inglês (o Whisper só traduz para o inglês) */
+  translate?: boolean;
   /** Endereço da pasta public/ do app (modelos e motor ficam lá: funciona sem internet). */
   baseUrl: string;
 }
@@ -68,7 +70,7 @@ async function load(model: string) {
 }
 
 scope.onmessage = async (event: MessageEvent<TranscribeRequest>) => {
-  const { audio, model, language, baseUrl } = event.data;
+  const { audio, model, language, baseUrl, translate } = event.data;
   try {
     useLocalFiles(baseUrl);
     if (!loaded || loaded.model !== model) loaded = { model, asr: load(model) };
@@ -78,7 +80,7 @@ scope.onmessage = async (event: MessageEvent<TranscribeRequest>) => {
       return_timestamps: 'word',
       chunk_length_s: 30,
       stride_length_s: 5,
-      ...(language ? { language, task: 'transcribe' } : {}),
+      ...(translate ? { ...(language ? { language } : {}), task: 'translate' } : language ? { language, task: 'transcribe' } : {}),
     });
     const result = Array.isArray(output) ? output[0] : output;
     post({ type: 'done', chunks: (result.chunks ?? []) as { text: string; timestamp: [number, number | null] }[] });

@@ -1,0 +1,68 @@
+// Atalhos do teclado: o registro (app/shortcuts.ts), a janela para mudar (ui/ShortcutsDialog.tsx) e as dicas com o atalho atual.
+export default {
+  // Grupos
+  'Tocar e navegar': 'Playback and navigation',
+  'Linha do tempo': 'Timeline',
+  'Editar': 'Edit',
+  'Projeto': 'Project',
+  'Multicâmera': 'Multicam',
+
+  // Ações
+  'Tocar para trás (de novo: 2× e 4×)': 'Play backward (again: 2× and 4×)',
+  'Tocar para frente (de novo: 2× e 4×)': 'Play forward (again: 2× and 4×)',
+  'Um quadro para trás': 'One frame back',
+  'Um quadro para frente': 'One frame forward',
+  'Um segundo para trás': 'One second back',
+  'Um segundo para frente': 'One second forward',
+  'Pular para o corte ou marcador anterior': 'Jump to previous cut or marker',
+  'Pular para o corte ou marcador seguinte': 'Jump to next cut or marker',
+  'Ir para o início': 'Go to start',
+  'Ir para o fim': 'Go to end',
+  'Dividir o clipe no cursor': 'Split clip at playhead',
+  'Cortar do começo do clipe até o cursor': 'Trim from clip start to playhead',
+  'Cortar do cursor até o fim do clipe': 'Trim from playhead to clip end',
+  'Gravar / parar a narração': 'Record / stop voiceover',
+  'Excluir o que está selecionado': 'Delete selection',
+  'Salvar projeto': 'Save project',
+  'Salvar como…': 'Save as…',
+  'Abrir projeto': 'Open project',
+  'Atalhos do teclado': 'Keyboard shortcuts',
+  'Cortar para a câmera {n}': 'Cut to camera {n}',
+
+  // Janela
+  'Clique em Mudar e aperte a nova combinação (Esc cancela). Fica guardado neste computador.':
+    'Click Change and press the new combination (Esc cancels). It\'s saved on this computer.',
+  '{ctrl} e {cmd} valem o mesmo.': '{ctrl} and {cmd} work the same.',
+  'Buscar pela ação ou pela tecla…': 'Search by action or key…',
+  'Nenhum atalho encontrado.': 'No shortcuts found.',
+  'mudado': 'changed',
+  'Aperte a combinação… (Esc cancela)': 'Press the combination… (Esc cancels)',
+  'sem atalho': 'no shortcut',
+  'Tirar este atalho': 'Remove this shortcut',
+  'Mudar': 'Change',
+  'Adicionar outro atalho': 'Add another shortcut',
+  'Restaurar padrão': 'Restore default',
+  'O mesmo atalho também está em “{name}”: só um deles vai funcionar.': 'The same shortcut is also on “{name}”: only one of them will work.',
+  'Também: {alt} + arrastar duplica o item arrastado, e o botão direito abre o menu de qualquer coisa.':
+    'Also: {alt} + drag duplicates the dragged item, and right-click opens the menu of anything.',
+  '{n} ações com atalho': '{n} actions with shortcuts',
+  'Voltar todos os atalhos ao padrão?': 'Restore all shortcuts to their defaults?',
+  'Restaurar todos os padrões': 'Restore all defaults',
+  'Pronto': 'Done',
+  '{keys} já é usado em {names}.': '{keys} is already used by {names}.',
+  'A outra ação fica com o atalho que esta tinha': 'The other action gets the shortcut this one had',
+  'Trocar entre as duas': 'Swap them',
+  'A outra ação fica sem esse atalho': 'The other action loses this shortcut',
+  'Usar aqui e tirar de lá': 'Use it here and remove it there',
+
+  // Onde aparecem os atalhos
+  'Ajuda': 'Help',
+  'Atalhos do teclado…': 'Keyboard shortcuts…',
+  'Atalhos do teclado (dá para mudar)': 'Keyboard shortcuts (customizable)',
+  '{shift}: salvar como': '{shift}: save as',
+  'Há mudanças que ainda não foram salvas em arquivo': 'There are changes not yet saved to a file',
+  'Quadro anterior': 'Previous frame',
+  'Próximo quadro': 'Next frame',
+  'Ver todos e mudar as teclas': 'See all and change the keys',
+  'Ver todos / mudar': 'See all / change',
+} satisfies Record<string, string>;

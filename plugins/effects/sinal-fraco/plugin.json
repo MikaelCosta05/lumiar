@@ -1,0 +1,11 @@
+{
+  "name": "Sinal fraco",
+  "description": "Antena longe da torre: a imagem perde cor e contraste, some num chuvisco que vai e volta e as linhas balançam e rasgam de lado.",
+  "category": "Analógico",
+  "params": [
+    { "id": "forca", "label": "Força", "type": "float", "default": 0.6, "min": 0, "max": 1 },
+    { "id": "neve", "label": "Chuvisco", "type": "float", "default": 0.45, "min": 0, "max": 1 },
+    { "id": "oscilacao", "label": "Balanço das linhas", "type": "float", "default": 0.5, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "silhueta"
+}

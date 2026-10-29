@@ -1,4 +1,4 @@
-import { CaseUpper, Clapperboard, Italic, Move, Paintbrush, TextAlignCenter, TextAlignEnd, TextAlignStart, Trash, Type } from 'lucide-react';
+import { CaseUpper, Clapperboard, Italic, Move, Paintbrush, TextAlignCenter, TextAlignEnd, TextAlignStart, Trash, Type, Crosshair } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
   ANIMATIONS,
@@ -13,8 +13,10 @@ import {
 } from '../project/text';
 import { formatTime } from './format';
 import { InspectorHeader, InspectorPanel } from './InspectorPanel';
-import { cx, IconButton, SectionTitle, Slider, Switch, Tabs, type TabItem } from './kit';
+import { cx, IconButton, SectionTitle, Slider, Switch, Tabs, type TabItem, Button } from './kit';
 import { TextPresetThumb } from './TextPresetThumb';
+import { ElementSettings } from './ElementSettings';
+import { t, tc } from '../i18n';
 
 interface Props {
   clip: TextClip;
@@ -23,6 +25,9 @@ interface Props {
   onTab: (tab: TextTab) => void;
   onChange: (update: (clip: TextClip) => TextClip) => void;
   onRemove: () => void;
+  /** Escolher no vídeo o ponto que o texto vai seguir */
+  onPickPoint: () => void;
+  picking: boolean;
 }
 
 /** 3×3 posições rápidas na tela. */
@@ -35,13 +40,13 @@ const POSITIONS: [number, number][] = [
 export type TextTab = 'text' | 'style' | 'position' | 'animation';
 
 const TABS: TabItem<TextTab>[] = [
-  { id: 'text', label: 'Texto', icon: <Type size={14} /> },
-  { id: 'style', label: 'Estilo', icon: <Paintbrush size={14} /> },
-  { id: 'position', label: 'Posição', icon: <Move size={14} /> },
-  { id: 'animation', label: 'Animação', icon: <Clapperboard size={14} /> },
+  { id: 'text', label: t('Texto'), icon: <Type size={14} /> },
+  { id: 'style', label: t('Estilo'), icon: <Paintbrush size={14} /> },
+  { id: 'position', label: t('Posição'), icon: <Move size={14} /> },
+  { id: 'animation', label: t('Animação'), icon: <Clapperboard size={14} /> },
 ];
 
-export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove }: Props) {
+export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove, onPickPoint, picking }: Props) {
   const st = clip.style;
   const setStyle = (patch: Partial<TextStyle>) => onChange((c) => ({ ...c, style: { ...c.style, ...patch } }));
   const font = FONTS.find((f) => f.family === st.font);
@@ -55,11 +60,11 @@ export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove 
               <Type size={22} />
             </span>
           }
-          kicker={`Texto · ${trackName} · ${formatTime(clip.start)}`}
-          title={clip.text.split('\n')[0] || 'Texto'}
-          chips={<Chip>{clip.duration.toFixed(1)}s na tela</Chip>}
+          kicker={t('Texto · {track} · {time}', { track: trackName, time: formatTime(clip.start) })}
+          title={clip.text.split('\n')[0] || t('Texto')}
+          chips={<Chip>{t('{s}s na tela', { s: clip.duration.toFixed(1) })}</Chip>}
           actions={
-            <IconButton label="Remover texto" className="hover:!text-danger" onClick={onRemove}>
+            <IconButton label={t('Remover texto')} className="hover:!text-danger" onClick={onRemove}>
               <Trash size={14} />
             </IconButton>
           }
@@ -67,8 +72,10 @@ export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove 
       }
       tabs={<Tabs tabs={TABS} value={tab} onChange={onTab} />}
     >
-      {tab === 'text' && (
+      {tab === 'text' && (clip.shape === 'map' || clip.shape === 'audiowave') && <ElementSettings clip={clip} onChange={onChange} />}
+      {tab === 'text' && clip.shape !== 'map' && clip.shape !== 'audiowave' && (
         <>
+          <ElementSettings clip={clip} onChange={onChange} />
           <textarea
             className="field h-auto min-h-20 w-full resize-y py-2 leading-snug"
             rows={3}
@@ -77,11 +84,11 @@ export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove 
               const text = e.target.value;
               onChange((c) => ({ ...c, text }));
             }}
-            placeholder="Digite o texto…"
+            placeholder={t('Digite o texto…')}
             style={{ fontFamily: `"${st.font}"` }}
           />
 
-          <SectionTitle>Fonte</SectionTitle>
+          <SectionTitle>{t('Fonte')}</SectionTitle>
           <select className="field w-full" value={st.font} onChange={(e) => setStyle({ font: e.target.value })} style={{ fontFamily: `"${st.font}"` }}>
             {FONTS.map((f) => (
               <option key={f.family} value={f.family} style={{ fontFamily: `"${f.family}"` }}>
@@ -94,35 +101,35 @@ export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove 
               <select className="field h-7 min-w-0 flex-1 text-xs" value={st.weight} onChange={(e) => setStyle({ weight: Number(e.target.value) })}>
                 {font.weights.map((w) => (
                   <option key={w} value={w}>
-                    {w <= 400 ? 'Normal' : w <= 700 ? 'Negrito' : 'Extra negrito'}
+                    {w <= 400 ? t('Normal') : w <= 700 ? t('Negrito') : t('Extra negrito')}
                   </option>
                 ))}
               </select>
             )}
             <div className="flex items-center gap-0.5 rounded-lg bg-panel-2 p-0.5 ring-1 ring-line">
-              <IconButton label="Itálico" active={st.italic} onClick={() => setStyle({ italic: !st.italic })}>
+              <IconButton label={t('Itálico')} active={st.italic} onClick={() => setStyle({ italic: !st.italic })}>
                 <Italic size={14} />
               </IconButton>
-              <IconButton label="Maiúsculas" active={st.uppercase} onClick={() => setStyle({ uppercase: !st.uppercase })}>
+              <IconButton label={t('Maiúsculas')} active={st.uppercase} onClick={() => setStyle({ uppercase: !st.uppercase })}>
                 <CaseUpper size={15} />
               </IconButton>
               <span className="mx-0.5 h-4 w-px bg-line" />
-              <IconButton label="Alinhar à esquerda" active={st.align === 'left'} onClick={() => setStyle({ align: 'left' })}>
+              <IconButton label={t('Alinhar à esquerda')} active={st.align === 'left'} onClick={() => setStyle({ align: 'left' })}>
                 <TextAlignStart size={14} />
               </IconButton>
-              <IconButton label="Centralizar" active={st.align === 'center'} onClick={() => setStyle({ align: 'center' })}>
+              <IconButton label={t('Centralizar')} active={st.align === 'center'} onClick={() => setStyle({ align: 'center' })}>
                 <TextAlignCenter size={14} />
               </IconButton>
-              <IconButton label="Alinhar à direita" active={st.align === 'right'} onClick={() => setStyle({ align: 'right' })}>
+              <IconButton label={t('Alinhar à direita')} active={st.align === 'right'} onClick={() => setStyle({ align: 'right' })}>
                 <TextAlignEnd size={14} />
               </IconButton>
             </div>
           </div>
-          <Range label="Tamanho" value={st.size} display={`${Math.round(st.size * 100)}%`} min={0.02} max={0.35} step={0.005} onChange={(size) => setStyle({ size })} />
-          <Range label="Espaço entre letras" value={st.letterSpacing} display={st.letterSpacing.toFixed(2)} min={-0.1} max={0.6} step={0.01} onChange={(letterSpacing) => setStyle({ letterSpacing })} />
-          <Range label="Altura da linha" value={st.lineHeight} display={st.lineHeight.toFixed(2)} min={0.8} max={2} step={0.05} onChange={(lineHeight) => setStyle({ lineHeight })} />
+          <Range label={t('Tamanho')} value={st.size} display={`${Math.round(st.size * 100)}%`} min={0.02} max={0.35} step={0.005} onChange={(size) => setStyle({ size })} />
+          <Range label={t('Espaço entre letras')} value={st.letterSpacing} display={st.letterSpacing.toFixed(2)} min={-0.1} max={0.6} step={0.01} onChange={(letterSpacing) => setStyle({ letterSpacing })} />
+          <Range label={t('Altura da linha')} value={st.lineHeight} display={st.lineHeight.toFixed(2)} min={0.8} max={2} step={0.05} onChange={(lineHeight) => setStyle({ lineHeight })} />
 
-          <SectionTitle>Estilos prontos</SectionTitle>
+          <SectionTitle>{t('Estilos prontos')}</SectionTitle>
           <div className="grid grid-cols-3 gap-x-2 gap-y-2.5">
             {TEXT_PRESETS.map((preset) => (
               <button
@@ -148,42 +155,65 @@ export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove 
 
       {tab === 'style' && (
         <>
-          <SectionTitle>Preenchimento</SectionTitle>
-          <Row label="Cor">
+          <SectionTitle>{t('Preenchimento')}</SectionTitle>
+          <Row label={t('Cor')}>
             <ColorInput value={st.color} onChange={(color) => setStyle({ color })} />
           </Row>
-          <Row label="Degradê">
+          <Row label={t('Degradê')}>
             {st.gradient !== null && <ColorInput value={st.gradient} onChange={(gradient) => setStyle({ gradient })} />}
-            <Switch checked={st.gradient !== null} label="Degradê" onChange={(on) => setStyle({ gradient: on ? '#ff3e8a' : null })} />
+            <Switch checked={st.gradient !== null} label={t('Degradê')} onChange={(on) => setStyle({ gradient: on ? '#ff3e8a' : null })} />
           </Row>
 
-          <SectionTitle>Contorno e sombra</SectionTitle>
-          <Row label="Cor do contorno">
+          <SectionTitle>{t('Contorno e sombra')}</SectionTitle>
+          <Row label={t('Cor do contorno')}>
             <ColorInput value={st.outlineColor} onChange={(outlineColor) => setStyle({ outlineColor })} />
           </Row>
-          <Range label="Espessura do contorno" value={st.outlineWidth} display={st.outlineWidth.toFixed(2)} min={0} max={0.2} step={0.005} onChange={(outlineWidth) => setStyle({ outlineWidth })} />
-          <Range label="Sombra" value={st.shadow} display={`${Math.round(st.shadow * 100)}%`} min={0} max={1} step={0.01} onChange={(shadow) => setStyle({ shadow })} />
+          <Range label={t('Espessura do contorno')} value={st.outlineWidth} display={st.outlineWidth.toFixed(2)} min={0} max={0.2} step={0.005} onChange={(outlineWidth) => setStyle({ outlineWidth })} />
+          <Range label={t('Sombra')} value={st.shadow} display={`${Math.round(st.shadow * 100)}%`} min={0} max={1} step={0.01} onChange={(shadow) => setStyle({ shadow })} />
 
-          <SectionTitle>Brilho neon</SectionTitle>
-          <Row label="Cor do brilho">
+          <SectionTitle>{t('Brilho neon')}</SectionTitle>
+          <Row label={t('Cor do brilho')}>
             <ColorInput value={st.glowColor} onChange={(glowColor) => setStyle({ glowColor })} />
           </Row>
-          <Range label="Intensidade" value={st.glow} display={`${Math.round(st.glow * 100)}%`} min={0} max={1} step={0.01} onChange={(glow) => setStyle({ glow })} />
+          <Range label={t('Intensidade')} value={st.glow} display={`${Math.round(st.glow * 100)}%`} min={0} max={1} step={0.01} onChange={(glow) => setStyle({ glow })} />
 
-          <SectionTitle>Caixa de fundo</SectionTitle>
-          <Row label="Mostrar caixa">
+          <SectionTitle>{t('Caixa de fundo')}</SectionTitle>
+          <Row label={t('Mostrar caixa')}>
             {st.box && <ColorInput value={st.boxColor} onChange={(boxColor) => setStyle({ boxColor })} />}
-            <Switch checked={st.box} label="Caixa de fundo" onChange={(box) => setStyle({ box })} />
+            <Switch checked={st.box} label={t('Caixa de fundo')} onChange={(box) => setStyle({ box })} />
           </Row>
           {st.box && (
-            <Range label="Opacidade da caixa" value={st.boxOpacity} display={`${Math.round(st.boxOpacity * 100)}%`} min={0} max={1} step={0.01} onChange={(boxOpacity) => setStyle({ boxOpacity })} />
+            <Range label={t('Opacidade da caixa')} value={st.boxOpacity} display={`${Math.round(st.boxOpacity * 100)}%`} min={0} max={1} step={0.01} onChange={(boxOpacity) => setStyle({ boxOpacity })} />
           )}
         </>
       )}
 
       {tab === 'position' && (
         <>
-          <SectionTitle>Posição na tela</SectionTitle>
+          <SectionTitle>{t('Atrás da pessoa')}</SectionTitle>
+          <Switch checked={!!clip.behind} label={t('Pôr o texto atrás da pessoa')} onChange={(behind) => onChange((c) => ({ ...c, behind: behind || undefined }))} />
+          <p className="mt-1 text-[11px] leading-snug text-faint">
+            {t('O texto fica entre a pessoa e o fundo: ela passa na frente das letras. Funciona com a trilha principal; um título grande, atrás da cabeça, fica melhor.')}
+          </p>
+          <SectionTitle>{t('Seguir algo no vídeo')}</SectionTitle>
+          {clip.follow ? (
+            <div className="flex items-center gap-2">
+              <p className="flex-1 text-[11px] leading-snug text-dim">{t('O texto acompanha o ponto escolhido. Arraste no vídeo para ajustar a distância.')}</p>
+              <Button variant="secondary" className="h-8 text-xs" onClick={() => onChange((c) => ({ ...c, follow: undefined }))}>
+                {t('Parar de seguir')}
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Button variant={picking ? 'primary' : 'secondary'} className="h-8 w-full text-xs" icon={<Crosshair size={13} />} onClick={onPickPoint}>
+                {picking ? t('Clique no vídeo…') : t('Escolher o ponto no vídeo')}
+              </Button>
+              <p className="mt-1 text-[11px] leading-snug text-faint">
+                {t('Pare o cursor num quadro em que a coisa aparece, clique aqui e depois nela. O texto (ou sticker) gruda e anda junto.')}
+              </p>
+            </>
+          )}
+          <SectionTitle>{t('Posição na tela')}</SectionTitle>
           <div className="flex items-center gap-3">
             <div className="grid shrink-0 grid-cols-3 gap-1 rounded-lg bg-panel-2 p-1.5 ring-1 ring-line">
               {POSITIONS.map(([x, y]) => {
@@ -191,31 +221,31 @@ export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove 
                 return (
                   <button
                     key={`${x}-${y}`}
-                    title="Posicionar"
+                    title={t('Posicionar')}
                     onClick={() => onChange((c) => ({ ...c, x, y }))}
                     className={cx('size-6 rounded transition-colors', active ? 'bg-accent' : 'bg-panel-3 hover:bg-line-strong')}
                   />
                 );
               })}
             </div>
-            <p className="text-[11px] leading-relaxed text-faint">Escolha um ponto, use os controles abaixo ou arraste o texto direto na tela.</p>
+            <p className="text-[11px] leading-relaxed text-faint">{t('Escolha um ponto, use os controles abaixo ou arraste o texto direto na tela.')}</p>
           </div>
-          <Range label="Horizontal" value={clip.x} display={`${Math.round(clip.x * 100)}%`} min={0} max={1} step={0.005} onChange={(x) => onChange((c) => ({ ...c, x }))} />
-          <Range label="Vertical" value={clip.y} display={`${Math.round(clip.y * 100)}%`} min={0} max={1} step={0.005} onChange={(y) => onChange((c) => ({ ...c, y }))} />
-          <Range label="Rotação" value={clip.rotation} display={`${Math.round(clip.rotation)}°`} min={-180} max={180} step={1} onChange={(rotation) => onChange((c) => ({ ...c, rotation }))} />
+          <Range label={t('Horizontal')} value={clip.x} display={`${Math.round(clip.x * 100)}%`} min={0} max={1} step={0.005} onChange={(x) => onChange((c) => ({ ...c, x }))} />
+          <Range label={t('Vertical')} value={clip.y} display={`${Math.round(clip.y * 100)}%`} min={0} max={1} step={0.005} onChange={(y) => onChange((c) => ({ ...c, y }))} />
+          <Range label={t('Rotação')} value={clip.rotation} display={`${Math.round(clip.rotation)}°`} min={-180} max={180} step={1} onChange={(rotation) => onChange((c) => ({ ...c, rotation }))} />
         </>
       )}
 
       {tab === 'animation' && (
         <>
-          <SectionTitle>Animações</SectionTitle>
-          <Row label="Entrada">
+          <SectionTitle>{t('Animações')}</SectionTitle>
+          <Row label={t('Entrada')}>
             <AnimSelect value={clip.animIn} onChange={(animIn) => onChange((c) => ({ ...c, animIn }))} />
           </Row>
-          <Row label="Saída">
+          <Row label={t('Saída')}>
             <AnimSelect value={clip.animOut} onChange={(animOut) => onChange((c) => ({ ...c, animOut }))} />
           </Row>
-          <Row label="Durante">
+          <Row label={t('Durante')}>
             <select className="field h-7 w-40 text-xs" value={clip.loop} onChange={(e) => onChange((c) => ({ ...c, loop: e.target.value as TextLoop }))}>
               {LOOPS.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -224,9 +254,9 @@ export function TextInspector({ clip, trackName, tab, onTab, onChange, onRemove 
               ))}
             </select>
           </Row>
-          <SectionTitle>Tempo</SectionTitle>
-          <Range label="Velocidade da animação" value={clip.animDuration} display={`${clip.animDuration.toFixed(1)}s`} min={0.1} max={3} step={0.1} onChange={(animDuration) => onChange((c) => ({ ...c, animDuration }))} />
-          <Range label="Tempo na tela" value={clip.duration} display={`${clip.duration.toFixed(1)}s`} min={0.5} max={30} step={0.1} onChange={(duration) => onChange((c) => ({ ...c, duration }))} />
+          <SectionTitle>{tc('seção', 'Tempo')}</SectionTitle>
+          <Range label={t('Velocidade da animação')} value={clip.animDuration} display={`${clip.animDuration.toFixed(1)}s`} min={0.1} max={3} step={0.1} onChange={(animDuration) => onChange((c) => ({ ...c, animDuration }))} />
+          <Range label={t('Tempo na tela')} value={clip.duration} display={`${clip.duration.toFixed(1)}s`} min={0.5} max={30} step={0.1} onChange={(duration) => onChange((c) => ({ ...c, duration }))} />
         </>
       )}
     </InspectorPanel>

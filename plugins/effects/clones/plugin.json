@@ -1,0 +1,12 @@
+{
+  "name": "Clones",
+  "description": "A mesma pessoa aparece várias vezes, cada cópia um pouco atrasada: em fila (com distância) ou no mesmo lugar, repetindo o movimento.",
+  "category": "Pessoa",
+  "params": [
+    { "id": "copias", "label": "Cópias", "type": "float", "default": 3, "min": 1, "max": 4, "step": 1 },
+    { "id": "atraso", "label": "Atraso entre cópias (s)", "type": "float", "default": 0.18, "min": 0.03, "max": 0.3 },
+    { "id": "distancia", "label": "Distância para o lado", "type": "float", "default": 0.18, "min": -0.5, "max": 0.5 },
+    { "id": "opacidade", "label": "Opacidade das cópias", "type": "float", "default": 1, "min": 0.2, "max": 1 }
+  ],
+  "preview": { "atraso": 0.12 }
+}

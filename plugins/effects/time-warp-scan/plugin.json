@@ -1,0 +1,13 @@
+{
+  "name": "Time warp scan",
+  "description": "Uma linha atravessa a tela congelando o que fica para trás (o filtro do TikTok que estica rostos). Mexa-se junto com a linha.",
+  "category": "Tempo",
+  "params": [
+    { "id": "inicio", "label": "Começa em (s do clipe)", "type": "float", "default": 0, "min": 0, "max": 30, "step": 0.1 },
+    { "id": "varredura", "label": "Tempo para atravessar (s)", "type": "float", "default": 5, "min": 1, "max": 20 },
+    { "id": "direcao", "label": "Direção (0 = de cima para baixo, 1 = da esquerda para a direita)", "type": "float", "default": 0, "min": 0, "max": 1, "step": 1 },
+    { "id": "cor", "label": "Cor da linha", "type": "color", "default": "#2ee6ff" },
+    { "id": "espessura", "label": "Espessura da linha", "type": "float", "default": 0.4, "min": 0, "max": 1 }
+  ],
+  "preview": { "varredura": 2.5 }
+}

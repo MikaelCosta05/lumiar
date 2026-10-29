@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { VoiceRecorder } from '../media/recorder';
 import { Button, cx, IconButton } from './kit';
 import { setVoicePrefs, useVoicePrefs } from './voicePrefs';
+import { t } from '../i18n';
 
 /**
  * Escolha do microfone: lista os aparelhos pelo nome (pede permissão se precisar),
@@ -37,10 +38,10 @@ export function MicPicker({ compact = false }: { compact?: boolean }) {
     try {
       setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach((track) => track.stop());
       await refresh();
     } catch (e) {
-      setError(e instanceof Error && e.name === 'NotAllowedError' ? 'Acesso ao microfone negado.' : 'Nenhum microfone encontrado.');
+      setError(e instanceof Error && e.name === 'NotAllowedError' ? t('Acesso ao microfone negado.') : t('Nenhum microfone encontrado.'));
     }
   };
 
@@ -85,25 +86,25 @@ export function MicPicker({ compact = false }: { compact?: boolean }) {
       <div className="flex items-center gap-1.5">
         <Mic size={14} className="shrink-0 text-danger" />
         <select className={cx('field min-w-0 flex-1 text-xs', compact ? 'h-7' : 'h-8')} value={prefs.deviceId} onChange={(e) => choose(e.target.value)}>
-          <option value="">Padrão do sistema</option>
+          <option value="">{t('Padrão do sistema')}</option>
           {named.map((d, i) => (
             <option key={d.deviceId} value={d.deviceId}>
-              {d.label || `Microfone ${i + 1}`}
+              {d.label || t('Microfone {n}', { n: i + 1 })}
             </option>
           ))}
           {/* Escolhido antes, mas ainda não listado (sem permissão nesta sessão). */}
           {prefs.deviceId && !named.some((d) => d.deviceId === prefs.deviceId) && (
-            <option value={prefs.deviceId}>{prefs.deviceLabel || 'Microfone escolhido'}</option>
+            <option value={prefs.deviceId}>{prefs.deviceLabel || t('Microfone escolhido')}</option>
           )}
         </select>
-        <IconButton label="Atualizar a lista" onClick={() => void refresh()}>
+        <IconButton label={t('Atualizar a lista')} onClick={() => void refresh()}>
           <RefreshCw size={13} />
         </IconButton>
       </div>
 
       {hidden && (
         <Button variant="secondary" className="h-7 w-full text-xs" icon={<Mic size={13} />} onClick={() => void allow()}>
-          Permitir e mostrar os nomes dos microfones
+          {t('Permitir e mostrar os nomes dos microfones')}
         </Button>
       )}
 
@@ -116,16 +117,16 @@ export function MicPicker({ compact = false }: { compact?: boolean }) {
           )}
         >
           {testing ? <MicOff size={12} /> : <Mic size={12} />}
-          {testing ? 'Parar teste' : 'Testar'}
+          {testing ? t('Parar teste') : t('Testar')}
         </button>
-        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-panel-3" title="Volume do microfone">
+        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-panel-3" title={t('Volume do microfone')}>
           <div
             className={cx('h-full rounded-full transition-[width] duration-75', level > 0.85 ? 'bg-danger' : level > 0.6 ? 'bg-amber' : 'bg-success')}
             style={{ width: `${Math.round(level * 100)}%` }}
           />
         </div>
       </div>
-      {testing && <p className="text-[10px] leading-snug text-faint">Fale normalmente: o ideal é a barra ficar no verde e chegar perto do amarelo.</p>}
+      {testing && <p className="text-[10px] leading-snug text-faint">{t('Fale normalmente: o ideal é a barra ficar no verde e chegar perto do amarelo.')}</p>}
       {error && <p className="text-[11px] text-danger">{error}</p>}
     </div>
   );

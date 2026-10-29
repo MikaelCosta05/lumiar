@@ -1,4 +1,6 @@
 import { evaluateNumber, type Easing, type Keyframe, type KeyframeMap } from '../engine/keyframes';
+import { t } from '../i18n';
+import { applyStabilization, type Stabilization } from './stabilize';
 
 /**
  * Enquadramento da "câmera virtual" sobre a imagem do clipe.
@@ -42,6 +44,8 @@ export interface Camera {
   /** Ampliar a imagem para cobrir a tela toda (sem barras pretas). */
   fill: boolean;
   follow: CameraFollow | null;
+  /** Estabilização (tira o tremido), somada ao resto. Ver project/stabilize.ts. */
+  stabilize?: Stabilization;
 }
 
 export const IDENTITY: CameraTransform = { zoom: 1, x: 0.5, y: 0.5, rotation: 0 };
@@ -73,9 +77,13 @@ function sampleTrack(points: TrackPoint[], t: number, smoothness: number): { x: 
   return nearest;
 }
 
-/** Enquadramento final no instante: keyframes + seguir rosto/ponto. */
+/** Enquadramento final no instante: keyframes + seguir rosto/ponto + estabilização. */
 export function evaluateCamera(camera: Camera | undefined, clipTime: number, sourceTime: number): CameraTransform {
   if (!camera) return IDENTITY;
+  return applyStabilization(frameCamera(camera, clipTime, sourceTime), camera.stabilize, sourceTime);
+}
+
+function frameCamera(camera: Camera, clipTime: number, sourceTime: number): CameraTransform {
   const k = camera.keyframes;
   const manual: CameraTransform = {
     zoom: evaluateNumber(k.zoom, clipTime, camera.base.zoom),
@@ -109,11 +117,11 @@ export interface CameraPreset {
 }
 
 export const CAMERA_PRESETS: CameraPreset[] = [
-  { id: 'zoom-in', name: 'Aproximar', frames: [[0, { zoom: 1 }], [1, { zoom: 1.35 }]] },
-  { id: 'zoom-out', name: 'Afastar', frames: [[0, { zoom: 1.35 }], [1, { zoom: 1 }]] },
-  { id: 'pan-right', name: 'Panorâmica →', frames: [[0, { zoom: 1.25, x: 0.4 }], [1, { zoom: 1.25, x: 0.6 }]] },
-  { id: 'pan-left', name: 'Panorâmica ←', frames: [[0, { zoom: 1.25, x: 0.6 }], [1, { zoom: 1.25, x: 0.4 }]] },
-  { id: 'tilt-up', name: 'Subir câmera', frames: [[0, { zoom: 1.25, y: 0.6 }], [1, { zoom: 1.25, y: 0.4 }]] },
+  { id: 'zoom-in', name: t('Aproximar'), frames: [[0, { zoom: 1 }], [1, { zoom: 1.35 }]] },
+  { id: 'zoom-out', name: t('Afastar'), frames: [[0, { zoom: 1.35 }], [1, { zoom: 1 }]] },
+  { id: 'pan-right', name: t('Panorâmica →'), frames: [[0, { zoom: 1.25, x: 0.4 }], [1, { zoom: 1.25, x: 0.6 }]] },
+  { id: 'pan-left', name: t('Panorâmica ←'), frames: [[0, { zoom: 1.25, x: 0.6 }], [1, { zoom: 1.25, x: 0.4 }]] },
+  { id: 'tilt-up', name: t('Subir câmera'), frames: [[0, { zoom: 1.25, y: 0.6 }], [1, { zoom: 1.25, y: 0.4 }]] },
   {
     id: 'ken-burns',
     name: 'Ken Burns',
@@ -121,13 +129,13 @@ export const CAMERA_PRESETS: CameraPreset[] = [
   },
   {
     id: 'punch-in',
-    name: 'Zoom de impacto',
+    name: t('Zoom de impacto'),
     seconds: true,
     frames: [[0, { zoom: 1 }, 'ease-out'], [0.18, { zoom: 1.45 }, 'hold']],
   },
   {
     id: 'double-punch',
-    name: 'Zoom duplo',
+    name: t('Zoom duplo'),
     seconds: true,
     frames: [[0, { zoom: 1 }, 'ease-out'], [0.15, { zoom: 1.3 }, 'hold'], [0.9, { zoom: 1.3 }, 'ease-out'], [1.05, { zoom: 1.7 }, 'hold']],
   },
@@ -138,19 +146,19 @@ export const CAMERA_PRESETS: CameraPreset[] = [
   },
   {
     id: 'spin-in',
-    name: 'Entrada girando',
+    name: t('Entrada girando'),
     seconds: true,
     frames: [[0, { zoom: 1.6, rotation: -25 }, 'ease-out'], [0.8, { zoom: 1.1, rotation: 0 }, 'linear']],
   },
   {
     id: 'breathe',
-    name: 'Respiração',
+    name: t('Respiração'),
     seconds: true,
     frames: [[0, { zoom: 1.04 }], [1.5, { zoom: 1.12 }], [3, { zoom: 1.04 }], [4.5, { zoom: 1.12 }], [6, { zoom: 1.04 }], [7.5, { zoom: 1.12 }]],
   },
   {
     id: 'vertigo',
-    name: 'Vertigem',
+    name: t('Vertigem'),
     frames: [[0, { zoom: 1.6, rotation: 0 }, 'ease-in'], [0.5, { zoom: 1.15, rotation: 4 }, 'ease-out'], [1, { zoom: 1.5, rotation: -4 }]],
   },
 ];
@@ -196,6 +204,27 @@ export function screenToSource(
   const px = sx / ratio / scale[0] + cx;
   const pyUp = sy / scale[1] + cyUp;
   return { x: px, y: 1 - pyUp };
+}
+
+/** O contrário de screenToSource: onde um ponto da imagem aparece na tela. */
+export function sourceToScreen(
+  source: { x: number; y: number },
+  view: CameraTransform & { fill: boolean },
+  output: { width: number; height: number },
+  media: { width: number; height: number },
+): { x: number; y: number } {
+  const ratio = output.width / output.height;
+  const mediaRatio = media.width / media.height || ratio;
+  const scale = mediaRatio > ratio ? [1, ratio / mediaRatio] : [mediaRatio / ratio, 1];
+  const zoom = view.zoom * (view.fill ? 1 / Math.min(scale[0], scale[1]) : 1);
+  const { x: cx, y: cyUp } = clampCenter(view.x, 1 - view.y, zoom, scale);
+  let sx = (source.x - cx) * ratio * scale[0] * zoom;
+  let sy = (1 - source.y - cyUp) * scale[1] * zoom;
+  const r = (view.rotation * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  [sx, sy] = [c * sx + s * sy, -s * sx + c * sy];
+  return { x: sx / ratio + 0.5, y: 0.5 - sy };
 }
 
 /** A vista não pode sair da imagem (senão apareceriam bordas pretas). Igual ao shader. */

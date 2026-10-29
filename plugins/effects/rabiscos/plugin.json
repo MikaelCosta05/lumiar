@@ -1,0 +1,14 @@
+{
+  "name": "Rabiscos animados",
+  "description": "Traços desenhados à mão, tremendo, contornam a pessoa, com estrelinhas, corações e brilhos de caderno em volta.",
+  "category": "Pessoa",
+  "params": [
+    { "id": "cor", "label": "Cor do contorno", "type": "color", "default": "#ffffff" },
+    { "id": "cor2", "label": "Cor dos desenhos", "type": "color", "default": "#ffd400" },
+    { "id": "espessura", "label": "Espessura", "type": "float", "default": 0.45, "min": 0, "max": 1 },
+    { "id": "distancia", "label": "Distância do corpo", "type": "float", "default": 0.35, "min": 0, "max": 1 },
+    { "id": "tremor", "label": "Tremor", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "desenhos", "label": "Quantidade de desenhos", "type": "float", "default": 0.6, "min": 0, "max": 1 },
+    { "id": "quadros", "label": "Desenhos por segundo", "type": "float", "default": 8, "min": 2, "max": 15, "step": 1 }
+  ]
+}

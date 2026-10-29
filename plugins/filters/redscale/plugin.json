@@ -1,0 +1,24 @@
+{
+  "name": "Redscale",
+  "description": "Filme exposto pelo lado errado: tudo vira vermelho, laranja e amarelo queimado.",
+  "category": "Filmes",
+  "previewMedia": "paisagem",
+  "params": [
+    {
+      "id": "yellow",
+      "label": "Amarelo nas luzes",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "grain",
+      "label": "Granulado",
+      "type": "float",
+      "default": 0.35,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

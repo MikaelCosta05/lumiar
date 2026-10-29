@@ -1,0 +1,16 @@
+{
+  "name": "Sair da moldura",
+  "description": "O vídeo vira um quadro menor, meio deitado, e a pessoa salta para fora da borda (efeito 3D).",
+  "category": "Pessoa",
+  "params": [
+    { "id": "tamanho", "label": "Tamanho do quadro", "type": "float", "default": 0.7, "min": 0.4, "max": 0.95 },
+    { "id": "posicao", "label": "Posição do quadro", "type": "vec2", "default": [0.5, 0.6], "min": 0, "max": 1 },
+    { "id": "recorte", "label": "Quanto do vídeo cabe no quadro", "type": "float", "default": 0.72, "min": 0.4, "max": 1 },
+    { "id": "inclinacao", "label": "Inclinação para trás", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "borda", "label": "Borda branca", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "sombra", "label": "Sombra", "type": "float", "default": 0.6, "min": 0, "max": 1 },
+    { "id": "fundo", "label": "Cor do fundo", "type": "color", "default": "#1b1f2a" },
+    { "id": "fundoVideo", "label": "Fundo com o vídeo desfocado", "type": "float", "default": 1, "min": 0, "max": 1 }
+  ],
+  "preview": { "recorte": 0.5, "tamanho": 0.6, "posicao": [0.5, 0.64] }
+}

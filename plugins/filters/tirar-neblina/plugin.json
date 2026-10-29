@@ -1,0 +1,22 @@
+{
+  "name": "Tirar a neblina",
+  "description": "Remove o véu de neblina e poluição de paisagens e imagens aéreas: mais contraste e cor ao longe.",
+  "category": "Ferramentas",
+  "previewMedia": "drone",
+  "params": [
+    {
+      "id": "hazeColor",
+      "label": "Cor da neblina",
+      "type": "color",
+      "default": "#d0d6dc"
+    },
+    {
+      "id": "lift",
+      "label": "Clarear o escuro",
+      "type": "float",
+      "default": 0.3,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

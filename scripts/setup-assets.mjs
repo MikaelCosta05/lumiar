@@ -51,6 +51,10 @@ const downloads = [
     url: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite',
     to: 'models/blaze_face_short_range.tflite',
   },
+  {
+    url: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+    to: 'models/selfie_segmenter.tflite',
+  },
   ...['whisper-tiny', 'whisper-base', 'whisper-small'].flatMap((m) =>
     whisperFiles.map((f) => ({ url: `${HF}/Xenova/${m}/resolve/main/${f}`, to: `models/whisper/Xenova/${m}/${f}` })),
   ),

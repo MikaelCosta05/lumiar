@@ -1,0 +1,38 @@
+{
+  "name": "Filtro degradê",
+  "description": "Escurece e colore o céu com um degradê, como um filtro graduado na frente da lente.",
+  "category": "Ferramentas",
+  "previewMedia": "paisagem",
+  "params": [
+    {
+      "id": "height",
+      "label": "Altura do horizonte",
+      "type": "float",
+      "default": 0.55,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "soft",
+      "label": "Suavidade",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.05,
+      "max": 1
+    },
+    {
+      "id": "tint",
+      "label": "Cor",
+      "type": "color",
+      "default": "#5d7fb3"
+    },
+    {
+      "id": "tilt",
+      "label": "Inclinação",
+      "type": "float",
+      "default": 0,
+      "min": -1,
+      "max": 1
+    }
+  ]
+}

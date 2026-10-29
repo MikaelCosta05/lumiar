@@ -10,6 +10,8 @@ export interface VoicePrefs {
   muteProject: boolean;
   prompter: boolean;
   prompterSpeed: number;
+  /** O roteiro só rola enquanto a pessoa fala */
+  prompterFollow: boolean;
   muteOriginal: boolean;
   voice: string;
 }
@@ -23,6 +25,7 @@ const DEFAULTS: VoicePrefs = {
   muteProject: false,
   prompter: true,
   prompterSpeed: 140,
+  prompterFollow: true,
   muteOriginal: true,
   voice: VOICES[0].id,
 };

@@ -1,0 +1,11 @@
+{
+  "name": "Fita amassada",
+  "description": "Fita velha e dobrada: de vez em quando passa uma faixa de imagem esmagada com cor de arco-íris, e riscos brancos (dropouts) piscam pela tela.",
+  "category": "Analógico",
+  "params": [
+    { "id": "amassados", "label": "Amassados", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "dropouts", "label": "Riscos (dropouts)", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "tamanho", "label": "Altura do amassado", "type": "float", "default": 0.5, "min": 0.1, "max": 1 }
+  ],
+  "previewMedia": "silhueta"
+}

@@ -13,6 +13,7 @@ import {
   QUALITY_HIGH,
   WebMOutputFormat,
 } from 'mediabunny';
+import { t } from '../i18n';
 import type { MediaItem } from '../project/model';
 
 /** Pedaço lido de cada vez (os quadros dele são gravados de trás para frente). */
@@ -32,7 +33,7 @@ export async function reverseMedia(
   const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(media.file) });
   try {
     const track = await input.getPrimaryVideoTrack();
-    if (!track) throw new Error('Este arquivo não tem vídeo.');
+    if (!track) throw new Error(t('Este arquivo não tem vídeo.'));
     const stats = await track.computePacketStats(120).catch(() => null);
     const fps = Math.min(60, Math.max(10, Math.round(stats?.averagePacketRate || 30)));
     const scale = Math.min(1, MAX_SIDE / Math.max(track.displayWidth, track.displayHeight));
@@ -99,7 +100,7 @@ export async function reverseMedia(
     await output.finalize();
     const buffer = (output.target as BufferTarget).buffer!;
     const base = media.name.replace(/\.[^.]+$/, '');
-    return new File([buffer], `${base} (invertido).${avc ? 'mp4' : 'webm'}`, { type: avc ? 'video/mp4' : 'video/webm' });
+    return new File([buffer], t('{name} (invertido).{ext}', { name: base, ext: avc ? 'mp4' : 'webm' }), { type: avc ? 'video/mp4' : 'video/webm' });
   } finally {
     input.dispose();
   }
@@ -124,18 +125,18 @@ export async function grabFrame(media: MediaItem, time: number): Promise<File> {
   const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(media.file) });
   try {
     const track = await input.getPrimaryVideoTrack();
-    if (!track) throw new Error('Este arquivo não tem vídeo.');
+    if (!track) throw new Error(t('Este arquivo não tem vídeo.'));
     const first = await track.getFirstTimestamp();
     const sink = new CanvasSink(track, { width: track.displayWidth, height: track.displayHeight, fit: 'fill' });
     const frame = await sink.getCanvas(first + time);
-    if (!frame) throw new Error('Não foi possível ler esse quadro.');
+    if (!frame) throw new Error(t('Não foi possível ler esse quadro.'));
     const canvas = frame.canvas;
     const blob =
       canvas instanceof HTMLCanvasElement
         ? await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG'))), 'image/png'))
         : await canvas.convertToBlob({ type: 'image/png' });
     const base = media.name.replace(/\.[^.]+$/, '');
-    return new File([blob], `${base} (quadro ${time.toFixed(2)}s).png`, { type: 'image/png' });
+    return new File([blob], t('{name} (quadro {time}s).png', { name: base, time: time.toFixed(2) }), { type: 'image/png' });
   } finally {
     input.dispose();
   }

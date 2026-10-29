@@ -1,0 +1,13 @@
+{
+  "name": "Congelar a pessoa",
+  "description": "A pessoa para no meio do pulo e o mundo continua andando, ou o contrário: o mundo congela e só ela se mexe. Toque desde antes do momento escolhido.",
+  "category": "Pessoa",
+  "params": [
+    { "id": "momento", "label": "Congela em (s do clipe)", "type": "float", "default": 1, "min": 0, "max": 30, "step": 0.1 },
+    { "id": "duracaoGelo", "label": "Por quanto tempo (s; 0 = até o fim)", "type": "float", "default": 0, "min": 0, "max": 15, "step": 0.1 },
+    { "id": "modo", "label": "O que congela (0 = a pessoa, 1 = o mundo)", "type": "float", "default": 0, "min": 0, "max": 1, "step": 1 },
+    { "id": "contorno", "label": "Contorno na parte congelada", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "dessaturar", "label": "Tirar a cor da parte congelada", "type": "float", "default": 0.25, "min": 0, "max": 1 }
+  ],
+  "preview": { "momento": 0.6 }
+}

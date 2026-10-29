@@ -19,6 +19,9 @@ export interface ParamDef {
 
 export type PluginKind = 'effect' | 'transition' | 'filter';
 
+/** Mídia de exemplo das miniaturas e prévias (em /public/previews). */
+export type PreviewMedia = 'pessoa' | 'movimento' | 'silhueta' | 'retrato' | 'paisagem' | 'cidade' | 'drone';
+
 export interface ShaderPlugin {
   /** "effects/glitch", "transitions/dissolver", "filters/cinema"... */
   id: string;
@@ -28,6 +31,8 @@ export interface ShaderPlugin {
   category: string;
   params: ParamDef[];
   previewParams: ParamValues;
+  /** "previewMedia" no plugin.json: a mídia das miniaturas (sem ele, vale a categoria). */
+  previewMedia?: PreviewMedia;
   glsl: string;
 }
 

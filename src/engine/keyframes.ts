@@ -1,7 +1,8 @@
+import { t, tc } from '../i18n';
 import type { ParamValue, ParamValues } from './types';
 
 /** Como o valor vai do keyframe até o próximo. */
-export type Easing = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'hold';
+export type Easing = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'hold' | 'smooth' | 'back' | 'elastic' | 'bounce';
 
 export interface Keyframe {
   /** Segundos desde o início do clipe (tempo da timeline) */
@@ -14,11 +15,15 @@ export interface Keyframe {
 export type KeyframeMap = Record<string, Keyframe[]>;
 
 export const EASINGS: { id: Easing; label: string }[] = [
-  { id: 'ease', label: 'Suave' },
-  { id: 'linear', label: 'Linear' },
-  { id: 'ease-in', label: 'Acelerando' },
-  { id: 'ease-out', label: 'Freando' },
-  { id: 'hold', label: 'Salto (sem transição)' },
+  { id: 'ease', label: tc('curva', 'Suave') },
+  { id: 'linear', label: t('Linear') },
+  { id: 'ease-in', label: t('Acelerando') },
+  { id: 'ease-out', label: t('Freando') },
+  { id: 'smooth', label: t('Bem suave (entra e sai devagar)') },
+  { id: 'back', label: t('Passa do ponto e volta') },
+  { id: 'elastic', label: t('Elástico (mola)') },
+  { id: 'bounce', label: t('Quica no fim') },
+  { id: 'hold', label: t('Salto (sem transição)') },
 ];
 
 /** Dois keyframes a menos que isso são considerados o mesmo ponto. */
@@ -36,6 +41,22 @@ export function applyEasing(easing: Easing, p: number): number {
       return 1 - Math.pow(1 - p, 3);
     case 'hold':
       return 0;
+    case 'smooth':
+      return p < 0.5 ? 16 * p ** 5 : 1 - Math.pow(-2 * p + 2, 5) / 2;
+    case 'back': {
+      const c = 1.70158;
+      return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2);
+    }
+    case 'elastic':
+      return p === 0 || p === 1 ? p : Math.pow(2, -10 * p) * Math.sin((p * 10 - 0.75) * ((2 * Math.PI) / 3)) + 1;
+    case 'bounce': {
+      const n = 7.5625;
+      const d = 2.75;
+      if (p < 1 / d) return n * p * p;
+      if (p < 2 / d) return n * (p - 1.5 / d) * (p - 1.5 / d) + 0.75;
+      if (p < 2.5 / d) return n * (p - 2.25 / d) * (p - 2.25 / d) + 0.9375;
+      return n * (p - 2.625 / d) * (p - 2.625 / d) + 0.984375;
+    }
   }
 }
 

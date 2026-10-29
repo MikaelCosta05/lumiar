@@ -1,0 +1,24 @@
+{
+  "name": "Filme ortocromático",
+  "description": "P&B do começo do cinema, cego ao vermelho: lábios e pele escurecem, céu e azuis ficam brancos.",
+  "category": "Mono",
+  "previewMedia": "retrato",
+  "params": [
+    {
+      "id": "contrast",
+      "label": "Contraste",
+      "type": "float",
+      "default": 1.2,
+      "min": 0.5,
+      "max": 2
+    },
+    {
+      "id": "flick",
+      "label": "Oscilação",
+      "type": "float",
+      "default": 0.25,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

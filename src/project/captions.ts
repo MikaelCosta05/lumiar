@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { uid, type Project } from './model';
 
 /** Uma palavra com o instante em que é falada (vem do reconhecimento de fala). */
@@ -5,6 +6,8 @@ export interface CaptionWord {
   text: string;
   start: number;
   end: number;
+  /** Quem fala (índice em CaptionTrack.speakers), quando as vozes foram separadas */
+  speaker?: number;
 }
 
 export interface Caption {
@@ -15,7 +18,17 @@ export interface Caption {
   text: string;
   /** Só existe nas legendas automáticas: permite destacar a palavra falada. */
   words?: CaptionWord[];
+  /** Quem fala (índice em CaptionTrack.speakers) */
+  speaker?: number;
 }
+
+/** Uma pessoa que fala no vídeo: nome e cor das legendas dela. */
+export interface Speaker {
+  name: string;
+  color: string;
+}
+
+export const SPEAKER_COLORS = ['#ffffff', '#ffe14d', '#5eead4', '#f9a8d4', '#a5b4fc', '#fdba74'];
 
 /**
  * Como a legenda aparece:
@@ -47,6 +60,8 @@ export interface CaptionStyle {
   /** Altura do centro da legenda (0 = topo, 1 = base) */
   y: number;
   mode: CaptionMode;
+  /** Mostrar o nome de quem fala acima da legenda */
+  speakerNames?: boolean;
 }
 
 export interface CaptionTrack {
@@ -55,6 +70,8 @@ export interface CaptionTrack {
   maxWords: number;
   style: CaptionStyle;
   captions: Caption[];
+  /** Pessoas reconhecidas pela voz (cada legenda aponta para uma) */
+  speakers?: Speaker[];
 }
 
 const BASE: CaptionStyle = {
@@ -78,17 +95,17 @@ const BASE: CaptionStyle = {
 };
 
 export const CAPTION_PRESETS: { id: string; name: string; style: Partial<CaptionStyle> }[] = [
-  { id: 'classica', name: 'Clássica', style: {} },
-  { id: 'caixa', name: 'Caixa preta', style: { outlineWidth: 0, box: true, shadow: 0, weight: 600 } },
-  { id: 'amarela', name: 'Amarela', style: { font: 'Montserrat Variable', weight: 800, color: '#ffe14d', outlineWidth: 0.1 } },
+  { id: 'classica', name: t('Clássica'), style: {} },
+  { id: 'caixa', name: t('Caixa preta'), style: { outlineWidth: 0, box: true, shadow: 0, weight: 600 } },
+  { id: 'amarela', name: t('Amarela'), style: { font: 'Montserrat Variable', weight: 800, color: '#ffe14d', outlineWidth: 0.1 } },
   {
     id: 'destaque',
-    name: 'Destaque (TikTok)',
+    name: t('Destaque (TikTok)'),
     style: { font: 'Montserrat Variable', weight: 900, uppercase: true, size: 0.07, outlineWidth: 0.12, mode: 'highlight', y: 0.72 },
   },
   {
     id: 'caixa-palavra',
-    name: 'Palavra na caixa',
+    name: t('Palavra na caixa'),
     style: {
       font: 'Montserrat Variable',
       weight: 900,
@@ -103,12 +120,12 @@ export const CAPTION_PRESETS: { id: string; name: string; style: Partial<Caption
   },
   {
     id: 'palavra',
-    name: 'Palavra por palavra',
+    name: t('Palavra por palavra'),
     style: { font: 'Bebas Neue', weight: 400, size: 0.14, outlineWidth: 0.06, mode: 'word', y: 0.62, shadow: 0.8 },
   },
   {
     id: 'karaoke',
-    name: 'Karaokê',
+    name: t('Karaokê'),
     style: { font: 'Montserrat Variable', weight: 800, size: 0.06, highlight: '#22d3ee', outlineWidth: 0.1, mode: 'karaoke' },
   },
   { id: 'cinema', name: 'Cinema', style: { font: 'Playfair Display', weight: 400, italic: true, size: 0.05, outlineWidth: 0, shadow: 0.9, y: 0.88 } },
@@ -119,7 +136,7 @@ export const CAPTION_PRESETS: { id: string; name: string; style: Partial<Caption
   },
   {
     id: 'maquina',
-    name: 'Máquina',
+    name: t('Máquina'),
     style: { font: 'Space Mono', weight: 700, size: 0.05, outlineWidth: 0, box: true, boxColor: '#111111', boxOpacity: 0.85, shadow: 0, mode: 'karaoke', highlight: '#a3e635' },
   },
 ];
@@ -164,13 +181,15 @@ export function groupWords(words: CaptionWord[], maxWords: number): Caption[] {
       end: current[current.length - 1].end,
       text: current.map((w) => w.text).join(' '),
       words: current,
+      ...(current[0].speaker !== undefined && { speaker: current[0].speaker }),
     });
     current = [];
   };
   for (const word of words) {
     const prev = current[current.length - 1];
     const pause = prev ? word.start - prev.end : 0;
-    if (current.length >= maxWords || pause > 0.7 || (current.length && word.end - current[0].start > 3.2)) flush();
+    // Troca de pessoa sempre começa outra legenda.
+    if (current.length >= maxWords || pause > 0.7 || (current.length && word.end - current[0].start > 3.2) || (prev && prev.speaker !== word.speaker)) flush();
     current.push(word);
     if (/[.!?…]$/.test(word.text)) flush();
   }
@@ -198,6 +217,26 @@ export function regroup(track: CaptionTrack, maxWords: number): CaptionTrack {
   const words = auto.flatMap((c) => c.words!);
   const captions = [...groupWords(words, maxWords), ...manual].sort((a, b) => a.start - b.start);
   return { ...track, maxWords, captions };
+}
+
+/**
+ * Dá a cada legenda a pessoa que fala nela (`speakerOf` = índice por legenda) e cria as pessoas com
+ * cores diferentes. Os nomes que já existiam ficam.
+ */
+export function assignSpeakers(track: CaptionTrack, speakerOf: number[], count: number): CaptionTrack {
+  const speakers = Array.from({ length: count }, (_, i) => track.speakers?.[i] ?? { name: t('Pessoa {n}', { n: i + 1 }), color: SPEAKER_COLORS[i % SPEAKER_COLORS.length] });
+  const captions = track.captions.map((c, i) => {
+    const speaker = speakerOf[i];
+    if (speaker === undefined || speaker < 0) return c;
+    return { ...c, speaker, words: c.words?.map((w) => ({ ...w, speaker })) };
+  });
+  return { ...track, captions, speakers };
+}
+
+/** Cor e nome de quem fala na legenda (null quando as vozes não foram separadas). */
+export function speakerOf(track: CaptionTrack, caption: Caption): Speaker | null {
+  if (caption.speaker === undefined || !track.speakers?.length) return null;
+  return track.speakers[caption.speaker] ?? null;
 }
 
 // ---------------------------------------------------------------- Arquivos .srt / .vtt

@@ -1,0 +1,24 @@
+{
+  "name": "Fita mofada",
+  "description": "Fita esquecida no porão: manchas de mofo, cor apagada e falhas de sinal riscando a imagem.",
+  "category": "Terror analógico",
+  "previewMedia": "silhueta",
+  "params": [
+    {
+      "id": "mold",
+      "label": "Mofo",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "spot",
+      "label": "Tamanho das manchas",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

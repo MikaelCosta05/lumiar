@@ -1,0 +1,32 @@
+{
+  "name": "Filme de cinema 500T",
+  "description": "Negativo de cinema para luz artificial: realces que se desfazem macios, sombras frias e pele natural.",
+  "category": "Filmes",
+  "previewMedia": "pessoa",
+  "params": [
+    {
+      "id": "temp",
+      "label": "Temperatura",
+      "type": "float",
+      "default": 0,
+      "min": -1,
+      "max": 1
+    },
+    {
+      "id": "contrast",
+      "label": "Contraste",
+      "type": "float",
+      "default": 1,
+      "min": 0.5,
+      "max": 1.5
+    },
+    {
+      "id": "grain",
+      "label": "Granulado",
+      "type": "float",
+      "default": 0.3,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

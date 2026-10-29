@@ -6,6 +6,7 @@ import { CAMERA_PRESETS, createCamera, presetKeyframes, type Camera, type Camera
 import { Button, cx, SectionTitle, Slider, Switch } from './kit';
 import { bindKeyframes, type KeyframeContext } from './keyframeUi';
 import { ParamControl } from './ParamControl';
+import { t, tc } from '../i18n';
 
 interface Props {
   camera: Camera | null | undefined;
@@ -17,10 +18,10 @@ interface Props {
 }
 
 const CONTROLS: { key: keyof CameraTransform; def: ParamDef }[] = [
-  { key: 'zoom', def: { id: 'zoom', label: 'Zoom', type: 'float', default: 1, min: 0.5, max: 4, step: 0.01 } },
-  { key: 'x', def: { id: 'x', label: 'Horizontal', type: 'float', default: 0.5, min: 0, max: 1, step: 0.005 } },
-  { key: 'y', def: { id: 'y', label: 'Vertical', type: 'float', default: 0.5, min: 0, max: 1, step: 0.005 } },
-  { key: 'rotation', def: { id: 'rotation', label: 'Rotação', type: 'float', default: 0, min: -180, max: 180, step: 1 } },
+  { key: 'zoom', def: { id: 'zoom', label: t('Zoom'), type: 'float', default: 1, min: 0.5, max: 4, step: 0.01 } },
+  { key: 'x', def: { id: 'x', label: t('Horizontal'), type: 'float', default: 0.5, min: 0, max: 1, step: 0.005 } },
+  { key: 'y', def: { id: 'y', label: t('Vertical'), type: 'float', default: 0.5, min: 0, max: 1, step: 0.005 } },
+  { key: 'rotation', def: { id: 'rotation', label: t('Rotação'), type: 'float', default: 0, min: -180, max: 180, step: 1 } },
 ];
 
 export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCamera, follow: tracking }: Props) {
@@ -32,23 +33,23 @@ export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCam
     <>
       {tracking && (
         <>
-      <SectionTitle extra={<Video size={12} className="text-faint" />}>Seguir automaticamente</SectionTitle>
+      <SectionTitle extra={<Video size={12} className="text-faint" />}>{t('Seguir automaticamente')}</SectionTitle>
       <div className="grid grid-cols-2 gap-2">
         <Button
           variant={follow?.kind === 'face' ? 'primary' : 'secondary'}
           icon={<ScanFace size={14} />}
           onClick={tracking.onFollowFace}
-          title="Detecta o rosto em cada momento e enquadra"
+          title={t('Detecta o rosto em cada momento e enquadra')}
         >
-          Seguir rosto
+          {t('Seguir rosto')}
         </Button>
         <Button
           variant={tracking.picking || follow?.kind === 'point' ? 'primary' : 'secondary'}
           icon={<Crosshair size={14} />}
           onClick={tracking.onPickPoint}
-          title="Clique num ponto do vídeo para a câmera acompanhar"
+          title={t('Clique num ponto do vídeo para a câmera acompanhar')}
         >
-          {tracking.picking ? 'Clique no vídeo…' : 'Seguir ponto'}
+          {tracking.picking ? t('Clique no vídeo…') : t('Seguir ponto')}
         </Button>
       </div>
 
@@ -56,10 +57,10 @@ export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCam
         <div className="mt-2 rounded-xl border border-line bg-panel-2 p-2.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium">
-              {follow.kind === 'face' ? 'Seguindo o rosto' : 'Seguindo o ponto'} · {follow.points.length} posições
+              {follow.kind === 'face' ? t('Seguindo o rosto') : t('Seguindo o ponto')} · {t('{n} posições', { n: follow.points.length })}
             </span>
             <button
-              title="Parar de seguir"
+              title={t('Parar de seguir')}
               onClick={() => setCamera((c) => ({ ...c, follow: null }))}
               className="rounded p-0.5 text-faint hover:bg-panel-3 hover:text-danger"
             >
@@ -67,7 +68,7 @@ export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCam
             </button>
           </div>
           <Range
-            label="Zoom ao seguir"
+            label={t('Zoom ao seguir')}
             value={follow.zoom}
             display={`${follow.zoom.toFixed(2)}×`}
             min={1}
@@ -76,7 +77,7 @@ export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCam
             onChange={(zoom) => setCamera((c) => ({ ...c, follow: c.follow && { ...c.follow, zoom } }))}
           />
           <Range
-            label="Suavidade"
+            label={tc('câmera', 'Suavidade')}
             value={follow.smoothness}
             display={`${follow.smoothness.toFixed(2)}s`}
             min={0.05}
@@ -86,25 +87,25 @@ export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCam
           />
           <div className="mt-1 grid grid-cols-2 gap-1.5">
             <Chip active={follow.mode === 'center'} onClick={() => setCamera((c) => ({ ...c, follow: c.follow && { ...c.follow, mode: 'center' } }))}>
-              Manter no centro
+              {t('Manter no centro')}
             </Chip>
             <Chip active={follow.mode === 'lock'} onClick={() => setCamera((c) => ({ ...c, follow: c.follow && { ...c.follow, mode: 'lock' } }))}>
-              Estabilizar
+              {t('Estabilizar')}
             </Chip>
           </div>
           <p className="mt-2 text-[11px] leading-snug text-faint">
             {follow.mode === 'center'
-              ? 'O alvo fica sempre no centro. Use Horizontal/Vertical em Enquadramento para ajustar.'
-              : 'O alvo fica parado onde estava: bom para tirar tremidos da câmera.'}
+              ? t('O alvo fica sempre no centro. Use Horizontal/Vertical em Enquadramento para ajustar.')
+              : t('O alvo fica parado onde estava: bom para tirar tremidos da câmera.')}
           </p>
         </div>
       )}
         </>
       )}
-      <SectionTitle>Movimentos prontos</SectionTitle>
+      <SectionTitle>{t('Movimentos prontos')}</SectionTitle>
       <div className="grid grid-cols-3 gap-1.5">
         <Chip active={!activePreset && Object.keys(camera.keyframes).length === 0} onClick={() => setCamera((c) => ({ ...c, keyframes: {}, base: { ...c.base, zoom: 1, x: 0.5, y: 0.5, rotation: 0 } }))}>
-          Parada
+          {t('Parada')}
         </Chip>
         {CAMERA_PRESETS.map((preset) => (
           <Chip
@@ -117,13 +118,13 @@ export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCam
         ))}
       </div>
 
-      <SectionTitle>Enquadramento</SectionTitle>
+      <SectionTitle>{t('Enquadramento')}</SectionTitle>
       {tracking && (
         <div className="flex items-center justify-between py-1">
           <span className="flex items-center gap-1.5 text-xs text-dim">
-            <Expand size={12} /> Preencher a tela
+            <Expand size={12} /> {t('Preencher a tela')}
           </span>
-          <Switch checked={camera.fill} label="Preencher a tela" onChange={(fill) => setCamera((c) => ({ ...c, fill }))} />
+          <Switch checked={camera.fill} label={t('Preencher a tela')} onChange={(fill) => setCamera((c) => ({ ...c, fill }))} />
         </div>
       )}
 
@@ -145,7 +146,7 @@ export function CameraPanel({ camera: current, ctx, clipLength, onCamera: setCam
           return (
             <ParamControl
               key={key}
-              def={follow && (key === 'x' || key === 'y') ? { ...def, label: `${def.label} (ajuste)` } : def}
+              def={follow && (key === 'x' || key === 'y') ? { ...def, label: t('{label} (ajuste)', { label: def.label }) } : def}
               value={binding.value}
               onChange={(v) => binding.onChange(v as number)}
               keyframes={binding.control}

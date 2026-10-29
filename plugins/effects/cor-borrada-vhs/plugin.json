@@ -1,0 +1,12 @@
+{
+  "name": "Cor borrada de VHS",
+  "description": "A fita guarda a cor em baixa resolução: ela borra, escorre para a direita além das bordas e chia em manchas, enquanto o desenho fica só um pouco mole.",
+  "category": "Analógico",
+  "params": [
+    { "id": "vazamento", "label": "Borrão da cor", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "atraso", "label": "Cor atrasada para a direita", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "maciez", "label": "Imagem mole", "type": "float", "default": 0.35, "min": 0, "max": 1 },
+    { "id": "ruidoCor", "label": "Chiado de cor", "type": "float", "default": 0.4, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "silhueta"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Desfocar o objeto",
+  "description": "Desfoca ou pixela exatamente o objeto escolhido, seguindo ele pelo clipe: clique direito no clipe → Selecionar objeto…. Sem objeto selecionado, vale para a pessoa.",
+  "category": "Desfoque",
+  "params": [
+    { "id": "pixelate", "label": "Pixelar em vez de desfocar", "type": "float", "default": 0, "min": 0, "max": 1, "step": 1 },
+    { "id": "strength", "label": "Força", "type": "float", "default": 0.6, "min": 0.05, "max": 1 },
+    { "id": "grow", "label": "Margem em volta do objeto", "type": "float", "default": 0.3, "min": 0, "max": 1 }
+  ]
+}

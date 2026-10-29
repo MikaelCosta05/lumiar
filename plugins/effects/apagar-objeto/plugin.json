@@ -1,0 +1,13 @@
+{
+  "name": "Apagar objeto",
+  "description": "Some com um poste, uma pessoa no fundo ou um logo: a área é preenchida com as cores de volta. Posicione em cima do objeto; clique direito no clipe → Fazer o apagador seguir o objeto, se ele se mexe.",
+  "category": "Correção",
+  "params": [
+    { "id": "center", "label": "Posição", "type": "vec2", "default": [0.5, 0.5], "min": 0, "max": 1 },
+    { "id": "size", "label": "Tamanho (largura, altura)", "type": "vec2", "default": [0.14, 0.2], "min": 0.01, "max": 1 },
+    { "id": "oval", "label": "Formato (0 = retângulo, 1 = oval)", "type": "float", "default": 1, "min": 0, "max": 1, "step": 1 },
+    { "id": "feather", "label": "Borda suave", "type": "float", "default": 0.18, "min": 0, "max": 0.5 },
+    { "id": "grain", "label": "Granulado (disfarça o preenchimento)", "type": "float", "default": 0.35, "min": 0, "max": 1 }
+  ],
+  "preview": { "center": [0.5, 0.45], "size": [0.3, 0.35] }
+}

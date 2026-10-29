@@ -4,6 +4,7 @@ import type { PluginKind, ShaderPlugin } from '../engine/types';
 import { cx, Pill } from './kit';
 import { LivePreview } from './LivePreview';
 import { usePluginPreviews } from './previews';
+import { locale, t } from '../i18n';
 
 /** Ordem das categorias; as que não estão aqui vêm depois, em ordem alfabética. */
 const CATEGORY_ORDER: Record<PluginKind, string[]> = {
@@ -15,7 +16,7 @@ const CATEGORY_ORDER: Record<PluginKind, string[]> = {
 export function sortCategories(kind: PluginKind, categories: string[]): string[] {
   const order = CATEGORY_ORDER[kind];
   const rank = (c: string) => (order.includes(c) ? order.indexOf(c) : order.length);
-  return categories.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'pt-BR'));
+  return categories.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, locale()));
 }
 
 const RING: Record<PluginKind, string> = {
@@ -50,15 +51,15 @@ export function PluginPicker({ plugins, kind, selected, onPick, none }: Props) {
     <div className="space-y-2.5">
       <label className="relative block">
         <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
-        <input className="field h-7 w-full pl-8 text-xs" placeholder="Buscar…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className="field h-7 w-full pl-8 text-xs" placeholder={t('Buscar…')} value={search} onChange={(e) => setSearch(e.target.value)} />
       </label>
       <div className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4">
         <Pill active={!category} onClick={() => setCategory(null)}>
-          Todos
+          {t('Todos')}
         </Pill>
         {categories.map((c) => (
           <Pill key={c} active={category === c} onClick={() => setCategory(c)}>
-            {c}
+            {t(c)}
           </Pill>
         ))}
       </div>
@@ -85,7 +86,7 @@ export function PluginPicker({ plugins, kind, selected, onPick, none }: Props) {
           </Option>
         ))}
       </div>
-      {list.length === 0 && <p className="py-4 text-center text-xs text-faint">Nada encontrado.</p>}
+      {list.length === 0 && <p className="py-4 text-center text-xs text-faint">{t('Nada encontrado.')}</p>}
     </div>
   );
 }

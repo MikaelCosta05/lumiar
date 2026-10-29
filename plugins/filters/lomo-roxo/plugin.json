@@ -1,0 +1,24 @@
+{
+  "name": "Lomo roxo",
+  "description": "Filme experimental: o verde vira roxo, o céu fica verde-água e o amarelo puxa para o rosa.",
+  "category": "Filmes",
+  "previewMedia": "paisagem",
+  "params": [
+    {
+      "id": "satAmt",
+      "label": "Saturação",
+      "type": "float",
+      "default": 1.1,
+      "min": 0.5,
+      "max": 1.5
+    },
+    {
+      "id": "vig",
+      "label": "Vinheta",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

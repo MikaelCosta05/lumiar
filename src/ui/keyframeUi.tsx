@@ -1,5 +1,9 @@
-import { ChevronLeft, ChevronRight, Diamond } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Diamond, Spline } from 'lucide-react';
+import { useState } from 'react';
 import {
+  applyEasing,
+  EASINGS,
+  type Easing,
   evaluate,
   keyframeAt,
   KEYFRAME_TOLERANCE,
@@ -9,6 +13,7 @@ import {
 } from '../engine/keyframes';
 import type { ParamValue } from '../engine/types';
 import { cx } from './kit';
+import { t } from '../i18n';
 
 export interface KeyframeContext {
   /** Posição do cursor dentro do clipe (s) */
@@ -41,6 +46,8 @@ export function bindKeyframes<V extends ParamValue>(
       setKeyframes(setKeyframe(keyframes, ctx.clipTime, value));
     }
   };
+  const current = keyframeAt(keyframes, ctx.clipTime);
+  const setEasing = (easing: Easing) => current && setKeyframes(keyframes!.map((k) => (k === current ? { ...k, easing } : k)));
   const prev = keyframes?.filter((k) => k.time < ctx.clipTime - KEYFRAME_TOLERANCE).pop();
   const next = keyframes?.find((k) => k.time > ctx.clipTime + KEYFRAME_TOLERANCE);
   return {
@@ -53,6 +60,8 @@ export function bindKeyframes<V extends ParamValue>(
         onToggle={toggle}
         onPrev={prev ? () => ctx.seek(prev.time) : undefined}
         onNext={next ? () => ctx.seek(next.time) : undefined}
+        easing={current && next ? current.easing : undefined}
+        onEasing={setEasing}
       />
     ),
   };
@@ -64,18 +73,51 @@ function KeyframeButtons({
   onToggle,
   onPrev,
   onNext,
+  easing,
+  onEasing,
 }: {
   animated: boolean;
   at: boolean;
   onToggle: () => void;
   onPrev?: () => void;
   onNext?: () => void;
+  /** Curva do keyframe do cursor até o próximo (só aparece em cima de um keyframe que tem próximo) */
+  easing?: Easing;
+  onEasing: (easing: Easing) => void;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <span className="flex items-center">
+    <span className="relative flex items-center">
+      {easing && (
+        <button
+          title={t('Curva da animação até o próximo keyframe')}
+          onClick={() => setOpen((o) => !o)}
+          className={cx('mr-0.5 flex size-5 items-center justify-center rounded transition-colors hover:bg-panel-3', open ? 'text-accent' : 'text-faint hover:text-dim')}
+        >
+          <Spline size={12} />
+        </button>
+      )}
+      {open && easing && (
+        <div className="absolute right-0 top-6 z-30 grid w-64 grid-cols-3 gap-1 rounded-xl border border-line-strong bg-panel-2 p-1.5 shadow-2xl" onMouseLeave={() => setOpen(false)}>
+          {EASINGS.map((e) => (
+            <button
+              key={e.id}
+              title={e.label}
+              onClick={() => {
+                onEasing(e.id);
+                setOpen(false);
+              }}
+              className={cx('flex flex-col items-center gap-0.5 rounded-lg p-1 text-[9px] leading-tight transition-colors', easing === e.id ? 'bg-accent/20 text-fg' : 'text-dim hover:bg-panel-3')}
+            >
+              <EasingCurve easing={e.id} />
+              <span className="line-clamp-2 text-center">{e.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {animated && (
         <button
-          title="Keyframe anterior"
+          title={t('Keyframe anterior')}
           disabled={!onPrev}
           onClick={onPrev}
           className="text-faint transition-colors hover:text-fg disabled:opacity-25"
@@ -84,7 +126,7 @@ function KeyframeButtons({
         </button>
       )}
       <button
-        title={at ? 'Remover keyframe neste ponto' : 'Adicionar keyframe neste ponto'}
+        title={at ? t('Remover keyframe neste ponto') : t('Adicionar keyframe neste ponto')}
         onClick={onToggle}
         className={cx('flex size-5 items-center justify-center rounded transition-colors hover:bg-panel-3', animated ? 'text-amber' : 'text-faint hover:text-dim')}
       >
@@ -92,7 +134,7 @@ function KeyframeButtons({
       </button>
       {animated && (
         <button
-          title="Próximo keyframe"
+          title={t('Próximo keyframe')}
           disabled={!onNext}
           onClick={onNext}
           className="text-faint transition-colors hover:text-fg disabled:opacity-25"
@@ -101,5 +143,22 @@ function KeyframeButtons({
         </button>
       )}
     </span>
+  );
+}
+
+/** Desenho da curva (tempo → valor) para escolher a suavidade. */
+function EasingCurve({ easing }: { easing: Easing }) {
+  const W = 56;
+  const H = 30;
+  const pad = 5;
+  const points = Array.from({ length: 41 }, (_, i) => {
+    const p = i / 40;
+    const v = easing === 'hold' ? (p < 1 ? 0 : 1) : applyEasing(easing, p);
+    return `${(pad + p * (W - pad * 2)).toFixed(1)},${(H - pad - v * (H - pad * 2)).toFixed(1)}`;
+  }).join(' ');
+  return (
+    <svg width={W} height={H} className="rounded bg-panel-3">
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth={1.6} className="text-accent" />
+    </svg>
   );
 }

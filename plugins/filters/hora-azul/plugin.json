@@ -1,0 +1,24 @@
+{
+  "name": "Hora azul",
+  "description": "Logo depois do pôr do sol: céu azul-cobalto e as luzes da cidade em laranja quente.",
+  "category": "Atmosfera",
+  "previewMedia": "cidade",
+  "params": [
+    {
+      "id": "sky",
+      "label": "Céu azul",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "lights",
+      "label": "Luzes",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

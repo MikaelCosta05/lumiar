@@ -1,0 +1,24 @@
+{
+  "name": "De nublado a ensolarado",
+  "description": "Dá vida a um dia cinzento: céu mais azul, sombras com contraste e cores com cara de sol.",
+  "category": "Atmosfera",
+  "previewMedia": "paisagem",
+  "params": [
+    {
+      "id": "sky",
+      "label": "Céu azul",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "sun",
+      "label": "Sol",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

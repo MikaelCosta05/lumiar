@@ -1,0 +1,12 @@
+{
+  "name": "Rolagem vertical",
+  "description": "A TV perde o sincronismo vertical: a imagem rola para cima com a faixa preta entre um quadro e outro. Anime o deslocamento para uma rolada só.",
+  "category": "Analógico",
+  "params": [
+    { "id": "velocidade", "label": "Velocidade (voltas por segundo)", "type": "float", "default": 0.5, "min": -3, "max": 3 },
+    { "id": "deslocamento", "label": "Deslocamento", "type": "float", "default": 0, "min": 0, "max": 2 },
+    { "id": "barra", "label": "Faixa preta", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "tremor", "label": "Tremor", "type": "float", "default": 0.3, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "silhueta"
+}

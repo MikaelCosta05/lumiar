@@ -1,0 +1,10 @@
+{
+  "name": "Apagar o objeto",
+  "description": "Some com o objeto escolhido (clique direito no clipe → Selecionar objeto…): o lugar dele é preenchido com as cores de volta, quadro a quadro, mesmo quando ele se mexe. Funciona melhor com objetos pequenos em fundo simples.",
+  "category": "Correção",
+  "params": [
+    { "id": "grow", "label": "Margem em volta do objeto", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "grain", "label": "Granulado (disfarça o preenchimento)", "type": "float", "default": 0.35, "min": 0, "max": 1 }
+  ],
+  "preview": { "grow": 0.6 }
+}

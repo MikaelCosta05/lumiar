@@ -1,0 +1,105 @@
+# Gera os instaladores de Windows, Linux e macOS quando uma tag v* é enviada (git tag v0.4.0 && git push --tags)
+# e publica tudo na Release do GitHub dessa tag.
+#
+# O electron-builder roda com --publish never: cada sistema só gera os arquivos, e um último job, depois que os
+# três terminam, cria a Release (rascunho), envia tudo e publica. Assim o programa instalado nunca vê uma versão
+# nova pela metade (sem o instalador ou sem o latest.yml que confere o arquivo baixado).
+#
+# Rodar à mão (Actions → Release → Run workflow) gera os instaladores sem publicar: ficam nos artefatos da
+# execução. Rodar uma vez na main também deixa os modelos de IA no cache para as tags usarem.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# bash também no Windows: no PowerShell o "--" de "npm run ... -- --publish never" pode se perder.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            dist: dist:win
+          - os: ubuntu-latest
+            dist: dist:linux
+          - os: macos-latest
+            dist: dist:mac
+    env:
+      # Sem certificado da Apple: o app é assinado só "ad-hoc" (identity "-" no package.json).
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Os modelos de IA (~470 MB) só mudam quando o script que baixa eles muda.
+      - name: Cache dos modelos de IA
+        uses: actions/cache@v4
+        with:
+          path: public/models
+          key: models-${{ runner.os }}-${{ hashFiles('scripts/setup-assets.mjs') }}
+
+      - run: npm run setup
+
+      - run: npm run ${{ matrix.dist }} -- --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}
+          path: |
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest*.yml
+          if-no-files-found: error
+          # Os instaladores já são comprimidos.
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    name: Publicar na Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Enviar os arquivos
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -la release
+          # Se a Release já existe (criada à mão, com as notas), os arquivos entram nela.
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "$TAG" --generate-notes --verify-tag
+          fi
+          gh release upload "$TAG" release/* --clobber
+          gh release edit "$TAG" --draft=false

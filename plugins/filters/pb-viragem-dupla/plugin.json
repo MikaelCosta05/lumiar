@@ -1,0 +1,28 @@
+{
+  "name": "P&B com viragem dupla",
+  "description": "Preto e branco com duas viragens de laboratório: uma cor nas sombras e outra nas luzes.",
+  "category": "Mono",
+  "previewMedia": "retrato",
+  "params": [
+    {
+      "id": "shadowTone",
+      "label": "Cor das sombras",
+      "type": "color",
+      "default": "#33507a"
+    },
+    {
+      "id": "lightTone",
+      "label": "Cor das luzes",
+      "type": "color",
+      "default": "#e8cf9c"
+    },
+    {
+      "id": "balance",
+      "label": "Equilíbrio",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

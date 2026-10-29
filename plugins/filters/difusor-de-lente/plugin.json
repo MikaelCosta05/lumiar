@@ -1,0 +1,24 @@
+{
+  "name": "Difusor de lente",
+  "description": "Filtro de difusão na frente da lente: as luzes ganham um halo macio e o contraste fica leve, como no cinema dos anos 70.",
+  "category": "Retrato",
+  "previewMedia": "retrato",
+  "params": [
+    {
+      "id": "halo",
+      "label": "Halo",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "size",
+      "label": "Tamanho do halo",
+      "type": "float",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

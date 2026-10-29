@@ -1,0 +1,14 @@
+{
+  "name": "Contorno brilhante",
+  "description": "Uma linha neon acompanha o corpo da pessoa (a IA encontra a pessoa em cada quadro), pulsando ou trocando de cor.",
+  "category": "Pessoa",
+  "params": [
+    { "id": "cor", "label": "Cor", "type": "color", "default": "#00e5ff" },
+    { "id": "cor2", "label": "Segunda cor (pulso)", "type": "color", "default": "#ff2bd6" },
+    { "id": "arcoiris", "label": "Arco-íris (troca de cor sozinho)", "type": "float", "default": 0, "min": 0, "max": 1, "step": 1 },
+    { "id": "largura", "label": "Espessura", "type": "float", "default": 0.4, "min": 0, "max": 1 },
+    { "id": "distancia", "label": "Distância do corpo", "type": "float", "default": 0.15, "min": 0, "max": 1 },
+    { "id": "brilho", "label": "Brilho", "type": "float", "default": 0.8, "min": 0, "max": 1.5 },
+    { "id": "pulso", "label": "Velocidade do pulso", "type": "float", "default": 1.5, "min": 0, "max": 6 }
+  ]
+}

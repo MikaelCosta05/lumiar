@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { PACKS } from '../project/packLibrary';
 import type { PackTemplate } from '../project/packs';
+import { t } from '../i18n';
 
 /** Pacotes salvos pelo usuário ("Meus pacotes"), guardados neste computador. */
 const KEY = 'lumiar:packs';
@@ -60,10 +61,10 @@ export async function importUserPacks(file: File): Promise<number> {
   try {
     data = JSON.parse(await file.text());
   } catch {
-    throw new Error(`"${file.name}" não é um arquivo de pacotes do Lumiar.`);
+    throw new Error(t('"{name}" não é um arquivo de pacotes do Lumiar.', { name: file.name }));
   }
   const packs = (data as { format?: string; packs?: unknown }).format === FILE_FORMAT ? (data as { packs: unknown }).packs : null;
-  if (!Array.isArray(packs)) throw new Error(`"${file.name}" não é um arquivo de pacotes do Lumiar.`);
+  if (!Array.isArray(packs)) throw new Error(t('"{name}" não é um arquivo de pacotes do Lumiar.', { name: file.name }));
   const valid = packs.filter(
     (p): p is PackTemplate => !!p && typeof p.id === 'string' && typeof p.name === 'string' && typeof p.duration === 'number' && Array.isArray(p.effects),
   );

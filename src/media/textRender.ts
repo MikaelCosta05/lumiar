@@ -1,6 +1,12 @@
-import { captionAt, captionWords, type Caption, type CaptionStyle } from '../project/captions';
-import type { Project } from '../project/model';
-import type { TextAnimation, TextClip } from '../project/text';
+import { captionAt, captionWords, speakerOf, type Caption, type CaptionStyle, type Speaker } from '../project/captions';
+import { layoutProject, resolveFrame, type Project } from '../project/model';
+import { evaluateCamera, IDENTITY, sourceToScreen } from '../project/camera';
+import { cursorAt, recentClicks } from '../project/cursorFx';
+import { drawTyping } from './typingRender';
+import { t } from '../i18n';
+import { drawMap } from './mapRender';
+import { drawWave } from './spectrum';
+import { textPosition, type TextAnimation, type TextClip } from '../project/text';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -17,12 +23,15 @@ const rnd = (n: number) => {
  * Desenha todos os textos visíveis no instante t num canvas transparente do
  * tamanho do vídeo. Devolve false quando não há texto (o canvas nem é usado).
  */
-export function drawTexts(canvas: HTMLCanvasElement | OffscreenCanvas, project: Project, t: number): boolean {
+export function drawTexts(canvas: HTMLCanvasElement | OffscreenCanvas, project: Project, t: number, layer: 'front' | 'behind' = 'front'): boolean {
+  // Os textos "atrás da pessoa" vão numa imagem separada (desenhada antes, com a pessoa por cima).
+  const behind = layer === 'behind';
   const active = project.textTracks.flatMap((track) =>
-    track.clips.filter((c) => t >= c.start && t < c.start + c.duration && c.text.trim() !== ''),
+    track.clips.filter((c) => !!c.behind === behind && t >= c.start && t < c.start + c.duration && (c.text.trim() !== '' || !!c.shape)),
   );
-  const caption = captionAt(project.captions, t);
-  if (active.length === 0 && !caption) return false;
+  const caption = behind ? null : captionAt(project.captions, t);
+  const cursor = !behind && project.clips.some((c) => c.cursorFx) ? cursorSpots(project, t) : [];
+  if (active.length === 0 && !caption && cursor.length === 0) return false;
   if (canvas.width !== project.width || canvas.height !== project.height) {
     canvas.width = project.width;
     canvas.height = project.height;
@@ -30,13 +39,78 @@ export function drawTexts(canvas: HTMLCanvasElement | OffscreenCanvas, project: 
   const ctx = canvas.getContext('2d') as Ctx | null;
   if (!ctx) return false;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  for (const clip of active) drawTextClip(ctx, clip, t - clip.start, canvas.width, canvas.height);
-  if (caption && project.captions) drawCaption(ctx, project.captions.style, caption, t, canvas.width, canvas.height);
+  for (const spot of cursor) drawCursorSpot(ctx, spot, canvas.width, canvas.height);
+  for (const clip of active)
+    drawTextClip(ctx, clip.follow ? { ...clip, ...textPosition(clip, t) } : clip, t - clip.start, canvas.width, canvas.height, { project, time: t });
+  if (caption && project.captions) drawCaption(ctx, project.captions.style, caption, t, canvas.width, canvas.height, speakerOf(project.captions, caption));
   return true;
 }
 
+interface CursorSpot {
+  x: number;
+  y: number;
+  /** Tamanho na tela (cresce junto com o zoom da câmera) */
+  zoom: number;
+  clicks: number[];
+  halo: boolean;
+  color: string;
+}
+
+/** Onde o cursor das gravações de tela aparece agora (já passando pelo zoom da câmera). */
+function cursorSpots(project: Project, t: number): CursorSpot[] {
+  const frame = resolveFrame(project, layoutProject(project), t);
+  const spots: CursorSpot[] = [];
+  for (const active of [frame.a, frame.b]) {
+    const clip = active?.layout.clip;
+    const media = active?.layout.media;
+    if (!active || !clip?.cursorFx || !media?.cursor) continue;
+    const pos = cursorAt(media.cursor, active.sourceTime);
+    if (!pos) continue;
+    const view = clip.camera ? { ...evaluateCamera(clip.camera, active.clipTime, active.sourceTime), fill: clip.camera.fill } : { ...IDENTITY, fill: false };
+    const screen = sourceToScreen(pos, view, project, media);
+    spots.push({
+      ...screen,
+      zoom: view.zoom,
+      clicks: clip.cursorFx.clicks ? recentClicks(media.cursor, active.sourceTime).map((c) => c.age) : [],
+      halo: clip.cursorFx.halo,
+      color: clip.cursorFx.color,
+    });
+  }
+  return spots;
+}
+
+function drawCursorSpot(ctx: Ctx, spot: CursorSpot, W: number, H: number): void {
+  const x = spot.x * W;
+  const y = spot.y * H;
+  const r = Math.min(W, H) * 0.028 * Math.sqrt(spot.zoom);
+  ctx.save();
+  if (spot.halo) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `${spot.color}66`);
+    g.addColorStop(0.7, `${spot.color}40`);
+    g.addColorStop(1, `${spot.color}00`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Cada clique abre uma onda que some em 0,6 s.
+  for (const age of spot.clicks) {
+    const p = age / 0.6;
+    ctx.globalAlpha = 1 - p;
+    ctx.strokeStyle = spot.color;
+    ctx.lineWidth = r * 0.18 * (1 - p) + 1;
+    ctx.beginPath();
+    ctx.arc(x, y, r * (0.5 + 1.6 * (1 - Math.pow(1 - p, 3))), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** Desenha uma legenda no instante t, conforme o estilo (frase, destaque, palavra a palavra, karaokê). */
-export function drawCaption(ctx: Ctx, style: CaptionStyle, caption: Caption, t: number, W: number, H: number): void {
+export function drawCaption(ctx: Ctx, base: CaptionStyle, caption: Caption, t: number, W: number, H: number, speaker: Speaker | null = null): void {
+  // Cada pessoa com a sua cor (o destaque continua o do estilo).
+  const style = speaker ? { ...base, color: speaker.color } : base;
   const words = captionWords(caption).map((w) => ({ ...w, text: style.uppercase ? w.text.toUpperCase() : w.text }));
   if (words.length === 0) return;
   const fontPx = Math.max(4, style.size * H);
@@ -103,6 +177,25 @@ export function drawCaption(ctx: Ctx, style: CaptionStyle, caption: Caption, t: 
   const blockH = lines.length * lineH;
   const top = style.y * H - blockH / 2;
   const pad = fontPx * 0.35;
+
+  // Nome de quem fala, numa etiqueta da cor da pessoa, acima da legenda.
+  if (speaker && style.speakerNames && speaker.name.trim()) {
+    ctx.save();
+    const tagPx = fontPx * 0.5;
+    ctx.font = `800 ${tagPx}px "Montserrat Variable", sans-serif`;
+    const label = speaker.name.trim().toUpperCase();
+    const tw = ctx.measureText(label).width;
+    const th = tagPx * 1.5;
+    const ty = top - pad - th - tagPx * 0.3;
+    ctx.fillStyle = speaker.color;
+    ctx.beginPath();
+    ctx.roundRect(W / 2 - tw / 2 - tagPx * 0.6, ty, tw + tagPx * 1.2, th, th / 2);
+    ctx.fill();
+    ctx.fillStyle = '#111111';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, W / 2, ty + th / 2 + tagPx * 0.04);
+    ctx.restore();
+  }
 
   if (style.box) {
     const blockW = Math.max(...lines.map((l) => l.width));
@@ -247,7 +340,13 @@ function applyAnimation(s: AnimState, anim: TextAnimation, p: number, entering: 
   }
 }
 
-export function drawTextClip(ctx: Ctx, clip: TextClip, local: number, W: number, H: number): void {
+/** O projeto e o instante (para elementos que reagem ao som). */
+export interface DrawEnv {
+  project: Project;
+  time: number;
+}
+
+export function drawTextClip(ctx: Ctx, clip: TextClip, local: number, W: number, H: number, env: DrawEnv | null = null): void {
   const st = clip.style;
   const fontPx = Math.max(4, st.size * H);
   const d = Math.min(clip.animDuration, clip.duration / 2);
@@ -315,6 +414,16 @@ export function drawTextClip(ctx: Ctx, clip: TextClip, local: number, W: number,
   ctx.rotate((clip.rotation * Math.PI) / 180 + s.rotate);
   ctx.scale(s.scale * s.scaleX, s.scale);
   ctx.globalAlpha = s.alpha;
+  if (clip.shape) {
+    drawElement(ctx, clip, local, fontPx, W, H, env);
+    ctx.restore();
+    return;
+  }
+  if (clip.typing) {
+    drawTyping(ctx, clip, local, fontPx);
+    ctx.restore();
+    return;
+  }
   if (s.blur > 0.5) ctx.filter = `blur(${s.blur.toFixed(1)}px)`;
   ctx.font = `${st.italic ? 'italic ' : ''}${st.weight} ${fontPx}px "${st.font}", sans-serif`;
   ctx.letterSpacing = `${((st.letterSpacing + s.spacing) * fontPx).toFixed(1)}px`;
@@ -447,4 +556,165 @@ export function drawTextClip(ctx: Ctx, clip: TextClip, local: number, W: number,
     ctx.fillRect(c.x + fontPx * 0.05, c.y - fontPx * 0.45, fontPx * 0.08, fontPx * 0.9);
   }
   ctx.restore();
+}
+
+/** Elementos animados (desenhados já no lugar e na escala do texto). */
+function drawElement(ctx: Ctx, clip: TextClip, local: number, size: number, W: number, H: number, env: DrawEnv | null): void {
+  const st = clip.style;
+  const ease = (p: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, p)), 3);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  switch (clip.shape) {
+    case 'map':
+      drawMap(ctx, clip, local, size, W, H);
+      break;
+    case 'audiowave':
+      drawWave(ctx, clip, size, W, env?.project ?? null, env?.time ?? local);
+      break;
+    case 'progress': {
+      // Barra de ponta a ponta que enche ao longo do clipe.
+      const w = W * 0.96;
+      const h = size * 0.35;
+      ctx.save();
+      ctx.globalAlpha *= st.boxOpacity;
+      ctx.fillStyle = st.boxColor;
+      ctx.beginPath();
+      ctx.roundRect(-w / 2, -h / 2, w, h, h / 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = st.color;
+      ctx.beginPath();
+      ctx.roundRect(-w / 2, -h / 2, Math.max(h, w * Math.min(1, local / Math.max(0.01, clip.duration))), h, h / 2);
+      ctx.fill();
+      break;
+    }
+    case 'subscribe': {
+      const clicked = local > Math.min(1.6, clip.duration * 0.45);
+      const w = size * 6.2;
+      const h = size * 1.5;
+      const press = clicked && local < Math.min(1.6, clip.duration * 0.45) + 0.12 ? 0.92 : 1;
+      ctx.save();
+      ctx.scale(press, press);
+      ctx.shadowColor = 'rgba(0,0,0,0.4)';
+      ctx.shadowBlur = size * 0.4;
+      ctx.fillStyle = clicked ? '#606060' : '#ff0000';
+      ctx.beginPath();
+      ctx.roundRect(-w / 2, -h / 2, w, h, h * 0.18);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `800 ${size * 0.62}px "Montserrat Variable", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(clicked ? t('INSCRITO ✓') : t('INSCREVA-SE'), 0, size * 0.03);
+      ctx.restore();
+      // O sininho balança depois do clique.
+      const bell = clicked ? Math.sin((local - 1.6) * 18) * Math.exp(-(local - 1.6) * 2) * 0.5 : 0;
+      ctx.save();
+      ctx.translate(w / 2 + size * 1.1, 0);
+      ctx.rotate(bell);
+      ctx.font = `${size * 1.3}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🔔', 0, 0);
+      ctx.restore();
+      // A mãozinha chega e clica.
+      const arrive = ease((local - 0.3) / 1);
+      if (local < Math.min(1.6, clip.duration * 0.45) + 0.6) {
+        ctx.font = `${size * 1.4}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('👆', w * 0.25 + (1 - arrive) * w * 0.6, h * 0.1 + (1 - arrive) * h * 2);
+      }
+      break;
+    }
+    case 'countdown': {
+      const left = Math.max(0, clip.duration - local);
+      const n = Math.max(1, Math.ceil(left));
+      const frac = left - Math.floor(left) || 1;
+      const r = size * 0.75;
+      ctx.lineWidth = size * 0.08;
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = st.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+      ctx.stroke();
+      const pop = 1 + Math.max(0, frac - 0.85) * 2;
+      ctx.scale(pop, pop);
+      ctx.fillStyle = st.color;
+      ctx.font = `900 ${size * 0.9}px "Montserrat Variable", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(n), 0, size * 0.04);
+      break;
+    }
+    case 'arrow': {
+      // A seta se desenha da cauda para a ponta.
+      const p = ease(local / 0.6);
+      const len = size * 5;
+      ctx.strokeStyle = st.color;
+      ctx.lineWidth = size * 0.22;
+      ctx.shadowColor = 'rgba(0,0,0,0.4)';
+      ctx.shadowBlur = size * 0.2;
+      const x0 = -len / 2;
+      const x1 = x0 + len * p;
+      ctx.beginPath();
+      ctx.moveTo(x0, size * 0.4);
+      ctx.quadraticCurveTo(x0 + len * 0.4 * p, -size * 0.3 * p, x1, 0);
+      ctx.stroke();
+      if (p > 0.85) {
+        const head = size * 0.9 * ((p - 0.85) / 0.15);
+        ctx.beginPath();
+        ctx.moveTo(x1 - head, -head * 0.75);
+        ctx.lineTo(x1, 0);
+        ctx.lineTo(x1 - head, head * 0.75);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'circle': {
+      // Círculo feito à mão: um pouco torto e passando do ponto de partida.
+      const p = ease(local / 0.7);
+      const rx = size * 3.2;
+      const ry = size * 2.1;
+      ctx.strokeStyle = st.color;
+      ctx.lineWidth = size * 0.16;
+      ctx.beginPath();
+      const steps = Math.max(2, Math.floor(80 * p));
+      for (let i = 0; i <= steps; i++) {
+        const a = -2.2 + (i / 80) * Math.PI * 2.25;
+        const wobble = 1 + 0.05 * Math.sin(a * 3) + (i / 80) * 0.06;
+        const x = Math.cos(a) * rx * wobble;
+        const y = Math.sin(a) * ry * wobble;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      break;
+    }
+    case 'balloon': {
+      const lines = clip.text.split('\n');
+      ctx.font = `${st.weight} ${size}px "${st.font}", sans-serif`;
+      const w = Math.max(size * 3, ...lines.map((l) => ctx.measureText(l).width)) + size * 1.4;
+      const h = lines.length * size * 1.25 + size * 1;
+      ctx.shadowColor = 'rgba(0,0,0,0.35)';
+      ctx.shadowBlur = size * 0.4;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.roundRect(-w / 2, -h / 2, w, h, size * 0.6);
+      ctx.moveTo(-w * 0.2, h / 2 - 1);
+      ctx.lineTo(-w * 0.32, h / 2 + size * 1.1);
+      ctx.lineTo(-w * 0.02, h / 2 - 1);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = st.color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      lines.forEach((line, i) => ctx.fillText(line, 0, -h / 2 + size * 0.5 + size * 1.25 * (i + 0.5)));
+      break;
+    }
+  }
 }

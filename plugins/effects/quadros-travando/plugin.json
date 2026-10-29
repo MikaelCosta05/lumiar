@@ -1,0 +1,11 @@
+{
+  "name": "Quadros travando",
+  "description": "O vídeo engasga: segura cada quadro um pouco e pula para o próximo, como gravação de câmera de vigilância, stop motion ou fita pulando. Funciona tocando.",
+  "category": "Tempo",
+  "params": [
+    { "id": "passo", "label": "Quanto segura cada quadro (s)", "type": "float", "default": 0.2, "min": 0.04, "max": 1 },
+    { "id": "irregular", "label": "Irregular (trechos que andam normal)", "type": "float", "default": 0.3, "min": 0, "max": 1 },
+    { "id": "tranco", "label": "Tranco ao pular", "type": "float", "default": 0.3, "min": 0, "max": 1 }
+  ],
+  "previewMedia": "silhueta"
+}

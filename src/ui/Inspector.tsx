@@ -27,6 +27,12 @@ import {
   X,
 } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
+import { SpeedCurve } from './SpeedCurve';
+import { applySpeed } from '../project/packs';
+import { BackgroundSection, GradeSection, LutSection, MaskSection } from './ColorTools';
+import { ObjectCutoutSection } from './ObjectPicker';
+import type { SavedLut } from '../project/lut';
+import { deleteMainClip } from '../project/ripple';
 import { effectPlugins, filterPlugins, getPlugin, paramDefault, transitionPlugins } from '../engine/registry';
 import type { Keyframe, KeyframeMap } from '../engine/keyframes';
 import type { EffectInstance, FilterInstance, ParamValue } from '../engine/types';
@@ -49,7 +55,6 @@ import {
   getMedia,
   moveClip,
   removeAudioClip,
-  removeClip,
   setTransition,
   updateAudioClip,
   updateClip,
@@ -75,6 +80,8 @@ import { usePluginPreviews } from './previews';
 import type { Selection } from './selection';
 import { TextInspector, type TextTab } from './TextInspector';
 import { findTextClip, removeTextClip, updateTextClip } from '../project/text';
+import { t, tc } from '../i18n';
+import { requestShortcutsDialog, shortcutLabel, useShortcutsVersion } from '../app/shortcuts';
 
 interface Props {
   project: Project;
@@ -87,12 +94,27 @@ interface Props {
   onDetach: (clipId: string) => void;
   onFollowFace: (clipId: string) => void;
   onPickPoint: (clipId: string) => void;
+  /** Desenhar a forma (máscara) de uma camada no vídeo */
+  onDrawMask: (clipId: string) => void;
+  /** Texto: escolher o ponto do vídeo que ele vai seguir */
+  onPickTextPoint: (textId: string) => void;
   /** Leva um clipe sobreposto para a trilha principal */
   onToMain: (clipId: string) => void;
   /** Ajusta o volume do áudio para o pico ficar em -1 dB */
   onNormalize: (clipId: string) => void;
+  /** Tira o ruído de fundo (cria uma cópia limpa do áudio) */
+  onCleanAudio: (target: { kind: 'audio' | 'clip'; id: string }, strength: number) => void;
   /** Clipe esperando o clique no vídeo para escolher o ponto a seguir */
   picking: string | null;
+  notify: (text: string) => void;
+  /** Cortes na trilha principal levam o resto junto */
+  ripple: boolean;
+}
+
+/** O que os painéis de cor precisam do projeto (LUTs importadas). */
+interface ColorContext {
+  luts: SavedLut[];
+  onAddLut: (lut: SavedLut) => void;
   notify: (text: string) => void;
 }
 
@@ -106,6 +128,11 @@ export function Inspector(props: Props) {
   const [overlayTab, setOverlayTab] = useState<OverlayTab>('place');
   const [packTab, setPackTab] = useState<PackTab>('pack');
   let content: ReactNode = <EmptyInspector />;
+  const colors: ColorContext = {
+    luts: project.luts ?? [],
+    onAddLut: (lut) => onChange((p) => ({ ...p, luts: [...(p.luts ?? []), lut] })),
+    notify: props.notify,
+  };
 
   if (selection?.kind === 'clip') {
     const index = project.clips.findIndex((c) => c.id === selection.id);
@@ -134,8 +161,13 @@ export function Inspector(props: Props) {
           onChange={(update) => onChange((p) => updateClip(p, clip.id, update))}
           onMove={(delta) => onChange((p) => moveClip(p, clip.id, delta))}
           onDetach={() => onDetach(clip.id)}
+          colors={colors}
+          onSpeedCurve={(speeds) => {
+            onChange((p) => applySpeed(p, layout.start, layout.length, speeds)?.project ?? p);
+            props.notify(t('Curva de velocidade aplicada: o clipe virou pedacinhos com a velocidade de cada ponto.'));
+          }}
           onRemove={() => {
-            onChange((p) => removeClip(p, clip.id));
+            onChange((p) => deleteMainClip(p, clip.id, props.ripple));
             onSelect(null);
           }}
         />
@@ -161,6 +193,8 @@ export function Inspector(props: Props) {
           onTab={setOverlayTab}
           onChange={(update) => onChange((p) => updateOverlayClip(p, clip.id, update))}
           onToMain={() => props.onToMain(clip.id)}
+          onDrawMask={() => props.onDrawMask(clip.id)}
+          colors={colors}
           onRemove={() => {
             onChange((p) => removeOverlayClip(p, clip.id));
             onSelect(null);
@@ -188,7 +222,6 @@ export function Inspector(props: Props) {
           onChange={(update) => onChange((p) => updatePackClip(p, clip.id, update))}
           onMuteSlow={(muted) => onChange((p) => setSlowMuted(p, clip.id, muted))}
           attachedCount={clip.attached?.length ?? 0}
-          project={project}
           onRemove={() => {
             onChange((p) => deletePack(p, clip.id));
             onSelect(null);
@@ -207,6 +240,7 @@ export function Inspector(props: Props) {
           media={media}
           trackName={found.track.name}
           onNormalize={() => props.onNormalize(found.clip.id)}
+          onClean={(strength) => props.onCleanAudio({ kind: 'audio', id: found.clip.id }, strength)}
           onChange={(update) => onChange((p) => updateAudioClip(p, found.clip.id, update))}
           onRemove={() => {
             onChange((p) => removeAudioClip(p, found.clip.id));
@@ -226,6 +260,8 @@ export function Inspector(props: Props) {
           tab={textTab}
           onTab={setTextTab}
           onChange={(update) => onChange((p) => updateTextClip(p, found.clip.id, update))}
+          onPickPoint={() => props.onPickTextPoint(found.clip.id)}
+          picking={props.picking === `text:${found.clip.id}`}
           onRemove={() => {
             onChange((p) => removeTextClip(p, found.clip.id));
             onSelect(null);
@@ -247,54 +283,25 @@ export function Inspector(props: Props) {
 }
 
 function EmptyInspector() {
+  useShortcutsVersion();
+  // Os atalhos que valem agora (a pessoa pode ter mudado em "Atalhos do teclado").
+  const current = (...ids: string[]): ReactNode => {
+    const labels = ids.map(shortcutLabel).filter(Boolean);
+    return labels.length ? labels.map((label) => <Kbd key={label}>{label}</Kbd>) : '—';
+  };
   const shortcuts: [ReactNode, string][] = [
-    [<Kbd>Espaço</Kbd>, 'Tocar / pausar'],
-    [<Kbd>S</Kbd>, 'Dividir no cursor'],
-    [
-      <>
-        <Kbd>Ctrl</Kbd> + <Kbd>Z</Kbd>
-      </>,
-      'Desfazer',
-    ],
-    [
-      <>
-        <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> + <Kbd>Z</Kbd>
-      </>,
-      'Refazer',
-    ],
-    [
-      <>
-        <Kbd>←</Kbd> <Kbd>→</Kbd>
-      </>,
-      'Quadro a quadro',
-    ],
-    [
-      <>
-        <Kbd>Home</Kbd> <Kbd>End</Kbd>
-      </>,
-      'Início / fim',
-    ],
-    [<Kbd>Delete</Kbd>, 'Excluir selecionado'],
-    [
-      <>
-        <Kbd>Ctrl</Kbd> + <Kbd>C</Kbd> <Kbd>V</Kbd>
-      </>,
-      'Copiar / colar no cursor',
-    ],
-    [
-      <>
-        <Kbd>Ctrl</Kbd> + <Kbd>D</Kbd>
-      </>,
-      'Duplicar',
-    ],
-    [<Kbd>M</Kbd>, 'Marcador no cursor'],
-    [
-      <>
-        <Kbd>Ctrl</Kbd> + <Kbd>←</Kbd> <Kbd>→</Kbd>
-      </>,
-      'Pular entre cortes e marcadores',
-    ],
-    [<Kbd>Botão direito</Kbd>, 'Mais opções'],
+    [current('playPause'), t('Tocar / pausar')],
+    [current('split'), t('Dividir no cursor')],
+    [current('undo'), t('Desfazer')],
+    [current('redo'), t('Refazer')],
+    [current('frameBack', 'frameForward'), t('Quadro a quadro')],
+    [current('goStart', 'goEnd'), t('Início / fim')],
+    [current('delete'), t('Excluir selecionado')],
+    [current('copy', 'paste'), t('Copiar / colar no cursor')],
+    [current('duplicate'), t('Duplicar')],
+    [current('marker'), t('Marcador no cursor')],
+    [current('prevEdit', 'nextEdit'), t('Pular entre cortes e marcadores')],
+    [<Kbd>{t('Botão direito')}</Kbd>, t('Mais opções')],
   ];
   return (
     <div className="flex h-full flex-col p-4">
@@ -302,17 +309,25 @@ function EmptyInspector() {
         <span className="flex size-12 items-center justify-center rounded-2xl bg-panel-3 text-faint">
           <Layers size={22} />
         </span>
-        <p className="font-medium">Nada selecionado</p>
+        <p className="font-medium">{t('Nada selecionado')}</p>
         <p className="text-xs leading-relaxed text-faint">
-          Clique num clipe, num áudio ou numa transição <span className="text-amber">◆</span> na timeline para editar.
+          {t('Clique num clipe, num áudio ou numa transição')} <span className="text-amber">◆</span> {t('na timeline para editar.')}
         </p>
       </div>
-      <SectionTitle>Atalhos</SectionTitle>
+      <SectionTitle
+        extra={
+          <button className="text-[11px] text-faint transition-colors hover:text-accent" onClick={requestShortcutsDialog} title={t('Ver todos e mudar as teclas')}>
+            {t('Ver todos / mudar')}
+          </button>
+        }
+      >
+        {t('Atalhos')}
+      </SectionTitle>
       <ul className="space-y-2">
-        {shortcuts.map(([keys, label]) => (
+        {shortcuts.map(([combo, label]) => (
           <li key={label} className="flex items-center justify-between text-xs text-dim">
             <span>{label}</span>
-            <span className="flex items-center gap-1 text-faint">{keys}</span>
+            <span className="flex items-center gap-1 text-faint">{combo}</span>
           </li>
         ))}
       </ul>
@@ -376,7 +391,11 @@ function ClipInspector({
   onMove,
   onDetach,
   onRemove,
+  colors,
+  onSpeedCurve,
 }: {
+  colors: ColorContext;
+  onSpeedCurve: (speeds: number[]) => void;
   clip: VideoClip;
   media: MediaItem;
   index: number;
@@ -402,13 +421,13 @@ function ClipInspector({
   const dot = <span className="size-1.5 shrink-0 rounded-full bg-accent" />;
 
   const tabs: TabItem<ClipTab>[] = [
-    { id: 'basic', label: 'Básico', icon: <SlidersHorizontal size={14} /> },
-    ...(isImage ? [] : [{ id: 'speed' as const, label: 'Velocidade', icon: <Gauge size={14} />, badge: speedOf(clip) !== 1 ? dot : undefined }]),
-    { id: 'camera', label: 'Câmera', icon: <Video size={14} />, badge: cameraActive ? dot : undefined },
-    { id: 'color', label: 'Cor', icon: <Palette size={14} />, badge: clip.filter ? dot : undefined },
+    { id: 'basic', label: t('Básico'), icon: <SlidersHorizontal size={14} /> },
+    ...(isImage ? [] : [{ id: 'speed' as const, label: t('Velocidade'), icon: <Gauge size={14} />, badge: speedOf(clip) !== 1 ? dot : undefined }]),
+    { id: 'camera', label: t('Câmera'), icon: <Video size={14} />, badge: cameraActive ? dot : undefined },
+    { id: 'color', label: t('Cor'), icon: <Palette size={14} />, badge: clip.filter ? dot : undefined },
     {
       id: 'effects',
-      label: 'Efeitos',
+      label: t('Efeitos'),
       icon: <Sparkles size={14} />,
       badge: clip.effects.length > 0 ? <span className="rounded-full bg-accent-2 px-1 text-[9px] leading-[14px] text-white">{clip.effects.length}</span> : undefined,
     },
@@ -419,7 +438,7 @@ function ClipInspector({
       header={
         <InspectorHeader
           thumb={media.thumbnail && <img src={media.thumbnail} alt="" className="size-full object-cover" />}
-          kicker={`${isImage ? 'Imagem' : 'Vídeo'} · clipe ${index + 1} de ${count}`}
+          kicker={t('{kind} · clipe {n} de {count}', { kind: isImage ? t('Imagem') : t('Vídeo'), n: index + 1, count })}
           title={media.name}
           chips={
             <>
@@ -432,18 +451,18 @@ function ClipInspector({
           }
           actions={
             <>
-              <IconButton label="Mover para a esquerda" disabled={index === 0} onClick={() => onMove(-1)}>
+              <IconButton label={t('Mover para a esquerda')} disabled={index === 0} onClick={() => onMove(-1)}>
                 <ChevronLeft size={15} />
               </IconButton>
-              <IconButton label="Mover para a direita" disabled={index === count - 1} onClick={() => onMove(1)}>
+              <IconButton label={t('Mover para a direita')} disabled={index === count - 1} onClick={() => onMove(1)}>
                 <ChevronRight size={15} />
               </IconButton>
               {media.hasAudio && !clip.audioDetached && (
-                <IconButton label="Separar áudio (vai para uma trilha de áudio)" onClick={onDetach}>
+                <IconButton label={t('Separar áudio (vai para uma trilha de áudio)')} onClick={onDetach}>
                   <Unlink size={14} />
                 </IconButton>
               )}
-              <IconButton label="Remover clipe" className="hover:!text-danger" onClick={onRemove}>
+              <IconButton label={t('Remover clipe')} className="hover:!text-danger" onClick={onRemove}>
                 <Trash size={14} />
               </IconButton>
             </>
@@ -456,9 +475,9 @@ function ClipInspector({
         <>
           {isImage ? (
             <>
-              <SectionTitle>Duração</SectionTitle>
+              <SectionTitle>{t('Duração')}</SectionTitle>
               <LabeledSlider
-                label="Tempo na tela"
+                label={t('Tempo na tela')}
                 value={clipLength(clip)}
                 display={`${clipLength(clip).toFixed(1)}s`}
                 min={0.5}
@@ -466,7 +485,7 @@ function ClipInspector({
                 step={0.1}
                 onChange={(v) => onChange((c) => ({ ...c, trimIn: 0, trimOut: v }))}
               />
-              <Tip>O efeito “Zoom lento (Ken Burns)” ou um movimento na aba Câmera dão vida a fotos.</Tip>
+              <Tip>{t('O efeito “Zoom lento (Ken Burns)” ou um movimento na aba Câmera dão vida a fotos.')}</Tip>
             </>
           ) : (
             <TrimSection
@@ -479,14 +498,14 @@ function ClipInspector({
 
           {media.hasAudio && (
             <>
-              <SectionTitle extra={<AudioLines size={12} className="text-faint" />}>Áudio</SectionTitle>
+              <SectionTitle extra={<AudioLines size={12} className="text-faint" />}>{t('Áudio')}</SectionTitle>
               {clip.audioDetached ? (
                 <p className="rounded-lg bg-teal-400/10 px-3 py-2 text-xs text-teal-200">
-                  O áudio deste clipe foi separado e está numa trilha de áudio.
+                  {t('O áudio deste clipe foi separado e está numa trilha de áudio.')}
                 </p>
               ) : (
                 <LabeledSlider
-                  label="Volume"
+                  label={t('Volume')}
                   value={clip.volume}
                   display={`${Math.round(clip.volume * 100)}%`}
                   min={0}
@@ -500,9 +519,15 @@ function ClipInspector({
         </>
       )}
 
-      {current === 'basic' && <TurnFlip clip={clip} onChange={onChange} />}
+      {current === 'basic' && (
+        <>
+          <TurnFlip clip={clip} onChange={onChange} />
+          <BackgroundSection matte={clip.matte} allowCut={false} onChange={(matte) => onChange((c) => ({ ...c, matte }))} />
+          <ObjectCutoutSection clip={clip} target={{ kind: 'clip', id: clip.id }} onChange={onChange} />
+        </>
+      )}
 
-      {current === 'speed' && <SpeedSection clip={clip} onChange={onChange} />}
+      {current === 'speed' && <SpeedSection clip={clip} onChange={onChange} onSpeedCurve={onSpeedCurve} />}
 
       {current === 'camera' && (
         <CameraPanel
@@ -518,6 +543,8 @@ function ClipInspector({
         <>
           <QuickAdjust effects={clip.effects} onChange={setEffects} />
           <FilterPanel ctx={ctx} filter={clip.filter} onChange={(filter) => onChange((c) => ({ ...c, filter }))} />
+          <GradeSection grade={clip.grade} onChange={(grade) => onChange((c) => ({ ...c, grade }))} />
+          <LutSection {...colors} lut={clip.lut} onChange={(lut) => onChange((c) => ({ ...c, lut }))} onImport={colors.onAddLut} />
         </>
       )}
 
@@ -543,12 +570,12 @@ function TurnFlip({ clip, onChange }: { clip: VideoClip; onChange: (update: (cli
   );
   return (
     <>
-      <SectionTitle extra={clip.turn ? <span className="font-mono text-[11px] text-faint">{clip.turn}°</span> : undefined}>Girar e espelhar</SectionTitle>
+      <SectionTitle extra={clip.turn ? <span className="font-mono text-[11px] text-faint">{clip.turn}°</span> : undefined}>{t('Girar e espelhar')}</SectionTitle>
       <div className="grid grid-cols-4 gap-1.5">
-        {tool('Girar ↺', <RotateCcw size={15} />, () => onChange((c) => turnClip(c, -90)))}
-        {tool('Girar ↻', <RotateCw size={15} />, () => onChange((c) => turnClip(c, 90)))}
-        {tool('Espelhar', <ArrowLeftRight size={15} />, () => onChange((c) => ({ ...c, flipX: !c.flipX })), !!clip.flipX)}
-        {tool('De ponta-cabeça', <ArrowUpDown size={15} />, () => onChange((c) => ({ ...c, flipY: !c.flipY })), !!clip.flipY)}
+        {tool(t('Girar ↺'), <RotateCcw size={15} />, () => onChange((c) => turnClip(c, -90)))}
+        {tool(t('Girar ↻'), <RotateCw size={15} />, () => onChange((c) => turnClip(c, 90)))}
+        {tool(t('Espelhar'), <ArrowLeftRight size={15} />, () => onChange((c) => ({ ...c, flipX: !c.flipX })), !!clip.flipX)}
+        {tool(t('De ponta-cabeça'), <ArrowUpDown size={15} />, () => onChange((c) => ({ ...c, flipY: !c.flipY })), !!clip.flipY)}
       </div>
     </>
   );
@@ -574,13 +601,13 @@ function QuickAdjust({ effects, onChange }: { effects: EffectInstance[]; onChang
       <SectionTitle
         extra={
           effect && (
-            <IconButton label="Zerar ajustes" onClick={() => onChange((list) => list.filter((e) => e.pluginId !== ADJUST_ID))}>
+            <IconButton label={t('Zerar ajustes')} onClick={() => onChange((list) => list.filter((e) => e.pluginId !== ADJUST_ID))}>
               <RotateCcw size={12} />
             </IconButton>
           )
         }
       >
-        Ajustes rápidos
+        {t('Ajustes rápidos')}
       </SectionTitle>
       {plugin.params.map((def) => (
         <ParamControl key={def.id} def={def} value={effect?.params[def.id] ?? paramDefault(def)} onChange={(v) => set(def.id, v)} />
@@ -602,7 +629,7 @@ export function EffectsPanel({
   ctx,
   effects,
   onChange,
-  title = 'Neste clipe',
+  title = t('Neste clipe'),
 }: {
   ctx: KeyframeContext;
   effects: EffectInstance[];
@@ -615,7 +642,7 @@ export function EffectsPanel({
     <>
       {effects.length > 0 && (
         <>
-          <SectionTitle extra={<span className="text-[11px] text-faint">aplicados em ordem</span>}>{title}</SectionTitle>
+          <SectionTitle extra={<span className="text-[11px] text-faint">{t('aplicados em ordem')}</span>}>{title}</SectionTitle>
           <div className="space-y-2">
             {effects.map((effect, i) => (
               <EffectCard
@@ -638,7 +665,7 @@ export function EffectsPanel({
           </div>
           {!adding && (
             <Button variant="secondary" icon={<Plus size={14} />} className="mt-3 w-full" onClick={() => setAdding(true)}>
-              Adicionar efeito
+              {t('Adicionar efeito')}
             </Button>
           )}
         </>
@@ -649,13 +676,13 @@ export function EffectsPanel({
             extra={
               adding &&
               effects.length > 0 && (
-                <IconButton label="Fechar" onClick={() => setAdding(false)}>
+                <IconButton label={t('Fechar')} onClick={() => setAdding(false)}>
                   <X size={13} />
                 </IconButton>
               )
             }
           >
-            Adicionar efeito
+            {t('Adicionar efeito')}
           </SectionTitle>
           <PluginPicker
             kind="effect"
@@ -675,12 +702,21 @@ export function EffectsPanel({
 const SPEEDS = [0.1, 0.25, 0.5, 1, 1.5, 2, 4];
 
 const INTERPOLATIONS: { id: Interpolation; label: string; hint: string }[] = [
-  { id: 'flow', label: 'Fluida', hint: 'Estima o movimento e cria os quadros que faltam.' },
-  { id: 'blend', label: 'Misturar', hint: 'Mistura os quadros vizinhos (rápido, um pouco borrado).' },
-  { id: 'none', label: 'Desligada', hint: 'Repete os quadros (efeito "travado").' },
+  { id: 'flow', label: t('Fluida'), hint: t('Estima o movimento e cria os quadros que faltam.') },
+  { id: 'blend', label: t('Misturar'), hint: t('Mistura os quadros vizinhos (rápido, um pouco borrado).') },
+  { id: 'none', label: t('Desligada'), hint: t('Repete os quadros (efeito "travado").') },
 ];
 
-function SpeedSection({ clip, onChange }: { clip: VideoClip; onChange: (update: (clip: VideoClip) => VideoClip) => void }) {
+function SpeedSection({
+  clip,
+  onChange,
+  onSpeedCurve,
+}: {
+  clip: VideoClip;
+  onChange: (update: (clip: VideoClip) => VideoClip) => void;
+  /** Só na trilha principal: aplica uma rampa de velocidade (o clipe é dividido) */
+  onSpeedCurve?: (speeds: number[]) => void;
+}) {
   const speed = speedOf(clip);
   const interpolation = clip.interpolation ?? 'flow';
   // Escala logarítmica: 0,1× a 4× com 1× no meio do controle.
@@ -688,12 +724,12 @@ function SpeedSection({ clip, onChange }: { clip: VideoClip; onChange: (update: 
   const fromSlider = (v: number) => Math.round(Math.pow(4, v) * 100) / 100;
   return (
     <>
-      <SectionTitle>Velocidade</SectionTitle>
+      <SectionTitle>{t('Velocidade')}</SectionTitle>
       <div className="mb-3 flex items-baseline justify-between">
-        <span className="text-xs text-dim">{speed < 1 ? 'Câmera lenta' : speed > 1 ? 'Acelerado' : 'Normal'}</span>
+        <span className="text-xs text-dim">{speed < 1 ? t('Câmera lenta') : speed > 1 ? t('Acelerado') : t('Normal')}</span>
         <span className="font-mono text-lg font-semibold tabular-nums">{speed}×</span>
       </div>
-      <Slider label="Velocidade" value={toSlider(speed)} min={toSlider(0.1)} max={1} step={0.01} onChange={(v) => onChange((c) => ({ ...c, speed: fromSlider(v) }))} />
+      <Slider label={t('Velocidade')} value={toSlider(speed)} min={toSlider(0.1)} max={1} step={0.01} onChange={(v) => onChange((c) => ({ ...c, speed: fromSlider(v) }))} />
       <div className="mt-3">
         <Segmented
           mono
@@ -704,7 +740,7 @@ function SpeedSection({ clip, onChange }: { clip: VideoClip; onChange: (update: 
       </div>
       {speed < 1 ? (
         <>
-          <SectionTitle>Câmera lenta suave</SectionTitle>
+          <SectionTitle>{t('Câmera lenta suave')}</SectionTitle>
           <Segmented
             options={INTERPOLATIONS.map((i) => ({ value: i.id, label: i.label, title: i.hint }))}
             value={interpolation}
@@ -713,8 +749,9 @@ function SpeedSection({ clip, onChange }: { clip: VideoClip; onChange: (update: 
           <Tip>{INTERPOLATIONS.find((i) => i.id === interpolation)?.hint}</Tip>
         </>
       ) : (
-        <Tip>Abaixo de 1× o Lumiar cria os quadros que faltam, para a câmera lenta ficar fluida.</Tip>
+        <Tip>{t('Abaixo de 1× o Lumiar cria os quadros que faltam, para a câmera lenta ficar fluida.')}</Tip>
       )}
+      {onSpeedCurve && <SpeedCurve onApply={onSpeedCurve} />}
     </>
   );
 }
@@ -751,17 +788,17 @@ function TrimSection({
   const end = (trimOut / duration) * 100;
   return (
     <>
-      <SectionTitle extra={<Scissors size={12} className="text-faint" />}>Corte</SectionTitle>
+      <SectionTitle extra={<Scissors size={12} className="text-faint" />}>{t('Corte')}</SectionTitle>
       <div className="relative mb-3 h-2 rounded-full bg-panel-3">
         <div
           className="absolute inset-y-0 rounded-full bg-gradient-to-r from-accent to-accent-2"
           style={{ left: `${start}%`, width: `${Math.max(0, end - start)}%` }}
         />
       </div>
-      <TrimRow label="Início" value={trimIn} max={duration} onChange={(v) => onChange(Math.min(v, trimOut - 0.1), trimOut)} />
-      <TrimRow label="Fim" value={trimOut} max={duration} onChange={(v) => onChange(trimIn, Math.max(v, trimIn + 0.1))} />
+      <TrimRow label={t('Início')} value={trimIn} max={duration} onChange={(v) => onChange(Math.min(v, trimOut - 0.1), trimOut)} />
+      <TrimRow label={t('Fim')} value={trimOut} max={duration} onChange={(v) => onChange(trimIn, Math.max(v, trimIn + 0.1))} />
       <p className="mt-1 text-right text-[11px] text-faint">
-        Duração: <span className="font-mono text-dim">{formatTime(trimOut - trimIn)}</span> · ou puxe as bordas na timeline
+        {t('Duração:')} <span className="font-mono text-dim">{formatTime(trimOut - trimIn)}</span> · {t('ou puxe as bordas na timeline')}
       </p>
     </>
   );
@@ -790,12 +827,12 @@ export function FilterPanel({
   return (
     <>
       {filter && <FilterCard ctx={ctx} filter={filter} onChange={onChange} />}
-      <SectionTitle>{filter ? 'Trocar filtro' : 'Escolha um filtro'}</SectionTitle>
+      <SectionTitle>{filter ? t('Trocar filtro') : t('Escolha um filtro')}</SectionTitle>
       <PluginPicker
         kind="filter"
         plugins={filterPlugins}
         selected={filter?.pluginId ?? null}
-        none={{ label: 'Nenhum', onPick: () => onChange(null) }}
+        none={{ label: t('Nenhum'), onPick: () => onChange(null) }}
         onPick={(p) => onChange(createFilter(p.id, filter?.intensity ?? 1))}
       />
     </>
@@ -823,17 +860,17 @@ function FilterCard({
           {plugin && previews.get(plugin.id) && <img src={previews.get(plugin.id)} alt="" className="size-full object-cover" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-wider text-faint">{plugin?.category ?? 'Filtro'}</p>
+          <p className="text-[10px] uppercase tracking-wider text-faint">{plugin ? t(plugin.category) : t('Filtro')}</p>
           <p className="truncate font-medium">{plugin?.name ?? filter.pluginId}</p>
         </div>
-        <IconButton label="Remover filtro" className="hover:!text-danger" onClick={() => onChange(null)}>
+        <IconButton label={t('Remover filtro')} className="hover:!text-danger" onClick={() => onChange(null)}>
           <X size={14} />
         </IconButton>
       </div>
       {plugin && (
         <div className="mt-1.5">
           <ParamControl
-            def={{ id: 'intensity', label: 'Intensidade', type: 'float', default: 1, min: 0, max: 1, step: 0.01 }}
+            def={{ id: 'intensity', label: t('Intensidade'), type: 'float', default: 1, min: 0, max: 1, step: 0.01 }}
             value={intensity.value}
             onChange={intensity.onChange}
             keyframes={intensity.control}
@@ -875,19 +912,19 @@ function EffectCard({
   const [open, setOpen] = useState(true);
   const plugin = getPlugin(effect.pluginId);
   if (!plugin) {
-    return <div className="rounded-lg bg-danger/10 p-3 text-xs text-danger">Efeito não encontrado: {effect.pluginId}</div>;
+    return <div className="rounded-lg bg-danger/10 p-3 text-xs text-danger">{t('Efeito não encontrado: {id}', { id: effect.pluginId })}</div>;
   }
   const setParam = (id: string, value: ParamValue) => onChange({ ...effect, params: { ...effect.params, [id]: value } });
 
   return (
     <div className={cx('rounded-xl border border-line bg-panel-2 transition-opacity', !effect.enabled && 'opacity-50')}>
       <div className="flex items-center gap-2 py-1.5 pl-3 pr-1.5">
-        <Switch checked={effect.enabled} label="Ligar/desligar" onChange={(enabled) => onChange({ ...effect, enabled })} />
+        <Switch checked={effect.enabled} label={t('Ligar/desligar')} onChange={(enabled) => onChange({ ...effect, enabled })} />
         <button className="flex min-w-0 flex-1 items-center gap-1 text-left" onClick={() => setOpen(!open)}>
           <span className="truncate font-medium">{plugin.name}</span>
           <ChevronDown size={14} className={cx('shrink-0 text-faint transition-transform', !open && '-rotate-90')} />
         </button>
-        <IconButton label="Remover" className="hover:!text-danger" onClick={onRemove}>
+        <IconButton label={t('Remover')} className="hover:!text-danger" onClick={onRemove}>
           <X size={14} />
         </IconButton>
       </div>
@@ -906,14 +943,14 @@ function EffectCard({
           })}
           {effect.keyframes && (
             <p className="mt-1 text-[11px] leading-snug text-amber/80">
-              Animado com keyframes: mexer num controle cria um keyframe no cursor.
+              {t('Animado com keyframes: mexer num controle cria um keyframe no cursor.')}
             </p>
           )}
           <div className="mt-1 flex items-center gap-0.5 border-t border-line/60 pt-2">
-            <IconButton label="Aplicar antes (subir)" disabled={first} onClick={() => onMove(-1)}>
+            <IconButton label={t('Aplicar antes (subir)')} disabled={first} onClick={() => onMove(-1)}>
               <ArrowUp size={13} />
             </IconButton>
-            <IconButton label="Aplicar depois (descer)" disabled={last} onClick={() => onMove(1)}>
+            <IconButton label={t('Aplicar depois (descer)')} disabled={last} onClick={() => onMove(1)}>
               <ArrowDown size={13} />
             </IconButton>
             <span className="flex-1" />
@@ -925,7 +962,7 @@ function EffectCard({
                 onChange({ ...effect, keyframes: undefined, params: Object.fromEntries(plugin.params.map((d) => [d.id, paramDefault(d)])) })
               }
             >
-              Restaurar
+              {tc('ajuste', 'Restaurar')}
             </Button>
           </div>
         </div>
@@ -943,6 +980,7 @@ function AudioInspector({
   onChange,
   onRemove,
   onNormalize,
+  onClean,
 }: {
   clip: AudioClip;
   media: MediaItem;
@@ -950,7 +988,10 @@ function AudioInspector({
   onChange: (update: (clip: AudioClip) => AudioClip) => void;
   onRemove: () => void;
   onNormalize: () => void;
+  onClean: (strength: number) => void;
 }) {
+  const eq = clip.eq ?? { low: 0, mid: 0, high: 0 };
+  const setEq = (patch: Partial<NonNullable<AudioClip['eq']>>) => onChange((c) => ({ ...c, eq: { ...eq, ...patch } }));
   const length = clipLength(clip);
   const maxFade = Math.max(0.1, Math.min(10, length / 2));
   return (
@@ -962,25 +1003,25 @@ function AudioInspector({
               <AudioLines size={22} />
             </span>
           }
-          kicker={`Áudio · ${trackName}`}
+          kicker={t('Áudio · {track}', { track: trackName })}
           title={media.name}
           chips={
             <>
-              <Chip>início {formatTime(clip.start)}</Chip>
+              <Chip>{t('início {time}', { time: formatTime(clip.start) })}</Chip>
               <Chip>{formatTime(length)}</Chip>
             </>
           }
           actions={
-            <IconButton label="Remover áudio" className="hover:!text-danger" onClick={onRemove}>
+            <IconButton label={t('Remover áudio')} className="hover:!text-danger" onClick={onRemove}>
               <Trash size={14} />
             </IconButton>
           }
         />
       }
     >
-      <SectionTitle extra={<Volume2 size={12} className="text-faint" />}>Volume</SectionTitle>
+      <SectionTitle extra={<Volume2 size={12} className="text-faint" />}>{t('Volume')}</SectionTitle>
       <LabeledSlider
-        label="Volume"
+        label={t('Volume')}
         value={clip.volume}
         display={`${Math.round(clip.volume * 100)}%`}
         min={0}
@@ -989,7 +1030,7 @@ function AudioInspector({
         onChange={(volume) => onChange((c) => ({ ...c, volume }))}
       />
       <LabeledSlider
-        label="Aparecer (fade in)"
+        label={t('Aparecer (fade in)')}
         value={Math.min(clip.fadeIn, maxFade)}
         display={`${clip.fadeIn.toFixed(1)}s`}
         min={0}
@@ -998,7 +1039,7 @@ function AudioInspector({
         onChange={(fadeIn) => onChange((c) => ({ ...c, fadeIn }))}
       />
       <LabeledSlider
-        label="Sumir (fade out)"
+        label={t('Sumir (fade out)')}
         value={Math.min(clip.fadeOut, maxFade)}
         display={`${clip.fadeOut.toFixed(1)}s`}
         min={0}
@@ -1008,10 +1049,88 @@ function AudioInspector({
       />
 
       <Button variant="secondary" icon={<SlidersHorizontal size={13} />} className="mt-1 h-7 w-full text-xs" onClick={onNormalize}>
-        Normalizar volume (pico em -1 dB)
+        {t('Normalizar volume (pico em -1 dB)')}
       </Button>
 
-      <SectionTitle extra={<Mic size={12} className="text-faint" />}>Efeito de voz</SectionTitle>
+      <SectionTitle extra={clip.volumeKeys?.length ? <span className="text-[11px] text-faint">{t('{n} ponto(s)', { n: clip.volumeKeys.length })}</span> : undefined}>
+        {t('Volume por trecho')}
+      </SectionTitle>
+      <p className="text-[11px] leading-snug text-faint">
+        {t('Dê dois cliques no clipe na timeline para criar um ponto na linha amarela e arraste para cima ou para baixo (o meio é 100%). Duplo clique num ponto apaga.')}
+      </p>
+      {!!clip.volumeKeys?.length && (
+        <button className="mt-1 text-[11px] text-faint hover:text-accent" onClick={() => onChange((c) => ({ ...c, volumeKeys: undefined }))}>
+          {t('Apagar os pontos de volume')}
+        </button>
+      )}
+
+      <SectionTitle
+        extra={
+          clip.eq && (
+            <IconButton label={t('Zerar o equalizador')} onClick={() => onChange((c) => ({ ...c, eq: undefined }))}>
+              <RotateCcw size={12} />
+            </IconButton>
+          )
+        }
+      >
+        {t('Equalizador')}
+      </SectionTitle>
+      <div className="mb-1.5 flex flex-wrap gap-1">
+        {(
+          [
+            [t('Voz mais clara'), { low: -4, mid: 2, high: 4 }],
+            [t('Mais grave'), { low: 6, mid: 0, high: -1 }],
+            [t('Tirar chiado'), { low: 0, mid: 0, high: -8 }],
+            [t('Rádio'), { low: -10, mid: 5, high: -6 }],
+          ] as const
+        ).map(([label, preset]) => (
+          <button
+            key={label}
+            onClick={() => onChange((c) => ({ ...c, eq: { ...preset } }))}
+            className="rounded-full border border-line px-2 py-0.5 text-[11px] text-dim transition-colors hover:border-line-strong hover:text-fg"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {(
+        [
+          ['low', t('Graves')],
+          ['mid', t('Médios')],
+          ['high', t('Agudos')],
+        ] as const
+      ).map(([key, label]) => (
+        <LabeledSlider
+          key={key}
+          label={label}
+          value={eq[key]}
+          display={`${eq[key] > 0 ? '+' : ''}${eq[key].toFixed(0)} dB`}
+          min={-12}
+          max={12}
+          step={1}
+          onChange={(v) => setEq({ [key]: v })}
+        />
+      ))}
+
+      <SectionTitle>{t('Limpar o áudio')}</SectionTitle>
+      <p className="mb-1.5 text-[11px] leading-snug text-faint">
+        {t('Tira chiado, ventilador, ar-condicionado e ronco de fundo. Cria uma cópia limpa do áudio (o arquivo original fica intacto).')}
+      </p>
+      <div className="grid grid-cols-3 gap-1.5">
+        {(
+          [
+            [t('Leve'), 0.35],
+            [t('Médio'), 0.65],
+            [t('Forte'), 1],
+          ] as const
+        ).map(([label, strength]) => (
+          <Button key={label} variant="secondary" className="h-7 text-xs" onClick={() => onClean(strength)}>
+            {label}
+          </Button>
+        ))}
+      </div>
+
+      <SectionTitle extra={<Mic size={12} className="text-faint" />}>{t('Efeito de voz')}</SectionTitle>
       <div className="grid grid-cols-3 gap-1.5">
         {VOICE_EFFECTS.map((v) => {
           const active = (clip.voice ?? 'none') === v.id;
@@ -1038,7 +1157,7 @@ function AudioInspector({
         onChange={(trimIn, trimOut) => onChange((c) => ({ ...c, trimIn, trimOut }))}
       />
       <Tip>
-        Arraste o clipe na timeline para mudar de lugar ou de trilha. Use <Kbd>S</Kbd> para dividir no cursor.
+        {t('Arraste o clipe na timeline para mudar de lugar ou de trilha. Use')} <Kbd>{shortcutLabel('split') || '—'}</Kbd> {t('para dividir no cursor.')}
       </Tip>
     </InspectorPanel>
   );
@@ -1062,14 +1181,14 @@ function TransitionInspector({
       header={
         <>
           <p className="text-[11px] text-faint">
-            Transição · entre o clipe {index + 1} e o {index + 2}
+            {t('Transição · entre o clipe {a} e o {b}', { a: index + 1, b: index + 2 })}
           </p>
-          <h3 className="mb-3 text-sm font-semibold">{plugin ? plugin.name : 'Corte seco'}</h3>
+          <h3 className="mb-3 text-sm font-semibold">{plugin ? plugin.name : t('Corte seco')}</h3>
           <div className="relative aspect-video overflow-hidden rounded-xl bg-panel-3 ring-1 ring-line">
             {plugin ? (
               <LivePreview plugin={plugin} />
             ) : (
-              <div className="flex size-full items-center justify-center text-xs text-faint">Sem transição</div>
+              <div className="flex size-full items-center justify-center text-xs text-faint">{t('Sem transição')}</div>
             )}
           </div>
           {plugin?.description && <p className="mt-2 text-xs leading-snug text-dim">{plugin.description}</p>}
@@ -1078,9 +1197,9 @@ function TransitionInspector({
     >
       {transition && (
         <>
-          <SectionTitle>Ajustes</SectionTitle>
+          <SectionTitle>{t('Ajustes')}</SectionTitle>
           <LabeledSlider
-            label="Duração"
+            label={t('Duração')}
             value={transition.duration}
             display={`${transition.duration.toFixed(2)}s`}
             min={0.1}
@@ -1099,12 +1218,12 @@ function TransitionInspector({
         </>
       )}
 
-      <SectionTitle>{transition ? 'Trocar transição' : 'Escolha uma transição'}</SectionTitle>
+      <SectionTitle>{transition ? t('Trocar transição') : t('Escolha uma transição')}</SectionTitle>
       <PluginPicker
         kind="transition"
         plugins={transitionPlugins}
         selected={transition?.pluginId ?? null}
-        none={{ label: 'Corte seco', onPick: () => onChange(null) }}
+        none={{ label: t('Corte seco'), onPick: () => onChange(null) }}
         onPick={(p) => onChange(createTransition(p.id, transition?.duration))}
       />
     </InspectorPanel>
@@ -1117,21 +1236,21 @@ export type OverlayTab = 'basic' | 'place' | 'speed' | 'color' | 'effects';
 
 /** Posições prontas: tela cheia, cantos (picture-in-picture) e metades. */
 const PLACEMENTS: { label: string; transform: Partial<LayerTransform> }[] = [
-  { label: 'Tela cheia', transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0, radius: 0 } },
-  { label: 'Centro', transform: { x: 0.5, y: 0.5, scale: 0.6, rotation: 0 } },
-  { label: '↖ Canto', transform: { x: 0.26, y: 0.27, scale: 0.4, rotation: 0 } },
-  { label: '↗ Canto', transform: { x: 0.74, y: 0.27, scale: 0.4, rotation: 0 } },
-  { label: '↙ Canto', transform: { x: 0.26, y: 0.73, scale: 0.4, rotation: 0 } },
-  { label: '↘ Canto', transform: { x: 0.74, y: 0.73, scale: 0.4, rotation: 0 } },
-  { label: 'Metade esq.', transform: { x: 0.25, y: 0.5, scale: 0.5, rotation: 0, radius: 0 } },
-  { label: 'Metade dir.', transform: { x: 0.75, y: 0.5, scale: 0.5, rotation: 0, radius: 0 } },
+  { label: t('Tela cheia'), transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0, radius: 0 } },
+  { label: t('Centro'), transform: { x: 0.5, y: 0.5, scale: 0.6, rotation: 0 } },
+  { label: t('↖ Canto'), transform: { x: 0.26, y: 0.27, scale: 0.4, rotation: 0 } },
+  { label: t('↗ Canto'), transform: { x: 0.74, y: 0.27, scale: 0.4, rotation: 0 } },
+  { label: t('↙ Canto'), transform: { x: 0.26, y: 0.73, scale: 0.4, rotation: 0 } },
+  { label: t('↘ Canto'), transform: { x: 0.74, y: 0.73, scale: 0.4, rotation: 0 } },
+  { label: t('Metade esq.'), transform: { x: 0.25, y: 0.5, scale: 0.5, rotation: 0, radius: 0 } },
+  { label: t('Metade dir.'), transform: { x: 0.75, y: 0.5, scale: 0.5, rotation: 0, radius: 0 } },
 ];
 
 const BLENDS: { value: BlendMode; label: string; title: string }[] = [
-  { value: 'normal', label: 'Normal', title: 'Cobre o que está embaixo' },
-  { value: 'screen', label: 'Clarear', title: 'Só as partes claras aparecem (bom para luz, fogo, partículas)' },
-  { value: 'add', label: 'Somar', title: 'Soma a luz das duas camadas' },
-  { value: 'multiply', label: 'Escurecer', title: 'Só as partes escuras aparecem' },
+  { value: 'normal', label: t('Normal'), title: t('Cobre o que está embaixo') },
+  { value: 'screen', label: t('Clarear'), title: t('Só as partes claras aparecem (bom para luz, fogo, partículas)') },
+  { value: 'add', label: t('Somar'), title: t('Soma a luz das duas camadas') },
+  { value: 'multiply', label: t('Escurecer'), title: t('Só as partes escuras aparecem') },
 ];
 
 function OverlayInspector({
@@ -1144,6 +1263,8 @@ function OverlayInspector({
   onChange,
   onRemove,
   onToMain,
+  onDrawMask,
+  colors,
 }: {
   clip: OverlayClip;
   media: MediaItem;
@@ -1154,6 +1275,8 @@ function OverlayInspector({
   onChange: (update: (clip: OverlayClip) => OverlayClip) => void;
   onRemove: () => void;
   onToMain: () => void;
+  onDrawMask: () => void;
+  colors: ColorContext;
 }) {
   const isImage = media.kind === 'image';
   const current = isImage && tab === 'speed' ? 'basic' : tab;
@@ -1165,13 +1288,13 @@ function OverlayInspector({
   const maxFade = Math.max(0.1, Math.min(10, length / 2));
 
   const tabs: TabItem<OverlayTab>[] = [
-    { id: 'basic', label: 'Básico', icon: <SlidersHorizontal size={14} /> },
-    { id: 'place', label: 'Posição', icon: <Move size={14} />, badge: tf.chroma ? dot : undefined },
-    ...(isImage ? [] : [{ id: 'speed' as const, label: 'Velocidade', icon: <Gauge size={14} />, badge: speedOf(clip) !== 1 ? dot : undefined }]),
-    { id: 'color', label: 'Cor', icon: <Palette size={14} />, badge: clip.filter ? dot : undefined },
+    { id: 'basic', label: t('Básico'), icon: <SlidersHorizontal size={14} /> },
+    { id: 'place', label: t('Posição'), icon: <Move size={14} />, badge: tf.chroma ? dot : undefined },
+    ...(isImage ? [] : [{ id: 'speed' as const, label: t('Velocidade'), icon: <Gauge size={14} />, badge: speedOf(clip) !== 1 ? dot : undefined }]),
+    { id: 'color', label: t('Cor'), icon: <Palette size={14} />, badge: clip.filter ? dot : undefined },
     {
       id: 'effects',
-      label: 'Efeitos',
+      label: t('Efeitos'),
       icon: <Sparkles size={14} />,
       badge: clip.effects.length > 0 ? <span className="rounded-full bg-accent-2 px-1 text-[9px] leading-[14px] text-white">{clip.effects.length}</span> : undefined,
     },
@@ -1182,20 +1305,20 @@ function OverlayInspector({
       header={
         <InspectorHeader
           thumb={media.thumbnail && <img src={media.thumbnail} alt="" className="size-full object-cover" />}
-          kicker={`Sobreposição · ${trackName}`}
+          kicker={t('Sobreposição · {track}', { track: trackName })}
           title={media.name}
           chips={
             <>
-              <Chip>início {formatTime(clip.start)}</Chip>
+              <Chip>{t('início {time}', { time: formatTime(clip.start) })}</Chip>
               <Chip>{formatTime(length)}</Chip>
             </>
           }
           actions={
             <>
-              <IconButton label="Levar para a trilha principal" onClick={onToMain}>
+              <IconButton label={t('Levar para a trilha principal')} onClick={onToMain}>
                 <ArrowDown size={14} />
               </IconButton>
-              <IconButton label="Remover" className="hover:!text-danger" onClick={onRemove}>
+              <IconButton label={t('Remover')} className="hover:!text-danger" onClick={onRemove}>
                 <Trash size={14} />
               </IconButton>
             </>
@@ -1208,9 +1331,9 @@ function OverlayInspector({
         <>
           {isImage ? (
             <>
-              <SectionTitle>Duração</SectionTitle>
+              <SectionTitle>{t('Duração')}</SectionTitle>
               <LabeledSlider
-                label="Tempo na tela"
+                label={t('Tempo na tela')}
                 value={length}
                 display={`${length.toFixed(1)}s`}
                 min={0.5}
@@ -1227,14 +1350,14 @@ function OverlayInspector({
               onChange={(trimIn, trimOut) => onChange((c) => ({ ...c, trimIn, trimOut }))}
             />
           )}
-          <SectionTitle>Aparecer e sumir</SectionTitle>
-          <LabeledSlider label="Aparecer (fade in)" value={Math.min(clip.fadeIn, maxFade)} display={`${clip.fadeIn.toFixed(1)}s`} min={0} max={maxFade} step={0.1} onChange={(fadeIn) => onChange((c) => ({ ...c, fadeIn }))} />
-          <LabeledSlider label="Sumir (fade out)" value={Math.min(clip.fadeOut, maxFade)} display={`${clip.fadeOut.toFixed(1)}s`} min={0} max={maxFade} step={0.1} onChange={(fadeOut) => onChange((c) => ({ ...c, fadeOut }))} />
+          <SectionTitle>{t('Aparecer e sumir')}</SectionTitle>
+          <LabeledSlider label={t('Aparecer (fade in)')} value={Math.min(clip.fadeIn, maxFade)} display={`${clip.fadeIn.toFixed(1)}s`} min={0} max={maxFade} step={0.1} onChange={(fadeIn) => onChange((c) => ({ ...c, fadeIn }))} />
+          <LabeledSlider label={t('Sumir (fade out)')} value={Math.min(clip.fadeOut, maxFade)} display={`${clip.fadeOut.toFixed(1)}s`} min={0} max={maxFade} step={0.1} onChange={(fadeOut) => onChange((c) => ({ ...c, fadeOut }))} />
           {media.hasAudio && (
             <>
-              <SectionTitle extra={<AudioLines size={12} className="text-faint" />}>Áudio</SectionTitle>
+              <SectionTitle extra={<AudioLines size={12} className="text-faint" />}>{t('Áudio')}</SectionTitle>
               <LabeledSlider
-                label="Volume"
+                label={t('Volume')}
                 value={clip.volume}
                 display={`${Math.round(clip.volume * 100)}%`}
                 min={0}
@@ -1245,13 +1368,15 @@ function OverlayInspector({
             </>
           )}
           <TurnFlip clip={clip} onChange={setVideo} />
-          <Tip>Arraste o clipe na timeline para mudar de lugar ou de trilha. Trilhas mais altas ficam por cima.</Tip>
+          <BackgroundSection matte={clip.matte} allowCut onChange={(matte) => onChange((c) => ({ ...c, matte }))} />
+          <ObjectCutoutSection clip={clip} target={{ kind: 'overlay', id: clip.id }} onChange={setVideo} />
+          <Tip>{t('Arraste o clipe na timeline para mudar de lugar ou de trilha. Trilhas mais altas ficam por cima.')}</Tip>
         </>
       )}
 
       {current === 'place' && (
         <>
-          <SectionTitle>Posições prontas</SectionTitle>
+          <SectionTitle>{t('Posições prontas')}</SectionTitle>
           <div className="grid grid-cols-4 gap-1.5">
             {PLACEMENTS.map((p) => (
               <button
@@ -1264,27 +1389,27 @@ function OverlayInspector({
             ))}
           </div>
 
-          <SectionTitle>Tamanho e posição</SectionTitle>
-          <LabeledSlider label="Tamanho" value={tf.scale} display={`${Math.round(tf.scale * 100)}%`} min={0.05} max={2} step={0.01} onChange={(scale) => setTransform({ scale })} />
-          <LabeledSlider label="Horizontal" value={tf.x} display={`${Math.round(tf.x * 100)}%`} min={-0.25} max={1.25} step={0.005} onChange={(x) => setTransform({ x })} />
-          <LabeledSlider label="Vertical" value={tf.y} display={`${Math.round(tf.y * 100)}%`} min={-0.25} max={1.25} step={0.005} onChange={(y) => setTransform({ y })} />
-          <LabeledSlider label="Rotação" value={tf.rotation} display={`${Math.round(tf.rotation)}°`} min={-180} max={180} step={1} onChange={(rotation) => setTransform({ rotation })} />
-          <LabeledSlider label="Cantos arredondados" value={tf.radius} display={`${Math.round(tf.radius * 200)}%`} min={0} max={0.5} step={0.005} onChange={(radius) => setTransform({ radius })} />
-          <LabeledSlider label="Opacidade" value={tf.opacity} display={`${Math.round(tf.opacity * 100)}%`} min={0} max={1} step={0.01} onChange={(opacity) => setTransform({ opacity })} />
-          <p className="mt-1 text-[11px] text-faint">Dica: com este clipe selecionado, arraste a imagem direto no preview.</p>
+          <SectionTitle>{t('Tamanho e posição')}</SectionTitle>
+          <LabeledSlider label={t('Tamanho')} value={tf.scale} display={`${Math.round(tf.scale * 100)}%`} min={0.05} max={2} step={0.01} onChange={(scale) => setTransform({ scale })} />
+          <LabeledSlider label={t('Horizontal')} value={tf.x} display={`${Math.round(tf.x * 100)}%`} min={-0.25} max={1.25} step={0.005} onChange={(x) => setTransform({ x })} />
+          <LabeledSlider label={t('Vertical')} value={tf.y} display={`${Math.round(tf.y * 100)}%`} min={-0.25} max={1.25} step={0.005} onChange={(y) => setTransform({ y })} />
+          <LabeledSlider label={t('Rotação')} value={tf.rotation} display={`${Math.round(tf.rotation)}°`} min={-180} max={180} step={1} onChange={(rotation) => setTransform({ rotation })} />
+          <LabeledSlider label={t('Cantos arredondados')} value={tf.radius} display={`${Math.round(tf.radius * 200)}%`} min={0} max={0.5} step={0.005} onChange={(radius) => setTransform({ radius })} />
+          <LabeledSlider label={t('Opacidade')} value={tf.opacity} display={`${Math.round(tf.opacity * 100)}%`} min={0} max={1} step={0.01} onChange={(opacity) => setTransform({ opacity })} />
+          <p className="mt-1 text-[11px] text-faint">{t('Dica: com este clipe selecionado, arraste a imagem direto no preview.')}</p>
 
-          <SectionTitle>Mesclagem</SectionTitle>
+          <SectionTitle>{t('Mesclagem')}</SectionTitle>
           <Segmented options={BLENDS} value={tf.blend} onChange={(blend) => setTransform({ blend })} />
 
           <SectionTitle
-            extra={<Switch checked={!!tf.chroma} label="Chroma key" onChange={(on) => setTransform({ chroma: on ? { color: '#00ff00', similarity: 0.4, smoothness: 0.2 } : null })} />}
+            extra={<Switch checked={!!tf.chroma} label={t('Chroma key')} onChange={(on) => setTransform({ chroma: on ? { color: '#00ff00', similarity: 0.4, smoothness: 0.2 } : null })} />}
           >
-            Fundo verde (chroma key)
+            {t('Fundo verde (chroma key)')}
           </SectionTitle>
           {tf.chroma ? (
             <>
               <div className="flex items-center justify-between py-1.5">
-                <span className="text-xs text-dim">Cor a remover</span>
+                <span className="text-xs text-dim">{t('Cor a remover')}</span>
                 <div className="flex items-center gap-1.5">
                   {['#00ff00', '#0047ff', '#ffffff', '#000000'].map((color) => (
                     <button
@@ -1295,7 +1420,7 @@ function OverlayInspector({
                       style={{ background: color }}
                     />
                   ))}
-                  <label className="relative size-5 cursor-pointer overflow-hidden rounded ring-1 ring-white/20" title="Outra cor" style={{ background: tf.chroma.color }}>
+                  <label className="relative size-5 cursor-pointer overflow-hidden rounded ring-1 ring-white/20" title={t('Outra cor')} style={{ background: tf.chroma.color }}>
                     <input
                       type="color"
                       className="absolute inset-0 cursor-pointer opacity-0"
@@ -1305,12 +1430,13 @@ function OverlayInspector({
                   </label>
                 </div>
               </div>
-              <LabeledSlider label="Alcance da cor" value={tf.chroma.similarity} display={`${Math.round(tf.chroma.similarity * 100)}%`} min={0} max={1} step={0.01} onChange={(similarity) => setTransform({ chroma: { ...tf.chroma!, similarity } })} />
-              <LabeledSlider label="Suavidade da borda" value={tf.chroma.smoothness} display={`${Math.round(tf.chroma.smoothness * 100)}%`} min={0} max={1} step={0.01} onChange={(smoothness) => setTransform({ chroma: { ...tf.chroma!, smoothness } })} />
+              <LabeledSlider label={t('Alcance da cor')} value={tf.chroma.similarity} display={`${Math.round(tf.chroma.similarity * 100)}%`} min={0} max={1} step={0.01} onChange={(similarity) => setTransform({ chroma: { ...tf.chroma!, similarity } })} />
+              <LabeledSlider label={t('Suavidade da borda')} value={tf.chroma.smoothness} display={`${Math.round(tf.chroma.smoothness * 100)}%`} min={0} max={1} step={0.01} onChange={(smoothness) => setTransform({ chroma: { ...tf.chroma!, smoothness } })} />
             </>
           ) : (
-            <p className="text-[11px] leading-snug text-faint">Ligue para apagar o fundo verde (ou azul) de um vídeo gravado com tela de chroma.</p>
+            <p className="text-[11px] leading-snug text-faint">{t('Ligue para apagar o fundo verde (ou azul) de um vídeo gravado com tela de chroma.')}</p>
           )}
+          <MaskSection mask={tf.mask} onChange={(mask) => setTransform({ mask })} onDraw={onDrawMask} />
         </>
       )}
 
@@ -1319,6 +1445,8 @@ function OverlayInspector({
         <>
           <QuickAdjust effects={clip.effects} onChange={(update) => onChange((c) => ({ ...c, effects: update(c.effects) }))} />
           <FilterPanel ctx={ctx} filter={clip.filter} onChange={(filter) => onChange((c) => ({ ...c, filter }))} />
+          <GradeSection grade={clip.grade} onChange={(grade) => onChange((c) => ({ ...c, grade }))} />
+          <LutSection {...colors} lut={clip.lut} onChange={(lut) => onChange((c) => ({ ...c, lut }))} onImport={colors.onAddLut} />
         </>
       )}
       {current === 'effects' && <EffectsPanel ctx={ctx} effects={clip.effects} onChange={(update) => onChange((c) => ({ ...c, effects: update(c.effects) }))} />}

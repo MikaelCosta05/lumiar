@@ -1,0 +1,24 @@
+{
+  "name": "Thriller amarelo",
+  "description": "Amarelo-mostarda de filme de crime em lugar quente: luzes queimadas, sombras marrons e contraste seco.",
+  "category": "Cinema",
+  "previewMedia": "pessoa",
+  "params": [
+    {
+      "id": "yellowAmt",
+      "label": "Amarelo",
+      "type": "float",
+      "default": 0.7,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "contrast",
+      "label": "Contraste",
+      "type": "float",
+      "default": 1.1,
+      "min": 0.5,
+      "max": 1.5
+    }
+  ]
+}

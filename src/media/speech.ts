@@ -1,5 +1,6 @@
 import { AudioBufferSource, BufferTarget, Output, WavOutputFormat } from 'mediabunny';
 import { assetUrl } from '../assetUrl';
+import { t } from '../i18n';
 import type { SpeakMessage, SpeakRequest } from './tts.worker';
 
 /** Vozes sintéticas guardadas no app (public/models/tts), funcionam sem internet. */
@@ -37,7 +38,7 @@ export function speak(text: string, model: string, onLoading?: (fraction: number
 
 function fileName(text: string): string {
   const words = text.replace(/[\\/:*?"<>|\n]+/g, ' ').trim().split(/\s+/).slice(0, 5).join(' ');
-  return `Voz · ${words || 'texto'}`;
+  return t('Voz · {words}', { words: words || t('texto') });
 }
 
 async function encodeWav(samples: Float32Array, sampleRate: number): Promise<Blob> {

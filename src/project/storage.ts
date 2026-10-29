@@ -1,5 +1,8 @@
 import { restoreMediaAssets } from '../media/importer';
-import { createProject, type MediaItem, type Project } from './model';
+import { desktop } from '../media/screenRecorder';
+import { DEFAULT_BRAND, type BrandKit } from './brand';
+import { createProject, removeMedia, type MediaItem, type Project } from './model';
+import { t } from '../i18n';
 
 /**
  * Arquivo .lumiar = um pacote só, fácil de levar para outro computador:
@@ -21,7 +24,7 @@ interface SavedProject {
   project: Omit<Project, 'media'> & { media: SavedMedia[] };
 }
 
-const FILE_TYPES: FilePickerAcceptType[] = [{ description: 'Projeto Lumiar', accept: { 'application/x-lumiar': ['.lumiar'] } }];
+const FILE_TYPES: FilePickerAcceptType[] = [{ description: t('Projeto Lumiar'), accept: { 'application/x-lumiar': ['.lumiar'] } }];
 
 function serialize(project: Project): SavedProject {
   let offset = 0;
@@ -59,11 +62,17 @@ async function revive(saved: SavedProject, fileFor: (m: SavedMedia) => File | nu
     media.push(await restoreMediaAssets({ ...rest, file, url: URL.createObjectURL(file) }));
   }
   // Campos novos de versões futuras ganham o valor padrão.
-  return { ...createProject(), ...saved.project, media };
+  let project: Project = { ...createProject(), ...saved.project, media };
+  // Mídia que não voltou: os clipes dela saem junto. Se ficassem, a timeline (que pula clipes sem mídia)
+  // e as funções que usam a posição do clipe na trilha principal discordariam, e dividir ou colar mexeria
+  // no clipe errado.
+  const found = new Set(media.map((m) => m.id));
+  for (const m of saved.project.media) if (!found.has(m.id)) project = removeMedia(project, m.id);
+  return project;
 }
 
 export function suggestedFileName(project: Project): string {
-  return `${project.name.trim().replace(/[\\/:*?"<>|]+/g, '-') || 'projeto'}.lumiar`;
+  return `${project.name.trim().replace(/[\\/:*?"<>|]+/g, '-') || t('projeto')}.lumiar`;
 }
 
 export interface SaveResult {
@@ -117,7 +126,7 @@ export async function saveProject(project: Project, handle: FileSystemFileHandle
 
 export async function openProjectFile(file: File): Promise<Project> {
   const head = new Uint8Array(await file.slice(0, HEADER_SIZE).arrayBuffer());
-  if (new TextDecoder().decode(head.slice(0, 8)) !== MAGIC) throw new Error(`"${file.name}" não é um projeto do Lumiar.`);
+  if (new TextDecoder().decode(head.slice(0, 8)) !== MAGIC) throw new Error(t('"{name}" não é um projeto do Lumiar.', { name: file.name }));
   const length = new DataView(head.buffer).getUint32(8, true);
   const saved = JSON.parse(await file.slice(HEADER_SIZE, HEADER_SIZE + length).text()) as SavedProject;
   const dataStart = HEADER_SIZE + length;
@@ -146,15 +155,63 @@ export async function pickProjectFile(): Promise<{ file: File; handle: FileSyste
 const DB_NAME = 'lumiar';
 const STATE_STORE = 'state';
 const MEDIA_STORE = 'media';
+/** Quais mídias cada cópia de segurança usa, separado das cópias (que são grandes) para ler rápido. */
+const VERSION_MEDIA_STORE = 'versionMedia';
 /** Mídias já guardadas nesta sessão (cada arquivo é gravado uma vez só). */
 const storedMedia = new Set<string>();
 
+/**
+ * Programa instalado: no lugar de uma cópia do vídeo (que dobraria o espaço usado no disco), o salvamento
+ * automático guarda onde ele está. Mídias sem arquivo no disco (gravações, recortes, abertas de um .lumiar)
+ * continuam sendo copiadas.
+ */
+interface DiskRef {
+  path: string;
+  name: string;
+  type: string;
+  size: number;
+  lastModified: number;
+}
+
+function diskRef(file: File): DiskRef | null {
+  const path = desktop()?.pathForFile?.(file);
+  return path ? { path, name: file.name, type: file.type, size: file.size, lastModified: file.lastModified } : null;
+}
+
+async function readStored(value: File | DiskRef): Promise<File | null> {
+  if (value instanceof Blob) return value;
+  try {
+    const response = await fetch(`/__disco/${encodeURIComponent(value.path)}`);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    // Outro tamanho: o arquivo foi trocado depois de importado.
+    if (blob.size !== value.size) return null;
+    return new File([blob], value.name, { type: value.type, lastModified: value.lastModified });
+  } catch {
+    return null;
+  }
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(STATE_STORE);
-      request.result.createObjectStore(MEDIA_STORE);
+    const request = indexedDB.open(DB_NAME, 2);
+    request.onupgradeneeded = (event) => {
+      const db = request.result;
+      if (event.oldVersion < 1) {
+        db.createObjectStore(STATE_STORE);
+        db.createObjectStore(MEDIA_STORE);
+      }
+      if (event.oldVersion < 2) {
+        const versionMedia = db.createObjectStore(VERSION_MEDIA_STORE);
+        // Cópias guardadas antes: a lista de mídias sai de dentro de cada uma.
+        const cursor = request.transaction!.objectStore(STATE_STORE).openCursor(VERSION_RANGE);
+        cursor.onsuccess = () => {
+          const c = cursor.result;
+          if (!c) return;
+          versionMedia.put((c.value as VersionRecord).mediaIds ?? [], c.key);
+          c.continue();
+        };
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -186,18 +243,30 @@ export function hasContent(project: Project): boolean {
   );
 }
 
+/** Mídias usadas pelas cópias de segurança (essas ficam guardadas). */
+async function versionMediaIds(tx: IDBTransaction): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const list of (await request(tx.objectStore(VERSION_MEDIA_STORE).getAll())) as string[][]) list.forEach((id) => ids.add(id));
+  return ids;
+}
+
 /** Guarda o projeto atual no navegador, para recuperar se a aba fechar. */
 export async function autosave(project: Project): Promise<void> {
   const db = await openDb();
   try {
-    const ids = new Set(project.media.map((m) => m.id));
-    const tx = db.transaction([STATE_STORE, MEDIA_STORE], 'readwrite');
+    const tx = db.transaction([STATE_STORE, MEDIA_STORE, VERSION_MEDIA_STORE], 'readwrite');
     const mediaStore = tx.objectStore(MEDIA_STORE);
+    const added: string[] = [];
+    const onDisk: string[] = [];
     for (const m of project.media) {
       if (storedMedia.has(m.id)) continue;
-      mediaStore.put(m.file, m.id);
-      storedMedia.add(m.id);
+      const ref = diskRef(m.file);
+      if (ref) onDisk.push(ref.path);
+      mediaStore.put(ref ?? m.file, m.id);
+      added.push(m.id);
     }
+    const ids = await versionMediaIds(tx);
+    project.media.forEach((m) => ids.add(m.id));
     for (const key of await request(mediaStore.getAllKeys())) {
       if (!ids.has(String(key))) {
         mediaStore.delete(key);
@@ -206,39 +275,188 @@ export async function autosave(project: Project): Promise<void> {
     }
     tx.objectStore(STATE_STORE).put({ json: JSON.stringify(serialize(project)), savedAt: Date.now() }, 'current');
     await done(tx);
+    // Só depois de gravado: se a gravação falhar (disco cheio), a próxima tentativa grava essas mídias de novo.
+    added.forEach((id) => storedMedia.add(id));
+    if (onDisk.length) await desktop()?.rememberFiles?.(onDisk);
   } finally {
     db.close();
   }
 }
 
-export async function loadAutosave(): Promise<{ project: Project; savedAt: number } | null> {
+export interface RevivedProject {
+  project: Project;
+  /** Mídias que não deu para recuperar (arquivo apagado, movido ou trocado) */
+  missing: string[];
+}
+
+/** Monta o projeto guardado, buscando cada mídia (cópia no banco ou arquivo no disco). */
+async function reviveStored(saved: SavedProject): Promise<RevivedProject> {
+  const stored = new Map<string, File | DiskRef>();
   const db = await openDb();
   try {
-    const tx = db.transaction([STATE_STORE, MEDIA_STORE], 'readonly');
-    const state = (await request(tx.objectStore(STATE_STORE).get('current'))) as { json: string; savedAt: number } | undefined;
-    if (!state) return null;
-    const saved = JSON.parse(state.json) as SavedProject;
-    const files = new Map<string, File>();
+    const store = db.transaction([MEDIA_STORE], 'readonly').objectStore(MEDIA_STORE);
     for (const m of saved.project.media) {
-      const file = (await request(tx.objectStore(MEDIA_STORE).get(m.id))) as File | undefined;
-      if (file) files.set(m.id, file);
+      const value = (await request(store.get(m.id))) as File | DiskRef | undefined;
+      if (value) stored.set(m.id, value);
     }
-    const project = await revive(saved, (m) => files.get(m.id) ?? null);
-    project.media.forEach((m) => storedMedia.add(m.id));
-    return hasContent(project) ? { project, savedAt: state.savedAt } : null;
   } finally {
     db.close();
   }
+  // Ler do disco fica fora da transação (ela fecharia sozinha enquanto espera).
+  const files = new Map<string, File>();
+  for (const [id, value] of stored) {
+    const file = await readStored(value);
+    if (file) files.set(id, file);
+  }
+  const project = await revive(saved, (m) => files.get(m.id) ?? null);
+  return { project, missing: saved.project.media.filter((m) => !files.has(m.id)).map((m) => m.name) };
+}
+
+export interface AutosaveFound {
+  name: string;
+  savedAt: number;
+  /** Lê as mídias e monta o projeto (pode demorar com vídeos grandes, por isso só quando o usuário aceita). */
+  load(): Promise<RevivedProject>;
+}
+
+export async function loadAutosave(): Promise<AutosaveFound | null> {
+  const db = await openDb();
+  let saved: SavedProject;
+  let savedAt: number;
+  try {
+    const tx = db.transaction([STATE_STORE], 'readonly');
+    const state = (await request(tx.objectStore(STATE_STORE).get('current'))) as { json: string; savedAt: number } | undefined;
+    if (!state) return null;
+    saved = JSON.parse(state.json) as SavedProject;
+    savedAt = state.savedAt;
+  } finally {
+    db.close();
+  }
+  if (!hasContent({ ...createProject(), ...saved.project } as unknown as Project)) return null;
+  return {
+    name: saved.project.name,
+    savedAt,
+    load: async () => {
+      const revived = await reviveStored(saved);
+      revived.project.media.forEach((m) => storedMedia.add(m.id));
+      return revived;
+    },
+  };
 }
 
 export async function clearAutosave(): Promise<void> {
   const db = await openDb();
   try {
-    const tx = db.transaction([STATE_STORE, MEDIA_STORE], 'readwrite');
-    tx.objectStore(STATE_STORE).clear();
-    tx.objectStore(MEDIA_STORE).clear();
-    storedMedia.clear();
+    const tx = db.transaction([STATE_STORE, MEDIA_STORE, VERSION_MEDIA_STORE], 'readwrite');
+    const state = tx.objectStore(STATE_STORE);
+    state.delete('current');
+    // As versões guardadas continuam (e as mídias delas também).
+    const keep = await versionMediaIds(tx);
+    const media = tx.objectStore(MEDIA_STORE);
+    for (const key of await request(media.getAllKeys())) {
+      if (!keep.has(String(key))) {
+        media.delete(key);
+        storedMedia.delete(String(key));
+      }
+    }
     await done(tx);
+  } finally {
+    db.close();
+  }
+}
+
+// ---------------------------------------------------------------- Versões (cópias de segurança)
+
+const VERSION_RANGE = IDBKeyRange.bound('version:', 'version:\uffff');
+/** Quantas versões ficam guardadas (as mais antigas saem). */
+const MAX_VERSIONS = 15;
+
+interface VersionRecord {
+  json: string;
+  savedAt: number;
+  name: string;
+  /** Resumo para a lista: duração e quantidade de clipes */
+  summary: string;
+  /** Só nas cópias antigas: hoje a lista fica em VERSION_MEDIA_STORE */
+  mediaIds?: string[];
+}
+
+export interface VersionInfo {
+  key: string;
+  savedAt: number;
+  name: string;
+  summary: string;
+}
+
+/** Guarda uma cópia do projeto como está agora (o salvamento automático já guarda as mídias). */
+export async function saveVersion(project: Project, summary: string): Promise<void> {
+  await autosave(project);
+  const db = await openDb();
+  try {
+    const tx = db.transaction([STATE_STORE, VERSION_MEDIA_STORE], 'readwrite');
+    const state = tx.objectStore(STATE_STORE);
+    const versionMedia = tx.objectStore(VERSION_MEDIA_STORE);
+    const savedAt = Date.now();
+    const record: VersionRecord = { json: JSON.stringify(serialize(project)), savedAt, name: project.name, summary };
+    const keys = (await request(state.getAllKeys(VERSION_RANGE))).map(String).sort();
+    for (const key of keys.slice(0, Math.max(0, keys.length + 1 - MAX_VERSIONS))) {
+      state.delete(key);
+      versionMedia.delete(key);
+    }
+    const key = `version:${String(savedAt).padStart(15, '0')}`;
+    state.put(record, key);
+    versionMedia.put(project.media.map((m) => m.id), key);
+    await done(tx);
+  } finally {
+    db.close();
+  }
+}
+
+export async function listVersions(): Promise<VersionInfo[]> {
+  const db = await openDb();
+  try {
+    const tx = db.transaction([STATE_STORE], 'readonly');
+    const state = tx.objectStore(STATE_STORE);
+    const keys = (await request(state.getAllKeys(VERSION_RANGE))).map(String);
+    const records = (await request(state.getAll(VERSION_RANGE))) as VersionRecord[];
+    return records.map((r, i) => ({ key: keys[i], savedAt: r.savedAt, name: r.name, summary: r.summary })).sort((a, b) => b.savedAt - a.savedAt);
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadVersion(key: string): Promise<RevivedProject | null> {
+  const db = await openDb();
+  let record: VersionRecord | undefined;
+  try {
+    const tx = db.transaction([STATE_STORE], 'readonly');
+    record = (await request(tx.objectStore(STATE_STORE).get(key))) as VersionRecord | undefined;
+  } finally {
+    db.close();
+  }
+  return record ? reviveStored(JSON.parse(record.json) as SavedProject) : null;
+}
+
+// ---------------------------------------------------------------- Kit da marca
+
+/** Guarda o kit da marca (os arquivos vão junto, no próprio registro). */
+export async function saveBrandKit(kit: BrandKit): Promise<void> {
+  const db = await openDb();
+  try {
+    const tx = db.transaction([STATE_STORE], 'readwrite');
+    tx.objectStore(STATE_STORE).put(kit, 'brand');
+    await done(tx);
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadBrandKit(): Promise<BrandKit | null> {
+  const db = await openDb();
+  try {
+    const tx = db.transaction([STATE_STORE], 'readonly');
+    const kit = (await request(tx.objectStore(STATE_STORE).get('brand'))) as BrandKit | undefined;
+    return kit ? { ...DEFAULT_BRAND, ...kit, watermark: { ...DEFAULT_BRAND.watermark, ...kit.watermark } } : null;
   } finally {
     db.close();
   }

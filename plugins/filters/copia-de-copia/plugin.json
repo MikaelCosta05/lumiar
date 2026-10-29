@@ -1,0 +1,24 @@
+{
+  "name": "Cópia de cópia",
+  "description": "Fita regravada muitas vezes: imagem borrada, contornos duplicados, cor descolando e contraste sumindo.",
+  "category": "Terror analógico",
+  "previewMedia": "silhueta",
+  "params": [
+    {
+      "id": "gen",
+      "label": "Gerações",
+      "type": "float",
+      "default": 0.6,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "ghost",
+      "label": "Contorno duplicado",
+      "type": "float",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    }
+  ]
+}

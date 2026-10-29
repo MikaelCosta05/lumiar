@@ -1,0 +1,22 @@
+{
+  "name": "P&B com filtro de cor",
+  "description": "Preto e branco como se fotografado com um filtro na lente: vermelho escurece o céu, verde clareia as folhas.",
+  "category": "Mono",
+  "previewMedia": "paisagem",
+  "params": [
+    {
+      "id": "lensColor",
+      "label": "Cor do filtro",
+      "type": "color",
+      "default": "#ff3b1f"
+    },
+    {
+      "id": "contrast",
+      "label": "Contraste",
+      "type": "float",
+      "default": 1.15,
+      "min": 0.5,
+      "max": 2
+    }
+  ]
+}

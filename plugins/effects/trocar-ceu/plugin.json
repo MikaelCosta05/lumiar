@@ -1,0 +1,12 @@
+{
+  "name": "Trocar o céu",
+  "description": "Céu nublado vira pôr do sol, noite estrelada, aurora ou céu azul, e a luz da cena acompanha. A IA estima a profundidade para achar o céu (baixa um modelo na primeira vez).",
+  "category": "Profundidade",
+  "params": [
+    { "id": "ceu", "label": "Céu (0 = pôr do sol, 1 = noite, 2 = aurora, 3 = azul)", "type": "float", "default": 0, "min": 0, "max": 3, "step": 1 },
+    { "id": "limite", "label": "Quanto é céu", "type": "float", "default": 0.35, "min": 0, "max": 1 },
+    { "id": "luz", "label": "Luz da cena acompanhar", "type": "float", "default": 0.5, "min": 0, "max": 1 },
+    { "id": "velocidade", "label": "Movimento das nuvens", "type": "float", "default": 0.3, "min": 0, "max": 1 },
+    { "id": "suavidade", "label": "Borda suave", "type": "float", "default": 0.35, "min": 0, "max": 1 }
+  ]
+}
