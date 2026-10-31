@@ -2,10 +2,11 @@
 // O app compilado (pasta dist) é servido pelo endereço lumiar://app/, que se comporta como um site seguro:
 // assim workers, WebAssembly, microfone, salvar arquivos e o banco local funcionam igual ao navegador.
 const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, net, protocol, screen, session, shell } = require('electron');
-const { spawn } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const { once } = require('node:events');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -189,7 +190,8 @@ function createWindow() {
     if (input.key === 'F12' || (input.meta && input.alt && input.code === 'KeyI')) win.webContents.toggleDevTools();
     else if (ctrl && input.key.toLowerCase() === 'r' && input.shift) win.webContents.reload();
   });
-  void win.loadURL(`${SCHEME}://app/index.html`);
+  // Nos testes de ponta a ponta cada teste começa sem nada guardado: "?e2e" pula as miniaturas na tela de carregamento.
+  void win.loadURL(`${SCHEME}://app/index.html${process.env.LUMIAR_E2E_USER_DATA ? '?e2e' : ''}`);
   return win;
 }
 
@@ -399,6 +401,114 @@ ipcMain.handle('cursor:start', () => {
 
 ipcMain.handle('cursor:stop', () => stopCursor());
 
+// ---------------------------------------------------------------- Som de um programa separado (Windows)
+// O lumiar-audio.exe (electron/app-audio) grava o som de um programa, como o Discord, num WAV só dele, ou o som de
+// tudo menos esse programa. Assim a voz da chamada, o jogo e o microfone viram trilhas separadas na timeline.
+
+let appAudioExe;
+function findAppAudio() {
+  if (appAudioExe !== undefined) return appAudioExe;
+  appAudioExe = null;
+  if (process.platform !== 'win32') return null;
+  const candidates = [path.join(process.resourcesPath, 'bin', 'lumiar-audio.exe'), path.join(__dirname, 'bin', 'lumiar-audio.exe')];
+  appAudioExe = candidates.find((file) => fs.existsSync(file)) ?? null;
+  if (!appAudioExe && !app.isPackaged) {
+    // Rodando do código: compila na hora (o csc.exe vem com o Windows).
+    try {
+      appAudioExe = require(path.join(__dirname, '..', 'scripts', 'build-app-audio.cjs')).buildAppAudio({ quiet: true });
+    } catch {
+      appAudioExe = null;
+    }
+  }
+  return appAudioExe;
+}
+
+const appAudioJobs = new Map();
+let appAudioNext = 1;
+
+/** Programas abertos que dá para gravar separado: [{ pid, name, title }], ou null quando não dá (fora do Windows). */
+ipcMain.handle('appAudio:list', async () => {
+  const exe = findAppAudio();
+  if (!exe) return null;
+  const out = await new Promise((resolve) =>
+    execFile(exe, ['list'], { windowsHide: true, timeout: 15000, encoding: 'utf8' }, (error, stdout) => resolve(error ? '[]' : stdout)),
+  );
+  let apps = [];
+  try {
+    apps = JSON.parse(out);
+  } catch {
+    apps = [];
+  }
+  // O próprio Lumiar não entra na lista, e cada programa aparece uma vez (o que tem janela com título ganha).
+  const byName = new Map();
+  for (const a of apps) if (a.pid !== process.pid && (!byName.has(a.name) || (!byName.get(a.name).title && a.title))) byName.set(a.name, a);
+  return [...byName.values()];
+});
+
+/** Começa a gravar: mode 'include' = só esse programa; 'exclude' = tudo menos ele. Devolve { id, startedAt }. */
+ipcMain.handle('appAudio:start', async (_event, pid, mode) => {
+  const exe = findAppAudio();
+  if (!exe) throw new Error('unsupported');
+  const id = appAudioNext++;
+  const file = path.join(os.tmpdir(), `lumiar-som-${process.pid}-${id}.wav`);
+  const child = spawn(exe, ['capture', String(Number(pid)), mode === 'exclude' ? 'exclude' : 'include', file], { windowsHide: true });
+  let errors = '';
+  child.stderr.on('data', (chunk) => (errors += chunk));
+  const startedAt = await new Promise((resolve, reject) => {
+    let out = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('timeout'));
+    }, 15000);
+    child.stdout.on('data', (chunk) => {
+      out += chunk;
+      const match = /started (\d+)/.exec(out);
+      if (match) {
+        clearTimeout(timer);
+        resolve(Number(match[1]));
+      }
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('exit', () => {
+      clearTimeout(timer);
+      reject(new Error(errors.trim() || 'exit'));
+    });
+  });
+  appAudioJobs.set(id, { child, file });
+  return { id, startedAt };
+});
+
+/** Para e devolve o WAV (bytes), ou null se a gravação se perdeu. */
+ipcMain.handle('appAudio:stop', async (_event, id) => {
+  const job = appAudioJobs.get(id);
+  if (!job) return null;
+  appAudioJobs.delete(id);
+  const exited = job.child.exitCode !== null ? Promise.resolve() : once(job.child, 'exit');
+  job.child.stdin.end('stop\n');
+  const timer = setTimeout(() => job.child.kill(), 10000);
+  await exited;
+  clearTimeout(timer);
+  try {
+    return fs.readFileSync(job.file);
+  } catch {
+    return null;
+  } finally {
+    fs.rm(job.file, { force: true }, () => {});
+  }
+});
+
+/** Fecha os gravadores que ficaram abertos (o programa fechou no meio de uma gravação). */
+function stopAppAudio() {
+  for (const job of appAudioJobs.values()) {
+    job.child.kill();
+    fs.rm(job.file, { force: true }, () => {});
+  }
+  appAudioJobs.clear();
+}
+
 // ---------------------------------------------------------------- Atualização automática
 // Ao abrir, olha a última versão publicada no GitHub. Se for mais nova, a página mostra um aviso;
 // "Atualizar" baixa o instalador certo e instala (Windows), troca o AppImage (Linux) ou abre a página
@@ -517,6 +627,8 @@ ipcMain.handle('update:install', async (event) => {
 });
 
 // No macOS o programa continua aberto no Dock (o costume de lá); Cmd+Q sai de verdade.
+app.on('will-quit', stopAppAudio);
+
 app.on('window-all-closed', () => {
   stopCursor();
   if (process.platform !== 'darwin') app.quit();

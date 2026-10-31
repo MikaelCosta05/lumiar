@@ -1,25 +1,53 @@
-float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
+// Neve em 5 planos de profundidade, com paralaxe: os flocos de perto são grandes, desfocados (macios e
+// transparentes) e caem mais rápido na tela; os de longe são pequenos, nítidos, lentos e muitos. Cada floco tem o
+// tamanho, a velocidade e o balanço de lado próprios (ritmo, fase e amplitude sorteados por floco) e um vento leve leva a
+// neve toda de lado. A cor do floco acompanha a luz da cena (fica acinzentado no escuro), sem estourar.
 
-vec2 hash2(vec2 p) {
-  return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453);
+/** Cobertura de flocos numa camada (0 a 1). z = 0 perto, 1 longe. */
+float snowLayer(vec2 p, float z, float seed) {
+  float cell = mix(0.17, 0.035, z);
+  float fall = speed * mix(0.20, 0.055, z);
+  vec2 q = (p + vec2(-time * speed * 0.025 * mix(1.6, 0.6, z), time * fall)) / cell + seed * vec2(5.31, 2.77);
+  vec2 b = floor(q - 0.5);
+  float pixel = 1.0 / (resolution.y * cell); // 1 px desta resolução, em células
+  float cover = 0.0;
+  for (int j = 0; j < 2; j++) {
+    for (int i = 0; i < 2; i++) {
+      vec2 id = b + vec2(float(i), float(j));
+      vec3 h = lmHash3(id + seed * 13.7);
+      if (h.z > mix(0.35, 0.75, z)) continue;
+      float h2 = lmHash(id * 1.71 + seed);
+      // Balanço lateral (o floco oscila ao cair), cada um com o seu ritmo, fase e amplitude.
+      float w = mix(0.8, 1.8, h2) * (0.4 + speed);
+      vec2 sway = vec2(sin(time * w + h.x * 6.2831853) * mix(0.08, 0.18, h.y), cos(time * w * 0.7 + h.y * 6.2831853) * 0.04);
+      vec2 center = id + 0.25 + h.xy * 0.5 + sway;
+      float r = mix(0.05, 0.14, h2 * h2) * size * mix(1.0, 0.8, z);
+      float d = length(q - center);
+      // Perto = desfocado (borda larga); longe = borda de 1 px.
+      float soft = max(r * mix(0.85, 0.25, z), pixel * 1.2);
+      float flake = 1.0 - smoothstep(r - soft * 0.5, r + soft * 0.5, d);
+      float opacity = mix(0.45, 0.95, z) * mix(0.75, 1.0, h.x);
+      cover = max(cover, flake * opacity);
+    }
+  }
+  return cover;
 }
 
 vec4 effect(vec2 uv) {
-  vec3 c = getColor(uv).rgb;
-  vec2 p = uv * vec2(ratio, 1.0);
+  vec3 lin = lmToLinear(getColor(uv).rgb);
+  vec3 ambient = lmToLinear(getColorLod(uv, 6.0).rgb);
+  // Ar de inverno: um véu frio bem leve.
+  lin = mix(lin, vec3(lmLuma(ambient)) * vec3(0.95, 0.98, 1.05), 0.06 * amount);
+  vec2 p = lmCentered(uv);
   float snow = 0.0;
-  for (int i = 0; i < 4; i++) {
-    float fi = float(i);
-    vec2 q = p * (8.0 + fi * 6.0);
-    q.y += time * speed * (1.0 + fi * 0.4);
-    q.x += sin(q.y * 0.5 + fi * 3.0 + time) * 0.5;
-    vec2 id = floor(q);
-    vec2 o = hash2(id) - 0.5;
-    float d = length(fract(q) - 0.5 - o * 0.7);
-    float flake = (0.06 + 0.06 * hash(id + 3.0)) * size;
-    snow += (1.0 - smoothstep(flake * 0.5, flake, d)) * step(0.4, hash(id + 9.1)) * (1.0 - fi * 0.15);
+  for (int i = 0; i < 5; i++) {
+    float z = float(i) / 4.0;
+    float s = snowLayer(p, 1.0 - z, float(i) + 1.0);
+    snow = 1.0 - (1.0 - snow) * (1.0 - s);
   }
-  return vec4(c + vec3(snow) * amount, 1.0);
+  // O floco é branco frio, iluminado pela cena (no escuro fica cinza-azulado, no sol fica branco).
+  float lit = clamp(0.35 + lmLuma(ambient) * 1.4, 0.35, 1.0);
+  vec3 flakeColor = vec3(0.90, 0.94, 1.0) * lit;
+  lin = mix(lin, flakeColor, snow * amount);
+  return vec4(lmToSrgb(lin), 1.0);
 }

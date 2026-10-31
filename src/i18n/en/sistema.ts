@@ -14,7 +14,6 @@ export default {
   'Preparando o áudio': 'Preparing the audio',
   'Este projeto não tem áudio para legendar.': 'This project has no audio to caption.',
   'Carregando o modelo de fala': 'Loading the speech model',
-  'Reconhecendo a fala (placa de vídeo)': 'Recognizing speech (graphics card)',
   'Reconhecendo a fala': 'Recognizing speech',
   'Falha no reconhecimento de fala.': 'Speech recognition failed.',
   'Lendo os quadros': 'Reading the frames',

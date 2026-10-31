@@ -38,7 +38,7 @@ export function BrollDialog({ project, onApply, onClose }: { project: Project; o
       try {
         const tl = layoutProject(project);
         const captions = getCaptions(project).captions;
-        if (!captions.length) throw new Error(t('Transcreva o vídeo primeiro (aba Texto ou Legendas).'));
+        if (!captions.length) throw new Error(t('Transcreva o vídeo primeiro (aba Transcrição ou Legendas).'));
         // Frases de 3 a 8 s (juntando legendas vizinhas), para cada imagem de apoio ter tempo de aparecer.
         const phrases: { text: string; start: number; end: number }[] = [];
         for (const c of captions) {

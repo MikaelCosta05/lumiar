@@ -7,3 +7,7 @@ public/ort
 public/mediapipe
 .tmp-test
 .tmp-e2e
+.tmp-bench
+.tmp-visual
+electron/bin
+test-results

@@ -1,29 +1,26 @@
-float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
+// Rabiscos animados: traço de caneta em volta da pessoa, tremendo como animação feita à mão (um desenho novo
+// "quadros" vezes por segundo), com estrelinhas, corações, brilhos e bolinhas em volta.
+// - A distância até a pessoa sai da máscara borrada (gaussiana com 48 amostras fixas, invertida pela aproximação
+//   logística): o traço é contínuo e liso, sem os degraus da busca em anéis.
+// - O tremor e as falhas do traço são ruído de gradiente suave sorteado de novo a cada desenho.
+// - Os desenhos são formas por distância com a borda antisserrilhada pela derivada do pixel.
+// Tamanhos em px de 1080p.
+const int TAPS = 48;
 
-float vnoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-}
-
-float distanceToPerson(vec2 uv, float range) {
-  if (getPerson(uv) > 0.5) return 0.0;
-  for (int k = 1; k <= 10; k++) {
-    float r = range * float(k) / 10.0;
-    for (int i = 0; i < 14; i++) {
-      float a = (float(i) + float(k) * 0.41) * 0.4488;
-      if (getPerson(uv + vec2(cos(a), sin(a)) * r / resolution) > 0.5) return r;
-    }
+float personBlur(vec2 uv, float sigmaPx) {
+  vec2 toUv = vec2(1.0 / ratio, 1.0) / 1080.0;
+  float sum = 0.0, wsum = 0.0;
+  for (int i = 0; i < TAPS; i++) {
+    float r = sqrt((float(i) + 0.5) / float(TAPS)) * 2.5;
+    float a = float(i) * 2.39996323;
+    float w = exp(-0.5 * r * r);
+    sum += getPerson(uv + vec2(cos(a), sin(a)) * r * sigmaPx * toUv) * w;
+    wsum += w;
   }
-  return range * 2.0;
+  return sum / wsum;
 }
 
-float dot2(vec2 v) {
-  return dot(v, v);
-}
+float dot2(vec2 v) { return dot(v, v); }
 
 // Desenhos de caderno (distância até a borda; negativa dentro), num espaço de -1 a 1.
 float star(vec2 p) {
@@ -39,48 +36,52 @@ float heart(vec2 p) {
   return sqrt(min(dot2(p - vec2(0.0, 1.0)), dot2(p - 0.5 * max(p.x + p.y, 0.0)))) * sign(p.x - p.y) / 1.3;
 }
 
-float spark(vec2 p) {
-  return (sqrt(abs(p.x)) + sqrt(abs(p.y)) - 0.85) * 0.5;
-}
+float spark(vec2 p) { return (sqrt(abs(p.x)) + sqrt(abs(p.y)) - 0.85) * 0.5; }
 
-float ring(vec2 p) {
-  return abs(length(p) - 0.45) - 0.02;
-}
+float ring(vec2 p) { return abs(length(p) - 0.45) - 0.02; }
 
 vec4 effect(vec2 uv) {
   vec4 base = getColor(uv);
   float frame = floor(time * quadros);
-  float px = resolution.y / 720.0;
+  float aa = 0.75 * 1080.0 / resolution.y;          // um pixel da tela, em px de 1080p
+  vec3 col = base.rgb;
 
-  // Contorno que "ferve": a cada desenho novo, o traço treme de outro jeito e tem falhas.
-  vec2 jitter = (vec2(vnoise(uv * 9.0 + frame * 1.7), vnoise(uv * 9.0 - frame * 2.3 + 5.0)) - 0.5) * tremor * 0.014;
-  vec2 j = uv + jitter;
-  float offset = (2.0 + distancia * 22.0) * px;
-  float width = (1.2 + espessura * 4.5) * px * (0.7 + 0.6 * vnoise(uv * 25.0 + frame));
-  float d = distanceToPerson(j, offset + width + 4.0 * px);
-  float line = 1.0 - smoothstep(width * 0.5, width * 0.5 + 1.2 * px, abs(d - offset));
-  line *= step(0.14, vnoise(uv * 12.0 + frame * 3.1));
-  vec3 col = mix(base.rgb, cor, line);
+  // Contorno que "ferve": a cada desenho novo o traço treme de outro jeito e tem outras falhas.
+  vec2 a = lmCentered(uv);
+  vec2 jitter = vec2(lmNoise(vec3(a * 9.0, frame * 1.7)), lmNoise(vec3(a * 9.0 + 5.0, frame * 2.3))) * tremor * 0.012;
+  vec2 j = uv + jitter / vec2(ratio, 1.0);
+  float offset = (2.0 + distancia * 22.0) * 1.5;
+  float width = (1.2 + espessura * 4.5) * 1.5 * (0.75 + 0.5 * (lmNoise(vec3(a * 25.0, frame)) * 0.5 + 0.5));
+  float sigma = max((offset + width) * 0.55, 3.0);
+  float m = personBlur(j, sigma);
+  if (m > 1e-4) {
+    float mm = clamp(m, 1e-4, 1.0 - 1e-4);
+    float d = sigma * log((1.0 - mm) / mm) / 1.702;
+    float line = 1.0 - smoothstep(width * 0.5 - aa, width * 0.5 + aa, abs(d - offset));
+    line *= smoothstep(-0.55, -0.4, lmNoise(vec3(a * 12.0, frame * 3.1)));   // falhas da caneta
+    col = mix(col, cor, line);
+  }
 
   // Estrelas, corações, brilhos e bolinhas em volta da pessoa, cada um na sua casinha da grade.
   vec2 grid = vec2(ratio, 1.0) * 7.0;
   vec2 cell = floor(uv * grid);
-  if (hash(cell + 3.1) < desenhos) {
+  if (lmHash(cell + 3.1) < desenhos) {
     vec2 cc = (cell + 0.5) / grid;
     float near = 0.0;
     for (int i = 0; i < 8; i++) {
-      float a = float(i) * 0.7854;
-      near = max(near, getPerson(cc + vec2(cos(a) / ratio, sin(a)) * 0.1));
+      float an = float(i) * 0.7854;
+      near = max(near, getPerson(cc + vec2(cos(an) / ratio, sin(an)) * 0.1));
     }
     if (getPerson(cc) < 0.3 && near > 0.5) {
       vec2 local = fract(uv * grid) * 2.0 - 1.0;
-      local += (vec2(hash(cell + frame), hash(cell - frame)) - 0.5) * 0.2 * tremor;
-      float rot = (hash(cell + frame * 0.37) - 0.5) * 0.5 * tremor + (hash(cell) - 0.5);
+      local += (vec2(lmHash(cell + frame), lmHash(cell - frame + 0.5)) - 0.5) * 0.2 * tremor;
+      float rot = (lmHash(cell + frame * 0.37) - 0.5) * 0.5 * tremor + (lmHash(cell) - 0.5);
       local = mat2(cos(rot), -sin(rot), sin(rot), cos(rot)) * local * 1.25;
-      float kind = hash(cell + 9.0);
+      float kind = lmHash(cell + 9.0);
       float sd = kind < 0.35 ? star(local) : kind < 0.6 ? heart(local) : kind < 0.85 ? spark(local) : ring(local);
-      float stroke = 1.0 - smoothstep(0.05, 0.1, abs(sd));
-      if (kind >= 0.6 && kind < 0.85) stroke = 1.0 - smoothstep(-0.02, 0.02, sd);
+      float w = max(fwidth(sd), 1e-4);
+      float stroke = 1.0 - smoothstep(0.05 - w, 0.05 + w, abs(sd));
+      if (kind >= 0.6 && kind < 0.85) stroke = 1.0 - smoothstep(-w, w, sd);
       col = mix(col, cor2, stroke);
     }
   }

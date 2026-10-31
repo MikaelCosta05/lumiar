@@ -1,6 +1,7 @@
 import { t } from '../i18n';
 import { renderMusic, type MusicOptions, type MusicPlan, type MusicStyle, type RenderedMusic } from './musicGen';
 import { encodeWav } from './wav';
+import { IdleResource } from './idleRelease';
 
 /**
  * Gera a música (num worker, para a tela não travar) e devolve o WAV. A última música gerada fica
@@ -24,7 +25,12 @@ export const MUSIC_STYLE_NAMES: Record<MusicStyle, string> = {
   eletronico: t('Eletrônico'),
 };
 
-let worker: Worker | null = null;
+/** Música é gerada de vez em quando: o worker parado é desligado e criado de novo no próximo pedido. */
+const worker = new IdleResource<Worker>({
+  create: () => new Worker(new URL('./musicGen.worker.ts', import.meta.url), { type: 'module' }),
+  release: (w) => w.terminate(),
+  idleMs: 60_000,
+});
 let nextId = 1;
 const cache = new Map<string, Promise<GeneratedMusic>>();
 
@@ -32,23 +38,24 @@ const keyOf = (o: MusicOptions) => [o.style, o.duration.toFixed(3), Math.round(o
 
 function inWorker(options: MusicOptions, onProgress: (fraction: number) => void): Promise<RenderedMusic> {
   if (typeof Worker === 'undefined') return renderMusic(options, onProgress);
-  worker ??= new Worker(new URL('./musicGen.worker.ts', import.meta.url), { type: 'module' });
-  const w = worker;
   const id = nextId++;
-  return new Promise((resolve, reject) => {
-    const listen = (event: MessageEvent<{ id: number; progress?: number; music?: RenderedMusic; error?: string }>) => {
-      const msg = event.data;
-      if (msg.id !== id) return;
-      if (msg.progress !== undefined) onProgress(msg.progress);
-      else {
-        w.removeEventListener('message', listen);
-        if (msg.music) resolve(msg.music);
-        else reject(new Error(msg.error ?? '?'));
-      }
-    };
-    w.addEventListener('message', listen);
-    w.postMessage({ id, options });
-  });
+  return worker.use(
+    (w) =>
+      new Promise((resolve, reject) => {
+        const listen = (event: MessageEvent<{ id: number; progress?: number; music?: RenderedMusic; error?: string }>) => {
+          const msg = event.data;
+          if (msg.id !== id) return;
+          if (msg.progress !== undefined) onProgress(msg.progress);
+          else {
+            w.removeEventListener('message', listen);
+            if (msg.music) resolve(msg.music);
+            else reject(new Error(msg.error ?? '?'));
+          }
+        };
+        w.addEventListener('message', listen);
+        w.postMessage({ id, options });
+      }),
+  );
 }
 
 export function generateMusic(options: MusicOptions, onProgress: (fraction: number) => void = () => {}): Promise<GeneratedMusic> {

@@ -36,6 +36,21 @@ describe('applyEasing', () => {
     expect(applyEasing('ease-in', 0.5)).toBeCloseTo(0.125);
     expect(applyEasing('ease-out', 0.5)).toBeCloseTo(0.875);
     expect(applyEasing('smooth', 0.5)).toBeCloseTo(0.5);
+    expect(applyEasing('expo-in-out', 0.5)).toBeCloseTo(0.5);
+    expect(applyEasing('expo-out', 0.3)).toBeGreaterThan(0.85);
+    expect(applyEasing('expo-in', 0.3)).toBeLessThan(0.01);
+  });
+
+  it('as exponenciais sobem sempre (sem voltar) e são contínuas no meio', () => {
+    for (const id of ['expo-in', 'expo-out', 'expo-in-out'] as const) {
+      let last = -1;
+      for (let i = 0; i <= 200; i++) {
+        const v = applyEasing(id, i / 200);
+        expect(v, `${id} ${i}`).toBeGreaterThanOrEqual(last);
+        last = v;
+      }
+    }
+    expect(applyEasing('expo-in-out', 0.4999)).toBeCloseTo(applyEasing('expo-in-out', 0.5001), 2);
   });
 
   it('"passa do ponto e volta" ultrapassa 1 antes do fim; elástico oscila', () => {

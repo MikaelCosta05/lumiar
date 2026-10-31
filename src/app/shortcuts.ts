@@ -80,6 +80,8 @@ export const DEFAULT_SHORTCUTS: ShortcutAction[] = [
   { id: 'saveAs', label: t('Salvar como…'), group: G.project, defaults: ['Mod+Shift+S'], always: true, preventDefault: true },
   { id: 'open', label: t('Abrir projeto'), group: G.project, defaults: ['Mod+O'], always: true, preventDefault: true },
   { id: 'shortcuts', label: t('Atalhos do teclado'), group: G.project, defaults: ['?'], preventDefault: true },
+  // Vale também com o foco num campo de texto (abre e fecha a paleta de qualquer lugar).
+  { id: 'commandPalette', label: t('Buscar filtro, efeito, pacote ou ação'), group: G.project, defaults: ['Mod+K'], always: true, preventDefault: true },
 
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(
     (n): ShortcutAction => ({ id: `camera${n}`, label: t('Cortar para a câmera {n}', { n }), group: G.multicam, defaults: [String(n)], preventDefault: true }),
@@ -379,6 +381,12 @@ export function createShortcutRegistry(initial: ShortcutAction[], storage: () =>
       return () => {
         handlers.set(id, (handlers.get(id) ?? []).filter((h) => h !== handler));
       };
+    },
+    /** Faz a ação como se o atalho tivesse sido apertado (paleta de comandos). true se alguém tratou. */
+    run(id: string): boolean {
+      const e = (typeof KeyboardEvent === 'function' ? new KeyboardEvent('keydown') : {}) as KeyboardEvent;
+      for (const handler of handlers.get(id) ?? []) if (handler(e) !== false) return true;
+      return false;
     },
     /** Ações ligadas a este atalho, na ordem do registro. */
     actionsFor(combo: string): ShortcutAction[] {

@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 // Reconhecimento de fala (Whisper) numa thread separada, para a interface não travar.
 import { env, pipeline, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
+import { transcribeSpeech } from './audioChunks';
+import { WHISPER_OPTIONS } from './whisperOptions';
 
 export interface TranscribeRequest {
   audio: Float32Array;
@@ -26,14 +28,14 @@ function useLocalFiles(baseUrl: string) {
 
 export type TranscribeMessage =
   | { type: 'download'; fraction: number }
-  | { type: 'transcribing'; device: string }
-  | { type: 'done'; chunks: { text: string; timestamp: [number, number | null] }[] }
+  | { type: 'transcribing'; fraction: number }
+  | { type: 'done'; words: { text: string; start: number; end: number }[] }
   | { type: 'error'; message: string };
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 const post = (message: TranscribeMessage) => scope.postMessage(message);
 
-let loaded: { model: string; asr: Promise<{ asr: AutomaticSpeechRecognitionPipeline; device: string }> } | null = null;
+let loaded: { model: string; asr: Promise<AutomaticSpeechRecognitionPipeline> } | null = null;
 
 async function load(model: string) {
   // Progresso somando todos os arquivos do modelo.
@@ -46,27 +48,13 @@ async function load(model: string) {
     files.forEach((f) => ((loadedBytes += f.loaded), (total += f.total)));
     post({ type: 'download', fraction: total ? loadedBytes / total : 0 });
   };
-  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-  const adapter = gpu ? await gpu.requestAdapter().catch(() => null) : null;
-  // Os modelos guardados no app são a versão quantizada (q8), usada na placa de vídeo e no processador.
-  if (adapter) {
-    try {
-      const asr = (await pipeline('automatic-speech-recognition', model, {
-        device: 'webgpu',
-        dtype: 'q8',
-        progress_callback,
-      })) as AutomaticSpeechRecognitionPipeline;
-      return { asr, device: 'webgpu' };
-    } catch (error) {
-      console.warn('[Lumiar] WebGPU indisponível para a transcrição; usando o processador', error);
-    }
-  }
-  const asr = (await pipeline('automatic-speech-recognition', model, {
+  // Sempre no processador: com os modelos q8 que vêm no app, a placa de vídeo (WebGPU) ficou de 3 a 6 vezes
+  // mais lenta (medido num vídeo de 30 min: 25 s de fala em ~25 s na placa e em ~5 s no processador).
+  return (await pipeline('automatic-speech-recognition', model, {
     device: 'wasm',
     dtype: 'q8',
     progress_callback,
   })) as AutomaticSpeechRecognitionPipeline;
-  return { asr, device: 'wasm' };
 }
 
 scope.onmessage = async (event: MessageEvent<TranscribeRequest>) => {
@@ -74,16 +62,22 @@ scope.onmessage = async (event: MessageEvent<TranscribeRequest>) => {
   try {
     useLocalFiles(baseUrl);
     if (!loaded || loaded.model !== model) loaded = { model, asr: load(model) };
-    const { asr, device } = await loaded.asr;
-    post({ type: 'transcribing', device });
-    const output = await asr(audio, {
-      return_timestamps: 'word',
-      chunk_length_s: 30,
-      stride_length_s: 5,
+    const asr = await loaded.asr;
+    const options = {
+      ...WHISPER_OPTIONS,
       ...(translate ? { ...(language ? { language } : {}), task: 'translate' } : language ? { language, task: 'transcribe' } : {}),
-    });
-    const result = Array.isArray(output) ? output[0] : output;
-    post({ type: 'done', chunks: (result.chunks ?? []) as { text: string; timestamp: [number, number | null] }[] });
+    };
+    // Um trecho por vez: dá para mostrar o andamento, e o silêncio nem vai para o Whisper.
+    const words = await transcribeSpeech(
+      audio,
+      async (part) => {
+        const output = await asr(part, options);
+        const result = Array.isArray(output) ? output[0] : output;
+        return (result.chunks ?? []) as { text: string; timestamp: [number, number | null] }[];
+      },
+      (fraction) => post({ type: 'transcribing', fraction }),
+    );
+    post({ type: 'done', words });
   } catch (error) {
     loaded = null;
     post({ type: 'error', message: error instanceof Error ? error.message : String(error) });

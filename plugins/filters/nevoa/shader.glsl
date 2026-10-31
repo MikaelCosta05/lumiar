@@ -1,25 +1,20 @@
-vec3 sCurve(vec3 c, float k) {
-  c = clamp(c, 0.0, 1.0);
-  return mix(c, c * c * (3.0 - 2.0 * c), k);
-}
-
-vec3 saturate(vec3 c, float s) {
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  return mix(vec3(l), c, s);
-}
-
-vec3 splitTone(vec3 c, vec3 shadows, vec3 highlights, float amount) {
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  return c + (mix(shadows, highlights, smoothstep(0.0, 1.0, l)) - 0.5) * amount;
-}
-
-float vignette(vec2 uv, float strength) {
-  vec2 p = (uv - 0.5) * vec2(ratio, 1.0);
-  return 1.0 - dot(p, p) * strength;
-}
-
+// Névoa: ar enevoado com perspectiva aérea. A névoa se soma como luz (modelo de Koschmieder, em luz linear): quanto
+// mais longe (pela profundidade), menos da cena passa e mais do cinza-azulado claro da névoa aparece; o fundo
+// clareia e perde cor sozinho, enquanto o que está perto guarda o contraste e o preto. A densidade varia devagar
+// (fbm, deriva com o tempo) e as luzes se espalham num brilho leve.
 vec4 applyFilter(vec4 c, vec2 uv) {
-  vec3 col = mix(c.rgb, vec3(0.78, 0.82, 0.86), 0.28 + 0.12 * uv.y);
-  col = saturate(col, 0.8);
-  return vec4(clamp(col, 0.0, 1.0), c.a);
+  float far = 1.0 - clamp(getDepth(uv), 0.0, 1.0);
+  vec2 p = lmCentered(uv);
+  float n = lmFbm(vec3(p * vec2(1.6, 3.2) + vec2(time * 0.015, 0.0), time * 0.04), 4);
+  float density = 1.0 + 0.25 * n;
+  // Distância óptica: quase nada perto da câmera, crescendo rápido com a distância.
+  float tau = density * (0.04 + 1.15 * far * far);
+  float T = exp(-tau);
+  vec3 lin = lmToLinear(c.rgb);
+  // A névoa é iluminada pelo céu: um pouco mais clara no alto do quadro.
+  vec3 fog = lmToLinear(vec3(0.79, 0.83, 0.87)) * mix(0.9, 1.05, uv.y);
+  lin = lin * T + fog * (1.0 - T);
+  // As luzes se espalham na névoa (mais onde há mais névoa).
+  lin += lmBloom(uv, 0.65, 0.75) * vec3(0.95, 0.97, 1.0) * 0.25 * (1.0 - T);
+  return vec4(lmSoftClip(lmToSrgb(lin), 0.88), c.a);
 }

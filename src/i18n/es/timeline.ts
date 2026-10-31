@@ -251,4 +251,6 @@ export default {
   'Buscar…': 'Buscar…',
   'Todos': 'Todos',
   'Nada encontrado.': 'No se encontró nada.',
+  // Legendas na timeline
+  'Dois cliques para editar o texto; arraste para mudar o tempo': 'Doble clic para editar el texto; arrastra para cambiar el tiempo',
 } satisfies Record<string, string>;

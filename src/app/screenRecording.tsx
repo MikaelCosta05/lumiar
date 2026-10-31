@@ -5,6 +5,7 @@ import { ScreenRecorder, type ScreenRecordOptions } from '../media/screenRecorde
 import { createCamera } from '../project/camera';
 import { cursorZoomKeyframes, DEFAULT_CURSOR_FX } from '../project/cursorFx';
 import { addMedia, createOverlayClip, createVideoClip, insertVideoClips, layoutProject, placeOverlayClip } from '../project/model';
+import { placeSeparateAudio } from '../project/separateAudio';
 import { FloatingPrompter, openPrompterWindow } from '../ui/FloatingPrompter';
 import { formatTime } from '../ui/format';
 import { Button } from '../ui/kit';
@@ -72,7 +73,8 @@ export function useScreenRecording({ project, setProject, setSelection, notify, 
       const screen = await importMedia(files.screen);
       if (files.cursor) screen.cursor = files.cursor;
       const webcam = files.webcam ? await importMedia(files.webcam) : null;
-      const items = webcam ? [screen, webcam] : [screen];
+      const sounds = await Promise.all(files.audio.map(async (audio) => ({ audio, media: await importMedia(audio.file) })));
+      const items = [screen, ...(webcam ? [webcam] : []), ...sounds.map((s) => s.media)];
       items.forEach((m) => void analyzeMedia(m));
       const clip = createVideoClip(screen);
       // Mouse: câmera que se aproxima dos cliques e destaque do cursor.
@@ -85,17 +87,19 @@ export function useScreenRecording({ project, setProject, setSelection, notify, 
       }
       setProject((p) => {
         let next = insertVideoClips(addMedia(p, items), [clip]);
+        const start = layoutProject(next).clips.find((l) => l.clip.id === clip.id)?.start ?? 0;
         if (webcam) {
-          const start = layoutProject(next).clips.find((l) => l.clip.id === clip.id)?.start ?? 0;
           // Webcam em pílula no canto de baixo, sem o som (o som já está na gravação da tela).
           const cam = { ...createOverlayClip(webcam, start, { x: 0.83, y: 0.78, scale: 0.3, radius: 0.5 }), volume: 0 };
           next = placeOverlayClip(next, cam);
         }
+        for (const { audio, media } of sounds) next = placeSeparateAudio(next, audio, media, start, options?.separateApp?.name ?? '');
         return next;
       });
       setSelection({ kind: 'clip', id: clip.id });
       notify(
         (webcam ? t('Gravação adicionada, com a webcam no canto.') : t('Gravação da tela adicionada à timeline.')) +
+          (sounds.length ? ` ${t('O som veio em {n} trilhas separadas.', { n: sounds.length })}` : '') +
           (zooms ? ` ${t('{n} zoom(s) onde você clicou (clique direito no clipe → Gravação de tela para ajustar).', { n: zooms })}` : ''),
       );
     } catch (error) {

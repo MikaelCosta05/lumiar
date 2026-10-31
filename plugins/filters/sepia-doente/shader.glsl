@@ -1,52 +1,34 @@
-float luma(vec3 c) {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722));
-}
-
-/** Ruído sem seno (estável em qualquer placa). */
-float hash(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}
-
-float vnoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-}
-
-float fbm(vec2 p) {
-  float v = 0.0;
-  float a = 0.5;
-  for (int i = 0; i < 4; i++) {
-    v += a * vnoise(p);
-    p = p * 2.03 + 7.1;
-    a *= 0.5;
-  }
-  return v / 0.9375;
-}
-
-/** Grão animado (-0.5 a 0.5), do mesmo tamanho em qualquer resolução. */
-float grainAt(vec2 uv, float size) {
-  vec2 cell = floor(uv * resolution / max(size * resolution.y / 720.0, 1.0));
-  return hash(cell + vec2(mod(floor(time * 24.0), 113.0) * 17.31, 3.7)) - 0.5;
-}
+// Sépia doente: uma cópia em sépia que estragou. Os tons vão de um preto esverdeado a um creme amarelado (a
+// viragem mal fixada), com manchas de química orgânicas (fbm) que têm a marca de maré na borda, como água que secou
+// no papel; a borda do quadro foi comida pelo tempo, irregular. Cintilação de projetor por quadro de filme
+// (24 por segundo) e grão de película.
 
 vec4 applyFilter(vec4 c, vec2 uv) {
-  float l = luma(c.rgb);
-  l = mix(l, smoothstep(0.0, 1.0, l), 0.4);
+  float l = lmLuma(c.rgb);
+  l = mix(l, l * l * (3.0 - 2.0 * l), 0.4);
   vec3 dark = vec3(0.08, 0.075, 0.035);
-  vec3 mid = vec3(0.44, 0.41, 0.24);
-  vec3 light = vec3(0.86, 0.84, 0.64);
+  vec3 mid = vec3(0.44, 0.40, 0.24);
+  vec3 light = vec3(0.87, 0.84, 0.64);
   vec3 col = l < 0.5 ? mix(dark, mid, l * 2.0) : mix(mid, light, l * 2.0 - 1.0);
-  vec2 p = uv * vec2(ratio, 1.0);
-  col *= 1.0 - smoothstep(0.55, 0.85, fbm(p * 3.0 + 11.0)) * stains * 0.55;
-  col = mix(col, col * vec3(0.8, 0.85, 0.55), smoothstep(0.4, 0.7, fbm(p * 1.5)) * stains * 0.5);
-  // Bordas comidas: vinheta irregular.
-  float edge = length((uv - 0.5) * vec2(ratio, 1.0)) + (fbm(p * 2.0 + 3.0) - 0.5) * 0.25;
-  col *= mix(1.0, 1.0 - smoothstep(0.35, 0.85, edge) * 0.8, vig);
-  col *= 1.0 + (hash(vec2(floor(time * 12.0), 1.0)) - 0.5) * 0.06;
-  col += grainAt(uv, 1.3) * 0.05;
+  vec2 p = lmCentered(uv);
+  // Manchas de química: miolo mais escuro e esverdeado, borda (maré) marrom e marcada.
+  vec2 warp = vec2(lmNoise(p * 2.5 + 3.0), lmNoise(p * 2.5 + 8.0));
+  float n = lmFbm(p * 2.2 + warp * 0.7 + 11.0, 4) * 0.5 + 0.5;
+  float th = 0.68 - stains * 0.12;
+  float inside = smoothstep(th, th + 0.05, n);
+  float tw = (n - th) / 0.012;
+  float tide = exp(-tw * tw);
+  col = mix(col, col * vec3(0.78, 0.84, 0.55), inside * stains * 0.6);
+  col *= 1.0 - tide * stains * 0.35;
+  // Respingos menores: o mesmo campo visto mais de perto (um ruído a mais, sem outro fbm).
+  float blot = smoothstep(0.62, 0.9, lmNoise(p * 9.0 + warp * 2.0) * 0.5 + 0.5);
+  col *= 1.0 - blot * stains * 0.25;
+  // Borda comida: vinheta irregular.
+  float r = length(p / vec2(ratio * 0.5, 0.5)) / 1.414;
+  float edge = r + (r > 0.3 ? lmFbm(p * 3.0 + 5.0, 2) * 0.12 : 0.0);
+  col *= mix(1.0, 1.0 - smoothstep(0.45, 0.95, edge) * 0.85, vig);
+  float frame = floor(time * 24.0);
+  col *= 1.0 + (lmHash(vec2(frame, 1.0)) - 0.5) * 0.06;
+  col = lmFilmGrain(col, uv, 0.35, 1.3, time);
   return vec4(clamp(col, 0.0, 1.0), c.a);
 }

@@ -1,28 +1,14 @@
-float luma(vec3 c) {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722));
-}
-
-vec3 rgb2hsv(vec3 c) {
-  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y);
-  float e = 1.0e-10;
-  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
-
-vec3 hsv2rgb(vec3 c) {
-  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-}
+// Cor seletiva: o que tem o matiz escolhido (tolerância em matiz, como no Matiz/Saturação dos editores) continua
+// colorido; o resto vira cinza com a mesma claridade percebida (Oklab L), então o preto e branco não fica com o céu
+// escuro nem a pele lavada. Cores quase cinzas ou quase pretas não são mantidas (sem manchas de cor no ruído).
 
 vec4 effect(vec2 uv) {
   vec4 c = getColor(uv);
-  vec3 hsv = rgb2hsv(c.rgb);
-  float target = rgb2hsv(keep).x;
-  float dh = abs(hsv.x - target);
-  dh = min(dh, 1.0 - dh);
-  float m = (1.0 - smoothstep(range, range + 0.05, dh)) * smoothstep(0.1, 0.25, hsv.y);
-  return vec4(mix(vec3(luma(c.rgb)), c.rgb, m), c.a);
+  vec3 hsv = lmRgbToHsv(c.rgb);
+  float target = lmRgbToHsv(keep).x;
+  float dh = abs(fract(hsv.x - target + 0.5) - 0.5);
+  float m = (1.0 - smoothstep(range, range + 0.05, dh)) * smoothstep(0.1, 0.25, hsv.y) * smoothstep(0.03, 0.12, hsv.z);
+  vec3 lab = lmToOklab(lmToLinear(c.rgb));
+  vec3 gray = clamp(lmToSrgb(lmFromOklab(vec3(lab.x, 0.0, 0.0))), 0.0, 1.0);
+  return vec4(mix(gray, c.rgb, m), c.a);
 }

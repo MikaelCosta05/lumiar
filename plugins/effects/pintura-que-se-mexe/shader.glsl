@@ -1,36 +1,46 @@
-float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
+// Pintura que se mexe: pinceladas grossas que seguem as bordas, o movimento da cena e redemoinhos lentos.
+// - Integração ao longo das linhas do campo de direção (LIC): a cor e o "pelo" do pincel são somados ida e volta
+//   ao longo da pincelada.
+// - Ruído de gradiente da biblioteca (sem os padrões do seno); o pelo muda 6 vezes por segundo, como tinta viva.
+// - Tons reduzidos com a passagem suave entre um e outro e relevo das cerdas iluminado (inclinação do pelo).
+// Ruído suave de 0 a 1 (gradiente, da biblioteca), para o redemoinho.
+float vnoise(vec2 p) { return lmNoise(p) * 0.5 + 0.5; }
 
-float vnoise(vec2 p) {
+/** Ruído de valor (acaso por célula da biblioteca, curva quíntica): barato, sem senos, para texturas finas. */
+float valueNoise(vec2 p) {
   vec2 i = floor(p);
-  vec2 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+  vec2 f = p - i;
+  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  float a = lmCellHash(i), b = lmCellHash(i + vec2(1.0, 0.0));
+  float c = lmCellHash(i + vec2(0.0, 1.0)), d = lmCellHash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
-float luma(vec3 c) {
-  return dot(c, vec3(0.299, 0.587, 0.114));
-}
+
+float luma(vec3 c) { return lmLuma(c); }
 
 /**
  * Direção da pincelada em cada ponto: ao longo das bordas da imagem (perpendicular ao gradiente),
  * puxada para o lado em que a cena anda e torcida por um redemoinho lento.
  */
+vec2 swirlDir;
+
 vec2 strokeDir(vec2 p, vec2 edge) {
   // Movimento em pixels por quadro (o gradiente também é medido em pixels).
   vec2 m = getMotion(p) * resolution * 720.0 / resolution.y;
   float speed = length(m);
   vec2 dir = edge;
   if (speed > 1e-3) dir = mix(dir, m / speed * max(0.5, length(edge)), smoothstep(0.3, 3.0, speed) * seguir);
-  float a = (vnoise(p * vec2(ratio, 1.0) * 3.0 + time * 0.08) - 0.5) * 6.2832 * redemoinho;
-  vec2 swirl = vec2(cos(a), sin(a));
+  // O redemoinho é largo (3 voltas por altura): lido uma vez no ponto de partida, vale para a pincelada toda.
+  vec2 swirl = swirlDir;
   dir = mix(dir, swirl, redemoinho * 0.6 * (1.0 - length(edge) * 0.5));
   return length(dir) > 1e-4 ? normalize(dir) : swirl;
 }
 
 vec4 effect(vec2 uv) {
   vec4 c = getColor(uv);
+  float sa = (vnoise(uv * vec2(ratio, 1.0) * 3.0 + time * 0.08) - 0.5) * 6.2832 * redemoinho;
+  swirlDir = vec2(cos(sa), sin(sa));
   vec2 px = 1.0 / resolution;
   float r = mix(2.0, 8.0, tamanho) * resolution.y / 720.0;
   // Gradiente largo (sobre a imagem já um pouco borrada pelo passo) para o campo não tremer.
@@ -45,7 +55,7 @@ vec4 effect(vec2 uv) {
   vec2 cell = vec2(ratio, 1.0) * resolution.y / (r * 2.2);
   float t = floor(time * 6.0) * 0.37;
   vec3 sum = c.rgb;
-  float fur = vnoise(uv * cell + t);
+  float fur = valueNoise(uv * cell + t);
   float total = 1.0;
   for (int s = -1; s <= 1; s += 2) {
     vec2 p = uv;
@@ -56,17 +66,22 @@ vec4 effect(vec2 uv) {
       p += d * float(s) * stepLen * px;
       float w = 1.0 - float(i) / 9.0;
       sum += getColor(p).rgb * w;
-      fur += vnoise(p * cell + t) * w;
+      fur += valueNoise(p * cell + t) * w;
       total += w;
     }
   }
   vec3 col = sum / total;
   fur /= total;
 
-  // Tinta: cores mais cheias e em menos tons, e o relevo das cerdas acendendo e escurecendo.
-  float l = luma(col);
-  col = mix(vec3(l), col, 1.0 + cores * 0.8);
-  col = mix(col, floor(col * 10.0 + 0.5) / 10.0, cores * 0.5);
-  col *= 1.0 + (fur - 0.5) * 0.9 * relevo;
+  // Tinta: cores mais cheias (saturação mantendo a luminância) e em menos tons, com a passagem entre um tom e outro
+  // suave (sem degraus serrilhados); o relevo das cerdas é iluminado de cima à esquerda pela inclinação do "pelo".
+  col = lmSaturate(col, 1.0 + cores * 0.8);
+  vec3 x = col * 10.0;
+  vec3 q = (floor(x) + smoothstep(0.1, 0.9, fract(x))) / 10.0;
+  col = mix(col, q, cores * 0.5);
+  float k = resolution.y / 720.0;
+  vec2 slope = vec2(dFdx(fur), dFdy(fur)) / max(k, 1e-3);
+  float light = dot(slope, normalize(vec2(-0.6, 0.8))) * 7.0;
+  col *= 1.0 + clamp(light, -0.5, 0.5) * 0.3 * relevo + (fur - 0.5) * 0.5 * relevo;
   return vec4(clamp(col, 0.0, 1.0), c.a);
 }

@@ -1,24 +1,60 @@
-vec4 zoomFrom(vec2 uv, float scale, float blur) {
-  vec4 sum = vec4(0.0);
-  for (int i = 0; i < 12; i++) {
-    float k = float(i) / 11.0;
-    sum += getFromColor((uv - 0.5) * scale * (1.0 - blur * k) + 0.5);
+// Zoom com desfoque: o clipe atual acelera num zoom de entrada (curva exponencial), o corte acontece no pico de
+// velocidade e o próximo clipe chega já ampliado e freia até o tamanho normal. O desfoque radial vem da própria
+// velocidade do zoom em cada instante (a escala é integrada durante o tempo do obturador, em luz linear), então é
+// máximo no corte e some nas pontas.
+
+vec2 mirrorUv(vec2 p) { return 1.0 - abs(1.0 - mod(p, 2.0)); }
+
+/** Obturador em tenda: amostras mais densas no meio do tempo de exposição, rastro que some suave nas pontas. */
+float tent(float u) { float x = 2.0 * u - 1.0; return 0.5 + 0.5 * sign(x) * (1.0 - sqrt(1.0 - abs(x))); }
+
+/** Curva exponencial de 0 a 1 (k = quanto acelera); fora de 0..1 continua a mesma curva. */
+float expIn(float x, float k) { return (exp(k * x) - 1.0) / (exp(k) - 1.0); }
+
+vec3 zoomFrom(vec2 uv, vec2 c, float ls, float span, float jitter) {
+  vec2 d = uv - c;
+  float px = length(d * resolution) * abs(span);
+  int n = int(clamp(ceil(px / 3.0), 1.0, 24.0));
+  float lod = clamp(log2(max(px / float(n) * exp(-ls), 1.0)) - 1.0, 0.0, 5.0);
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < 24; i++) {
+    if (i >= n) break;
+    float k = ls + span * (tent((float(i) + jitter) / float(n)) - 0.5);
+    sum += lmToLinear(getFromColorLod(mirrorUv(c + d * exp(-k)), lod).rgb);
   }
-  return sum / 12.0;
+  return sum / float(n);
 }
 
-vec4 zoomTo(vec2 uv, float scale, float blur) {
-  vec4 sum = vec4(0.0);
-  for (int i = 0; i < 12; i++) {
-    float k = float(i) / 11.0;
-    sum += getToColor((uv - 0.5) * scale * (1.0 - blur * k) + 0.5);
+vec3 zoomTo(vec2 uv, vec2 c, float ls, float span, float jitter) {
+  vec2 d = uv - c;
+  float px = length(d * resolution) * abs(span);
+  int n = int(clamp(ceil(px / 3.0), 1.0, 24.0));
+  float lod = clamp(log2(max(px / float(n) * exp(-ls), 1.0)) - 1.0, 0.0, 5.0);
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < 24; i++) {
+    if (i >= n) break;
+    float k = ls + span * (tent((float(i) + jitter) / float(n)) - 0.5);
+    sum += lmToLinear(getToColorLod(mirrorUv(c + d * exp(-k)), lod).rgb);
   }
-  return sum / 12.0;
+  return sum / float(n);
 }
+
+// Escala (em log) de cada clipe no tempo t: o atual entra acelerando, o próximo sai freando.
+float scaleFrom(float t, float L) { return L * expIn(2.0 * t, 4.5); }
+float scaleTo(float t, float L) { return L * expIn(2.0 - 2.0 * t, 4.5); }
 
 vec4 transition(vec2 uv) {
-  float blur = strength * 0.2 * sin(progress * PI);
-  vec4 a = zoomFrom(uv, 1.0 - strength * 0.6 * progress, blur);
-  vec4 b = zoomTo(uv, 1.0 / (1.0 + strength * (1.0 - progress)), blur);
-  return mix(a, b, smoothstep(0.35, 0.65, progress));
+  if (progress <= 0.0) return getFromColor(uv);
+  if (progress >= 1.0) return getToColor(uv);
+  float L = strength * 1.6;
+  const float shutter = 0.05;  // ~ 180° com o obturador em tenda
+  float t0 = max(progress - shutter * 0.5, 0.0);
+  float t1 = min(progress + shutter * 0.5, 1.0);
+  float jitter = lmIGN(gl_FragCoord.xy);
+  vec2 c = vec2(0.5);
+  float m = smoothstep(0.47, 0.53, progress);
+  vec3 col = vec3(0.0);
+  if (m < 1.0) col += zoomFrom(uv, c, scaleFrom(progress, L), scaleFrom(t1, L) - scaleFrom(t0, L), jitter) * (1.0 - m);
+  if (m > 0.0) col += zoomTo(uv, c, scaleTo(progress, L), scaleTo(t1, L) - scaleTo(t0, L), jitter) * m;
+  return vec4(lmToSrgb(col), 1.0);
 }

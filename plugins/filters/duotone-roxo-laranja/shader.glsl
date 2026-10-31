@@ -1,8 +1,39 @@
-float luma(vec3 c) {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722));
+// Duotone roxo e laranja:
+// - Degradê contínuo em Oklab do roxo das sombras ao laranja das luzes (os meios-tons passam por um
+//   magenta-coral, onde as duas tintas se somam), sem degraus e com a claridade sempre subindo.
+// - Luminância medida em luz linear e uma S leve: rosto com volume e pele legível.
+
+float paperCurve(float x, float hard, float pivot) {
+  x = pow(clamp(x, 0.0, 1.0), log(0.5) / log(pivot));
+  hard = max(hard, 0.05);
+  float a = 1.0 / (1.0 + exp(0.5 * hard));
+  return (1.0 / (1.0 + exp(-hard * (x - 0.5))) - a) / (1.0 - 2.0 * a);
 }
 
+bool inGamut(vec3 lin) { return all(greaterThanEqual(lin, vec3(-1e-4))) && all(lessThanEqual(lin, vec3(1.0001))); }
+/** Oklab → sRGB reduzindo só o croma até caber na tela (claridade e matiz ficam). */
+vec3 okToSrgb(vec3 lab) {
+  lab.x = clamp(lab.x, 0.0, 1.0);
+  if (inGamut(lmFromOklab(lab))) return clamp(lmToSrgb(lmFromOklab(lab)), 0.0, 1.0);
+  float lo = 0.0, hi = 1.0;
+  for (int i = 0; i < 8; i++) {
+    float m = 0.5 * (lo + hi);
+    if (inGamut(lmFromOklab(vec3(lab.x, lab.yz * m)))) lo = m; else hi = m;
+  }
+  return clamp(lmToSrgb(lmFromOklab(vec3(lab.x, lab.yz * lo))), 0.0, 1.0);
+}
+vec3 okOf(vec3 srgb) { return lmToOklab(lmToLinear(srgb)); }
+/** Degradê contínuo por 4 cores (Bézier cúbica em Oklab: sem quinas, sem degraus, claridade sempre subindo). */
+vec3 gradient4(float t, vec3 c0, vec3 c1, vec3 c2, vec3 c3) {
+  t = clamp(t, 0.0, 1.0);
+  float u = 1.0 - t;
+  return okToSrgb(u * u * u * okOf(c0) + 3.0 * u * u * t * okOf(c1) + 3.0 * u * t * t * okOf(c2) + t * t * t * okOf(c3));
+}
+/** Luminância medida em luz linear (Rec.709), devolvida em sRGB. */
+float lum(vec3 c) { return lmToSrgb(vec3(lmLuma(lmToLinear(c)))).x; }
+
 vec4 applyFilter(vec4 c, vec2 uv) {
-  vec3 col = mix(vec3(0.25, 0.05, 0.4), vec3(1.0, 0.6, 0.15), smoothstep(0.05, 0.95, luma(c.rgb)));
-  return vec4(clamp(col, 0.0, 1.0), c.a);
+  float t = paperCurve(lum(c.rgb), 2.6, 0.48);
+  vec3 col = gradient4(t, vec3(0.12, 0.02, 0.24), vec3(0.45, 0.1, 0.6), vec3(1.0, 0.5, 0.12), vec3(1.0, 0.86, 0.56));
+  return vec4(col, c.a);
 }

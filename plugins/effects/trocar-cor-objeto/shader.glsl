@@ -1,5 +1,7 @@
-// A mesma conta de src/project/recolor.ts (lá tem os testes): OKLab, a luz do pixel fica, o matiz e a
-// saturação vêm da cor escolhida.
+// A conta da cor é a de src/project/recolor.ts (lá tem os testes): OKLab, a luz do pixel fica, o matiz e a
+// saturação vêm da cor escolhida. Aqui, além dela: a máscara é alargada ou estreitada de forma macia (sem as quinas
+// de um máximo de 8 pontos), a borda é decidida também pela cor e a mistura com o original é feita em OKLab, com a
+// mesma luz dos dois lados: a borda não ganha um contorno escuro nem acinzentado.
 float toLinear(float c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
 float toGamma(float c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
 
@@ -31,8 +33,8 @@ vec3 oklabToLinear(vec3 lab) {
 
 bool inGamut(vec3 c) { return all(greaterThanEqual(c, vec3(-1e-4))) && all(lessThanEqual(c, vec3(1.0001))); }
 
-vec3 recolor(vec3 pixel, vec3 target) {
-  vec3 src = rgbToOklab(pixel);
+/** A cor nova do pixel, em OKLab (já dentro da tela). */
+vec3 recolor(vec3 src, vec3 target) {
   vec3 tgt = rgbToOklab(target);
   float L = clamp(src.x + brilho, 0.0, 1.0);
   float want = length(tgt.yz) * max(0.0, saturacao);
@@ -49,32 +51,43 @@ vec3 recolor(vec3 pixel, vec3 target) {
     }
     chroma = lo;
   }
-  vec3 lin = clamp(oklabToLinear(vec3(L, dir * chroma)), 0.0, 1.0);
-  return vec3(toGamma(lin.r), toGamma(lin.g), toGamma(lin.b));
+  return vec3(L, dir * chroma);
 }
 
 float band(float x, float a, float b, float soft) {
   return min(smoothstep(a - soft, a, x), 1.0 - smoothstep(b, b + soft, x));
 }
 
-/** Quanto o pixel parece pele (igual a skinLikeness em recolor.ts). */
+/**
+ * Quanto o pixel parece pele (a ideia de skinLikeness em recolor.ts, com croma e luz mais justos e o matiz indo até o
+ * rosado dos lábios): o castanho escuro do cabelo (luz baixa) e o branco quente de uma roupa na sombra (croma quase
+ * zero) não contam como pele, senão "Proteger a pele" deixava pedaços do cabelo e da roupa sem a cor nova.
+ */
 float skin(vec3 c) {
   vec3 lab = rgbToOklab(c);
   float deg = degrees(atan(lab.z, lab.y));
-  return band(deg, 35.0, 80.0, 15.0) * band(length(lab.yz), 0.03, 0.16, 0.03) * band(lab.x, 0.35, 0.92, 0.08);
+  // Nas luzes altas (brilho do nariz, da testa) a pele tem menos croma: o mínimo desce um pouco.
+  float cmin = mix(0.04, 0.028, smoothstep(0.8, 0.95, lab.x));
+  return band(deg, 18.0, 82.0, 15.0) * band(length(lab.yz), cmin, 0.17, 0.02) * band(lab.x, 0.42, 0.97, 0.04);
 }
 
-// Onde está o objeto, um pouco maior ou menor (a máscara é pequena e a borda dela é aproximada).
+// Onde está o objeto, um pouco maior ou menor (a máscara é pequena e a borda dela é aproximada). Média da máscara num
+// disco (centro + dois anéis de 8) e um corte macio abaixo de 0,5 (alarga) ou acima (estreita): a borda anda de forma
+// uniforme e continua macia, sem as pontas de estrela de um máximo/mínimo de poucos pontos.
 float area(vec2 uv) {
-  float m = getPerson(uv);
   float r = abs(margem) * 0.012;
-  if (r <= 0.0) return m;
+  if (r <= 0.0) return getPerson(uv);
+  float sum = getPerson(uv) * 2.0;
+  float total = 2.0;
   for (int i = 0; i < 8; i++) {
     float a = float(i) * 0.7854;
-    float n = getPerson(uv + vec2(cos(a) / ratio, sin(a)) * r);
-    m = margem > 0.0 ? max(m, n) : min(m, n);
+    sum += getPerson(uv + vec2(cos(a) / ratio, sin(a)) * r);
+    sum += getPerson(uv + vec2(cos(a + 0.3927) / ratio, sin(a + 0.3927)) * r * 0.5) * 0.75;
+    total += 1.75;
   }
-  return m;
+  float avg = sum / total;
+  float c = 0.5 - sign(margem) * 0.35 * min(abs(margem), 1.0);
+  return smoothstep(c - 0.2, c + 0.2, avg);
 }
 
 /**
@@ -107,7 +120,9 @@ float refine(vec2 uv, float m, vec3 c) {
   // Dentro e fora com cores parecidas: a cor não ajuda, vale a máscara.
   if (len2 < 0.004) return m;
   float byColor = clamp(dot(c - outside, axis) / len2, 0.0, 1.0);
-  return mix(m, smoothstep(0.2, 0.8, byColor), 0.75);
+  // Mapeamento macio (sem virar 0 ou 1 de repente): fios e bordas finas ficam com uma parte da cor nova, em vez de
+  // uma colcha de pedaços pintados e não pintados.
+  return mix(m, smoothstep(0.05, 0.95, byColor), 0.6);
 }
 
 vec4 effect(vec2 uv) {
@@ -117,5 +132,9 @@ vec4 effect(vec2 uv) {
   m = refine(uv, m, original.rgb);
   m *= 1.0 - pele * skin(original.rgb);
   if (m <= 0.0) return original;
-  return vec4(mix(original.rgb, recolor(original.rgb, cor), m * intensidade), original.a);
+  vec3 src = rgbToOklab(original.rgb);
+  // Mistura em OKLab: a luz do pixel não muda na borda, só a cor vai de uma para a outra.
+  vec3 lab = mix(src, recolor(src, cor), m * intensidade);
+  vec3 lin = clamp(oklabToLinear(lab), 0.0, 1.0);
+  return vec4(toGamma(lin.r), toGamma(lin.g), toGamma(lin.b), original.a);
 }

@@ -235,6 +235,7 @@ export function prerenderFingerprint(
     for (const clip of track.clips) {
       if (!hits(clip.start, clip.start + clip.duration)) continue;
       useLook(clip);
+      if (clip.lut) luts.add(clip.lut.id);
       parts.push(`pacote:${index}:${memo(packPrints, clip, () => stable(clip, PACK_IGNORED))}`);
     }
   });

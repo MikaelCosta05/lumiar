@@ -1,21 +1,25 @@
-vec3 rgb2hsv(vec3 c) {
-  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y);
-  float e = 1.0e-10;
-  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
+// Girar cores: desloca todas as cores pelo círculo cromático.
+// - O giro é feito em Oklab (cor perceptual): cada cor muda de matiz mas mantém a claridade percebida, então a
+//   imagem não escurece nem ganha manchas (no HSV um amarelo vira um azul muito mais escuro).
+// - "Deslocamento" é a fração do círculo (0,25 = 90°). Cores que não cabem na tela depois do giro perdem só
+//   croma (a claridade e o matiz ficam), em vez de serem cortadas por canal.
 
-vec3 hsv2rgb(vec3 c) {
-  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+bool inGamut(vec3 lin) { return all(greaterThanEqual(lin, vec3(-1e-4))) && all(lessThanEqual(lin, vec3(1.0001))); }
+/** Oklab → sRGB reduzindo só o croma até caber na tela (claridade e matiz ficam). */
+vec3 okToSrgb(vec3 lab) {
+  lab.x = clamp(lab.x, 0.0, 1.0);
+  if (inGamut(lmFromOklab(lab))) return clamp(lmToSrgb(lmFromOklab(lab)), 0.0, 1.0);
+  float lo = 0.0, hi = 1.0;
+  for (int i = 0; i < 8; i++) {
+    float m = 0.5 * (lo + hi);
+    if (inGamut(lmFromOklab(vec3(lab.x, lab.yz * m)))) lo = m; else hi = m;
+  }
+  return clamp(lmToSrgb(lmFromOklab(vec3(lab.x, lab.yz * lo))), 0.0, 1.0);
 }
+vec3 okOf(vec3 srgb) { return lmToOklab(lmToLinear(srgb)); }
 
 vec4 applyFilter(vec4 c, vec2 uv) {
-  vec3 hsv = rgb2hsv(c.rgb);
-  hsv.x = fract(hsv.x + shift);
-  vec3 col = hsv2rgb(hsv);
-  return vec4(clamp(col, 0.0, 1.0), c.a);
+  vec3 lab = okOf(c.rgb);
+  lab.yz = lmRotate(lab.yz, shift * 6.2831853);
+  return vec4(okToSrgb(lab), c.a);
 }

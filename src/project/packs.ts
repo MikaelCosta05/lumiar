@@ -3,6 +3,8 @@ import { t } from '../i18n';
 import { defaultParams, getPlugin } from '../engine/registry';
 import type { EffectInstance, FilterInstance, ParamValues } from '../engine/types';
 import { createCamera, type Camera, type CameraTransform, type TrackPoint } from './camera';
+import { gradeIsNeutral, type ColorGrade } from './grade';
+import type { SavedLut } from './lut';
 import {
   findAudioClip,
   layoutProject,
@@ -109,6 +111,10 @@ export interface PackClip {
   speed?: SpeedLink;
   /** Grupo de itens que andam juntos */
   group?: string;
+  /** Correção de cor manual (rodas, saturação e curvas), como a da aba Cor do clipe */
+  grade?: ColorGrade;
+  /** LUT do projeto (project.luts) e quanto dela aparece */
+  lut?: { id: string; amount: number };
 }
 
 export interface PackTrack {
@@ -147,6 +153,10 @@ export interface PackTemplate {
   face?: { zoom: number | 'auto'; smoothness: number };
   /** Criado pelo usuário ("Meus pacotes") */
   custom?: boolean;
+  /** Correção de cor manual */
+  grade?: ColorGrade;
+  /** LUT com os dados junto: "Meus pacotes" valem em qualquer projeto (ao aplicar, ela entra no projeto) */
+  lut?: { amount: number; data: SavedLut };
 }
 
 export const MIN_PACK_LENGTH = 0.2;
@@ -191,6 +201,9 @@ export function createPackClip(template: PackTemplate, start: number, duration =
     filter,
     camera,
     timing: template.timing,
+    // Só quando há: pacotes sem cor manual continuam exatamente como eram.
+    ...(template.grade && !gradeIsNeutral(template.grade) ? { grade: structuredClone(template.grade) } : {}),
+    ...(template.lut ? { lut: { id: template.lut.data.id, amount: template.lut.amount } } : {}),
   };
   return retimePack(clip, Math.max(MIN_PACK_LENGTH, duration));
 }
@@ -198,12 +211,15 @@ export function createPackClip(template: PackTemplate, start: number, duration =
 /** Guarda um bloco (ou o visual de um clipe) como pacote do usuário, com a câmera lenta se tiver. */
 export function templateFromClip(
   original: Pick<PackClip, 'name' | 'color' | 'duration' | 'intensity' | 'fadeIn' | 'fadeOut' | 'effects' | 'filter' | 'camera' | 'timing'> &
-    Partial<Pick<PackClip, 'speed'>>,
+    Partial<Pick<PackClip, 'speed' | 'grade' | 'lut'>>,
   anchor: PackAnchor = 'clip',
+  /** LUTs do projeto: a do bloco vai junto, com os dados */
+  luts: SavedLut[] = [],
 ): PackTemplate {
   // Pacote de velocidade: a duração do pacote é a do trecho antes de mudar a velocidade.
   const link = original.speed;
   const clip = link ? retimePack(original as PackClip, link.span) : original;
+  const lut = clip.lut && luts.find((l) => l.id === clip.lut!.id);
   return {
     id: `custom/${uid()}`,
     name: clip.name,
@@ -224,7 +240,16 @@ export function templateFromClip(
     speed: link?.speeds,
     muteSlow: link?.muted,
     custom: true,
+    ...(clip.grade && !gradeIsNeutral(clip.grade) ? { grade: clip.grade } : {}),
+    ...(lut && clip.lut ? { lut: { amount: clip.lut.amount, data: lut } } : {}),
   };
+}
+
+/** A LUT que o pacote traz entra no projeto (se ainda não estiver lá), para o bloco achar os dados dela. */
+export function withTemplateLut(project: Project, template: Pick<PackTemplate, 'lut'>): Project {
+  const lut = template.lut?.data;
+  if (!lut || project.luts?.some((l) => l.id === lut.id)) return project;
+  return { ...project, luts: [...(project.luts ?? []), lut] };
 }
 
 /** Empurra no tempo os textos, stickers e sons que vieram com o pacote (blocos de projetos antigos). */
@@ -305,7 +330,7 @@ export function applyPack(
   options: ApplyOptions = {},
 ): { project: Project; id: string; speedApplied: boolean } {
   let span = packSpan(template, timeline, t, options.cover ?? null, options.music ?? null);
-  let next = project;
+  let next = withTemplateLut(project, template);
   let link: SpeedLink | undefined;
   if (template.speed?.length) {
     const result = applySpeed(next, span.start, span.duration, template.speed);
@@ -553,6 +578,9 @@ export function bakePack<T extends VideoClip>(template: PackTemplate, clip: T, l
     camera: pack.camera
       ? { ...pack.camera, fill: clip.camera?.fill ?? false, follow: clip.camera?.follow ?? null, stabilize: clip.camera?.stabilize }
       : clip.camera,
+    // A cor manual do pacote troca a do clipe (a LUT precisa estar no projeto: withTemplateLut).
+    ...(pack.grade ? { grade: pack.grade } : {}),
+    ...(pack.lut ? { lut: pack.lut } : {}),
   };
 }
 

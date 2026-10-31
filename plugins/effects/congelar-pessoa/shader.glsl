@@ -1,3 +1,9 @@
+// Congelar a pessoa: a pessoa para no meio do movimento e o mundo continua, ou o contrário.
+// - O contorno da parte congelada é uma linha fina e lisa por fora da forma: a máscara (alfa do quadro guardado ou
+//   a pessoa de agora) é borrada por uma gaussiana de 24 amostras fixas e a distância até a borda sai da inversão
+//   dessa máscara borrada. Sem os dentes da busca em 12 direções.
+// - O recorte da pessoa congelada tem a borda suave da máscara (sem halo do fundo antigo) e a cor sai com a
+//   luminância Rec.709.
 bool frozen() {
   return time >= momento && (duracaoGelo <= 0.0 || time < momento + duracaoGelo);
 }
@@ -10,19 +16,28 @@ vec4 state(vec2 uv) {
 }
 
 vec3 desaturate(vec3 c) {
-  return mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), dessaturar);
+  return mix(c, vec3(lmLuma(c)), dessaturar);
 }
 
-/** Linha branca do lado de fora da forma (alfa do quadro guardado ou a pessoa de agora). */
+float shape(vec2 uv, bool snapshot) { return snapshot ? getPrevious(uv).a : getPerson(uv); }
+
+/** Linha do lado de fora da forma, de ~0,7 a ~3,5 px de 1080p da borda. */
 float outline(vec2 uv, bool snapshot) {
-  float here = snapshot ? getPrevious(uv).a : getPerson(uv);
-  float around = 0.0;
-  for (int i = 0; i < 12; i++) {
-    float a = float(i) * 0.5236;
-    vec2 o = vec2(cos(a), sin(a)) * 3.0 * resolution.y / 720.0 / resolution;
-    around = max(around, snapshot ? getPrevious(uv + o).a : getPerson(uv + o));
+  const float SIGMA = 2.5;
+  vec2 toUv = vec2(1.0 / ratio, 1.0) / 1080.0;
+  float sum = 0.0, wsum = 0.0;
+  for (int i = 0; i < 24; i++) {
+    float r = sqrt((float(i) + 0.5) / 24.0) * 2.5;
+    float a = float(i) * 2.39996323;
+    float w = exp(-0.5 * r * r);
+    sum += shape(uv + vec2(cos(a), sin(a)) * r * SIGMA * toUv, snapshot) * w;
+    wsum += w;
   }
-  return around * (1.0 - here);
+  float m = clamp(sum / wsum, 1e-4, 1.0 - 1e-4);
+  if (m < 2e-3) return 0.0;
+  float d = SIGMA * log((1.0 - m) / m) / 1.702;
+  float aa = 0.75 * 1080.0 / resolution.y;
+  return 1.0 - smoothstep(1.4 - aa, 1.4 + aa, abs(d - 2.1));
 }
 
 vec4 effect(vec2 uv) {
@@ -34,7 +49,8 @@ vec4 effect(vec2 uv) {
   if (modo < 0.5) {
     // A pessoa de agora some (fica o fundo) e a guardada aparece parada no lugar.
     vec3 world = mix(base.rgb, getBackground(uv).rgb, me);
-    col = mix(world, desaturate(snap.rgb), snap.a);
+    float a = smoothstep(0.1, 0.9, snap.a);
+    col = mix(world, desaturate(snap.rgb), a);
     col = mix(col, vec3(1.0), outline(uv, true) * contorno);
   } else {
     col = mix(desaturate(snap.rgb), base.rgb, me);

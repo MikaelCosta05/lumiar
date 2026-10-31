@@ -1,5 +1,6 @@
 import { trackFace } from '../media/tracking';
 import type { TrackPoint } from '../project/camera';
+import { ADJUSTMENT_ID } from '../project/adjustmentBlock';
 import { layoutProject, speedOf } from '../project/model';
 import { applyPack, findPackClip, setPackFace, type PackTemplate } from '../project/packs';
 import { findPackTemplate } from '../ui/packStore';
@@ -100,6 +101,7 @@ export function packTools(
     setSelection({ kind: 'pack', id });
     const name = t(template.name);
     if (template.speed && !speedApplied) notify(t('"{name}" aplicado, mas a velocidade só muda em vídeos da trilha principal.', { name }), true);
+    else if (template.id === ADJUSTMENT_ID) notify(t('Bloco de ajuste na timeline. Escolha no painel da direita o filtro, os efeitos, a cor e a câmera.'));
     else if (template.beat) notify(t('"{name}" aplicado em {n} batidas.', { name, n: beats?.length ?? 0 }));
     else notify(t('"{name}" aplicado. Puxe as bordas do bloco para encaixar.', { name }));
     if (template.face) await faceForPack(id, template.face);

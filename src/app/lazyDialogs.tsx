@@ -5,7 +5,16 @@ import { lazy, Suspense, type ComponentType } from 'react';
  * vez que abre (o editor abre mais rápido). Cada uma tem o próprio Suspense: enquanto carrega,
  * só ela não aparece, sem esconder o resto da tela.
  */
+/** Os carregadores de todas as janelas (a tela de carregamento já baixa todas, e elas abrem na hora). */
+const loaders: (() => Promise<unknown>)[] = [];
+
+/** Baixa o código de todas as janelas (o React.lazy depois só encontra o módulo pronto). */
+export function preloadDialogs(): Promise<void> {
+  return Promise.allSettled(loaders.map((load) => load())).then(() => undefined);
+}
+
 function lazyDialog<P extends object>(load: () => Promise<ComponentType<P>>): ComponentType<P> {
+  loaders.push(load);
   const Lazy = lazy(async () => ({ default: await load() })) as unknown as ComponentType<P>;
   return function LazyDialog(props: P) {
     return (

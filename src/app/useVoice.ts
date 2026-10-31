@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { t } from '../i18n';
-import { transcribeProject } from '../media/captioning';
+import { DEFAULT_CAPTION_MODEL, transcribeProject } from '../media/captioning';
 import { analyzeMedia, importMedia } from '../media/importer';
 import { VoiceRecorder } from '../media/recorder';
 import { speak } from '../media/speech';
@@ -170,7 +170,7 @@ export function useVoice({ history, project, timeline, setProject, setSelection,
     if (layoutProject(p).duration === 0) return notify(t('Coloque um vídeo com fala na timeline primeiro.'), true);
     try {
       setSpeaking(t('Ouvindo e traduzindo a fala…'));
-      const phrases = await transcribeProject(p, { model: 'Xenova/whisper-base', language: null, maxWords: 14, translate: true }, (stage, fraction) =>
+      const phrases = await transcribeProject(p, { model: DEFAULT_CAPTION_MODEL, language: null, maxWords: 14, translate: true }, (stage, fraction) =>
         setSpeaking(`${stage}${fraction === null ? '' : ` · ${Math.round(fraction * 100)}%`}`),
       );
       if (phrases.length === 0) return notify(t('Não encontrei fala para traduzir.'), true);

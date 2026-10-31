@@ -21,7 +21,9 @@ vec4 effect(vec2 uv) {
   // As cores estouram só na imagem mostrada (no estado, o reforço se acumularia a cada quadro).
   vec3 c = getPrevious(uv).rgb;
   float moving = clamp(length(motionAt(uv) * resolution) / resolution.y * 60.0, 0.0, 1.0);
-  float l = dot(c, vec3(0.299, 0.587, 0.114));
-  c = mix(vec3(l), c, 1.0 + cores * 1.2 * moving);
+  // Saturação em Oklab: o brilho percebido não muda (o reforço só pinta, não clareia nem escurece).
+  vec3 lab = lmToOklab(lmToLinear(c));
+  lab.yz *= 1.0 + cores * 1.2 * moving;
+  c = lmToSrgb(max(lmFromOklab(lab), 0.0));
   return vec4(clamp(c, 0.0, 1.0), getColor(uv).a);
 }

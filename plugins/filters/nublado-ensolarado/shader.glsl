@@ -1,28 +1,72 @@
-float luma(vec3 c) {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722));
+// ---- Cor em Oklab: L = claridade percebida (0 a 1), ab = cor. Matiz em graus: vermelho ~28, pele ~50,
+// laranja ~55, dourado ~85, verde-amarelado ~120, verde ~140, ciano ~210, azul do céu ~250, magenta ~340.
+vec3 toLab(vec3 srgb) { return lmToOklab(lmToLinear(srgb)); }
+/** Oklab → sRGB. O que sai da gama perde saturação (mesma luminância e matiz) em vez de virar outra cor. */
+vec3 fromLab(vec3 lab) {
+  vec3 c = lmFromOklab(vec3(max(lab.x, 0.0), lab.yz));
+  float y = clamp(lmLuma(c), 0.0, 1.0);
+  float lo = min(c.r, min(c.g, c.b));
+  float hi = max(c.r, max(c.g, c.b));
+  float k = 1.0;
+  if (lo < 0.0) k = min(k, y / max(y - lo, 1e-6));
+  if (hi > 1.0) k = min(k, (1.0 - y) / max(hi - y, 1e-6));
+  return lmToSrgb(mix(vec3(y), c, clamp(k, 0.0, 1.0)));
 }
-
-vec3 saturate(vec3 c, float s) {
-  return mix(vec3(luma(c)), c, s);
+float hueDeg(vec3 lab) { return degrees(atan(lab.z, lab.y + 1e-7)); }
+/** 1 no matiz `center` (graus), caindo até 0 a `width` graus; cores quase cinza não contam. */
+float hueBand(vec3 lab, float center, float width) {
+  float d = abs(mod(hueDeg(lab) - center + 540.0, 360.0) - 180.0);
+  return (1.0 - smoothstep(width * 0.3, width, d)) * smoothstep(0.012, 0.045, length(lab.yz));
 }
-
-vec3 sCurve(vec3 c, float k) {
-  c = clamp(c, 0.0, 1.0);
-  return mix(c, c * c * (3.0 - 2.0 * c), k);
+/** Peso de pele: matiz perto de 50°, croma moderado (laranja vivo não é pele), nem preto nem branco. */
+float skinWeight(vec3 lab) {
+  float d = abs(mod(hueDeg(lab) - 52.0 + 540.0, 360.0) - 180.0);
+  float c = length(lab.yz);
+  return (1.0 - smoothstep(12.0, 30.0, d)) * smoothstep(0.028, 0.055, c) * (1.0 - smoothstep(0.13, 0.19, c))
+    * smoothstep(0.22, 0.38, lab.x) * (1.0 - smoothstep(0.93, 0.99, lab.x));
 }
+vec2 rotAB(vec2 ab, float deg) { float r = radians(deg); float s = sin(r), k = cos(r); return mat2(k, s, -s, k) * ab; }
+/** Curva racional: inclinação s no fim (t = 1) e 1/s no começo; s = 1 não muda nada. */
+float rcurve(float t, float s) { return t / ((s - 1.0) * (1.0 - t) + 1.0); }
+/** Contraste em S em volta do pivô, sem cortar 0 nem 1 e sem esmagar os pretos (s = inclinação no pivô). */
+float contrastL(float x, float s, float p) {
+  x = clamp(x, 0.0, 1.0);
+  return x < p ? p * rcurve(x / p, s) : 1.0 - (1.0 - p) * rcurve((1.0 - x) / (1.0 - p), s);
+}
+/** Pesos das faixas tonais em L (somam ~1): sombras, meios-tons, altas luzes. */
+float wShadow(float L) { return 1.0 - smoothstep(0.08, 0.62, L); }
+float wHigh(float L) { return smoothstep(0.42, 0.95, L); }
+float wMid(float L) { return max(1.0 - wShadow(L) - wHigh(L), 0.0); }
+/** Vibração em Oklab: realça o croma baixo mais que o alto; "skin" = quanto poupar a pele (0 a 1). */
+vec3 vibranceLab(vec3 lab, float amount, float skin) {
+  float c = length(lab.yz);
+  float room = 1.0 - smoothstep(0.0, 0.2, c);
+  float g = 1.0 + amount * room * room * (1.0 - skin * skinWeight(lab));
+  lab.yz *= g;
+  return lab;
+}
+/** Menor giro (graus, −180 a 180) para levar o matiz `from` até `to`. */
+float hueDelta(float from, float to) { return mod(to - from + 540.0, 360.0) - 180.0; }
 
+// De nublado a ensolarado: dá vida a um dia cinzento. O céu cinza (claro, sem cor, no alto) vira azul em degradê
+// (mais fundo em cima, mais claro no horizonte) e as nuvens bem claras continuam brancas; o resto ganha luz de sol:
+// balanço de branco mais quente, contraste em S e vibração (a pele é poupada).
 vec4 applyFilter(vec4 c, vec2 uv) {
-  vec3 col = c.rgb;
-  float l = luma(col);
-  float chroma = max(col.r, max(col.g, col.b)) - min(col.r, min(col.g, col.b));
-  // Céu cinza: claro, sem cor e no alto do quadro.
-  float skyMask = smoothstep(0.5, 0.8, l) * (1.0 - smoothstep(0.12, 0.3, chroma)) * smoothstep(0.35, 0.75, uv.y);
-  vec3 blue = vec3(0.42, 0.64, 1.0);
-  vec3 skyCol = blue * (l / luma(blue)) * 0.9;
-  skyCol = mix(skyCol, vec3(l), smoothstep(0.88, 1.0, l) * 0.7);
-  col = mix(col, skyCol, skyMask * sky);
-  col *= mix(vec3(1.0), vec3(1.06, 1.02, 0.93), sun * (1.0 - skyMask));
-  col = mix(col, sCurve(col, 0.6), sun * 0.6);
-  col = saturate(col, 1.0 + sun * 0.4 * (1.0 - chroma));
-  return vec4(clamp(col, 0.0, 1.0), c.a);
+  vec3 lab = toLab(c.rgb);
+  float chroma = length(lab.yz);
+  float skyMask = smoothstep(0.62, 0.82, lab.x) * (1.0 - smoothstep(0.03, 0.075, chroma)) * smoothstep(0.35, 0.75, uv.y);
+  // Céu: azul em degradê, com croma que some nas nuvens mais brancas.
+  float up = smoothstep(0.4, 1.0, uv.y);
+  float cloud = smoothstep(0.86, 0.99, lab.x);
+  vec2 blue = vec2(cos(radians(252.0)), sin(radians(252.0))) * mix(0.07, 0.11, up) * (1.0 - 0.85 * cloud);
+  vec3 skyLab = vec3(lab.x * mix(0.86, 0.97, cloud) * mix(1.02, 0.94, up), blue);
+  lab = mix(lab, skyLab, skyMask * sky);
+  // Sol no resto da imagem.
+  float rest = 1.0 - skyMask * sky;
+  vec3 col = fromLab(lab);
+  col = mix(col, lmWhiteBalance(col, 0.22 * sun, 0.0), rest);
+  lab = toLab(col);
+  lab.x = mix(lab.x, contrastL(lab.x, 1.0 + 0.35 * sun, 0.45), rest);
+  lab = vibranceLab(lab, 0.45 * sun * rest, 0.6);
+  return vec4(fromLab(lab), c.a);
 }

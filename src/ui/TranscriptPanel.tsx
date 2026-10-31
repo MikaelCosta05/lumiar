@@ -1,6 +1,6 @@
 import { FileText, ListChecks, ListOrdered, LoaderCircle, Scissors, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { CAPTION_LANGUAGES, CAPTION_MODELS, transcribeProject } from '../media/captioning';
+import { CAPTION_LANGUAGES, CAPTION_MODELS, DEFAULT_CAPTION_MODEL, transcribeProject } from '../media/captioning';
 import { getCaptions, updateCaptions } from '../project/captions';
 import type { Project } from '../project/model';
 import { removeTimeRanges } from '../project/ripple';
@@ -36,7 +36,7 @@ export function TranscriptPanel({ project, time, onChange, onSeek, notify, onScr
     [track.captions],
   );
   const [language, setLanguage] = useState<string | null>('portuguese');
-  const [model, setModel] = useState(CAPTION_MODELS[1].id);
+  const [model, setModel] = useState(DEFAULT_CAPTION_MODEL);
   const [progress, setProgress] = useState<string | null>(null);
   const [selection, setSelection] = useState<[number, number] | null>(null);
   const anchor = useRef<number | null>(null);

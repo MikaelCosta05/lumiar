@@ -61,6 +61,7 @@ import { addMotionBlur } from '../project/motionBlur';
 import { loadWorld } from './mapRender';
 import { LOUDNESS_TARGETS, normalizeLoudness, type LoudnessTarget } from './loudness';
 import { prepareSpectra } from './spectrum';
+import { ZipTooLarge, ZipWriter } from './zip';
 
 export interface ExportProgress {
   stage: string;
@@ -68,7 +69,7 @@ export interface ExportProgress {
   fraction: number;
 }
 
-export type ExportFormat = 'mp4' | 'webm' | 'mov' | 'gif' | 'wav' | 'm4a';
+export type ExportFormat = 'mp4' | 'webm' | 'mov' | 'gif' | 'png' | 'wav' | 'm4a';
 export type ExportQuality = 'low' | 'medium' | 'high' | 'very-high';
 
 export interface ExportSettings {
@@ -84,6 +85,8 @@ export interface ExportSettings {
   loudness?: LoudnessTarget;
   /** Loop perfeito ou boomerang (GIF, Reels); ausente = normal. Ver exportLoop.ts. */
   loop?: ExportLoop;
+  /** Fundo transparente (só WebM e sequência PNG): onde não há clipe fica transparente. Ver supportsTransparency. */
+  transparent?: boolean;
 }
 
 export const FORMAT_INFO: Record<ExportFormat, { label: string; extension: string; mime: string; video: boolean; hint: string }> = {
@@ -91,9 +94,15 @@ export const FORMAT_INFO: Record<ExportFormat, { label: string; extension: strin
   webm: { label: 'WebM', extension: 'webm', mime: 'video/webm', video: true, hint: t('VP9 · ótimo para a web') },
   mov: { label: 'MOV', extension: 'mov', mime: 'video/quicktime', video: true, hint: t('H.264 · para editores e Apple') },
   gif: { label: 'GIF', extension: 'gif', mime: 'image/gif', video: true, hint: t('Animação sem som, em loop') },
+  png: { label: 'PNG', extension: 'zip', mime: 'application/zip', video: true, hint: t('Sequência de imagens (.zip), sem som') },
   wav: { label: 'WAV', extension: 'wav', mime: 'audio/wav', video: false, hint: t('Só o áudio, sem perdas') },
   m4a: { label: 'M4A', extension: 'm4a', mime: 'audio/mp4', video: false, hint: t('Só o áudio, compactado (AAC)') },
 };
+
+/** Formatos que guardam transparência: WebM (VP9 com alfa) e a sequência de PNG. */
+export function supportsTransparency(format: ExportFormat): boolean {
+  return format === 'webm' || format === 'png';
+}
 
 const QUALITIES: Record<ExportQuality, Quality> = {
   low: QUALITY_LOW,
@@ -143,11 +152,14 @@ export async function exportProject(project: Project, settings: ExportSettings, 
   const { width, height } = outputSize(project, settings.height);
   const fps = settings.fps ?? project.fps;
   const gif = settings.format === 'gif';
+  const png = settings.format === 'png';
+  const transparent = !!settings.transparent && supportsTransparency(settings.format);
   const quality = QUALITIES[settings.quality];
 
   let videoCodec: VideoCodec = 'avc';
-  if (!gif) {
-    const candidates: VideoCodec[] = settings.format === 'webm' ? ['vp9', 'vp8', 'av1'] : ['avc', 'hevc'];
+  if (!gif && !png) {
+    // Com transparência, só VP9/VP8: o alfa vai num segundo fluxo dentro do WebM, que os editores entendem.
+    const candidates: VideoCodec[] = settings.format === 'webm' ? (transparent ? ['vp9', 'vp8'] : ['vp9', 'vp8', 'av1']) : ['avc', 'hevc'];
     const found = await firstSupported(candidates, (c) => canEncodeVideo(c, { width, height, bitrate: quality }));
     if (!found) throw new Error(t('Este navegador não consegue gerar {format} em {width}×{height}.', { format: info.label, width, height }));
     videoCodec = found;
@@ -179,7 +191,7 @@ export async function exportProject(project: Project, settings: ExportSettings, 
 
   // 2. Todo o áudio mixado (vídeos + trilhas de áudio), recortado no trecho.
   let audio: AudioBuffer | null = null;
-  if (!gif && !options.videoOnly) {
+  if (!gif && !png && !options.videoOnly) {
     onProgress?.({ stage: t('Mixando o áudio'), fraction: 0 });
     audio = sliceAudio(await mixAudio(project, timeline), start, end);
     if (audio && settings.loudness && settings.loudness !== 'off') normalizeLoudness(audio, LOUDNESS_TARGETS[settings.loudness].lufs);
@@ -189,9 +201,9 @@ export async function exportProject(project: Project, settings: ExportSettings, 
   // 3. Saída.
   const scaled = { ...project, width, height };
   const canvas = document.createElement('canvas');
-  const renderer = new Renderer(canvas, width, height);
+  const renderer = new Renderer(canvas, width, height, { transparent });
   // Loop perfeito / boomerang: os quadros passam por ele antes de ir para o arquivo (e o som também).
-  const looper = settings.loop && settings.loop !== 'none' && !options.videoOnly ? new ExportLooper(settings.loop, frameCount - warm, fps, width, height) : null;
+  const looper = settings.loop && settings.loop !== 'none' && !options.videoOnly ? new ExportLooper(settings.loop, frameCount - warm, fps, width, height, transparent) : null;
   if (looper && audio) audio = looper.audio(audio);
   const textCanvas = document.createElement('canvas');
   const behindCanvas = document.createElement('canvas');
@@ -206,13 +218,16 @@ export async function exportProject(project: Project, settings: ExportSettings, 
   let videoSource: CanvasSource | null = null;
   let gifEncoder: GifEncoder | null = null;
   let readback: CanvasRenderingContext2D | null = null;
+  // Sequência de PNG: cada quadro vira um arquivo dentro do .zip (em emit), com o número no fim do nome.
+  const zip = png ? new ZipWriter() : null;
+  const frameName = `${(project.name || 'lumiar').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'lumiar'}_`;
   if (gif) {
     gifEncoder = new GifEncoder(width, height);
     const copy = document.createElement('canvas');
     copy.width = width;
     copy.height = height;
     readback = copy.getContext('2d', { willReadFrequently: true });
-  } else {
+  } else if (!png) {
     const format =
       settings.format === 'webm'
         ? new WebMOutputFormat()
@@ -220,8 +235,13 @@ export async function exportProject(project: Project, settings: ExportSettings, 
           ? new MovOutputFormat({ fastStart: 'in-memory' })
           : new Mp4OutputFormat({ fastStart: 'in-memory' });
     output = new Output({ format, target: new BufferTarget() });
-    videoSource = new CanvasSource(looper?.canvas ?? canvas, { codec: videoCodec, bitrate: quality, keyFrameInterval: options.keyFrameInterval });
-    output.addVideoTrack(videoSource, { frameRate: fps });
+    videoSource = new CanvasSource(looper?.canvas ?? canvas, {
+      codec: videoCodec,
+      bitrate: quality,
+      keyFrameInterval: options.keyFrameInterval,
+      alpha: transparent ? 'keep' : 'discard',
+    });
+    output.addVideoTrack(videoSource, { frameRate: fps, canBeTransparent: transparent || undefined });
   }
 
   let audioSource: AudioBufferSource | null = null;
@@ -262,7 +282,15 @@ export async function exportProject(project: Project, settings: ExportSettings, 
 
     /** Grava o quadro `index` do arquivo (a imagem está em `source`; o vídeo lê do canvas ligado a ele). */
     const emit = async (source: HTMLCanvasElement, index: number) => {
-      if (gifEncoder && readback) {
+      if (zip) {
+        const blob = await canvasToPng(source);
+        try {
+          zip.add(`${frameName}${String(index + 1).padStart(5, '0')}.png`, new Uint8Array(await blob.arrayBuffer()), blob);
+        } catch (error) {
+          if (error instanceof ZipTooLarge) throw new Error(t('A sequência de imagens passou do limite de um arquivo .zip (4 GB). Exporte um trecho menor ou numa resolução menor.'));
+          throw error;
+        }
+      } else if (gifEncoder && readback) {
         readback.drawImage(source, 0, 0);
         gifEncoder.addFrame(readback.getImageData(0, 0, width, height).data, 100 / fps);
         // Deixa a interface respirar: o GIF é codificado aqui mesmo.
@@ -371,12 +399,13 @@ export async function exportProject(project: Project, settings: ExportSettings, 
       } else {
         await emit(canvas, k - warm);
       }
-      onProgress?.({ stage: gif ? t('Criando o GIF') : t('Renderizando o vídeo'), fraction: (k + 1) / frameCount });
+      onProgress?.({ stage: gif ? t('Criando o GIF') : png ? t('Criando as imagens') : t('Renderizando o vídeo'), fraction: (k + 1) / frameCount });
     }
 
     if (looper) await looper.finish(emit);
     onProgress?.({ stage: t('Finalizando o arquivo'), fraction: 1 });
     if (gifEncoder) return gifEncoder.finish();
+    if (zip) return zip.finish();
     videoSource!.close();
     await output!.finalize();
     return new Blob([(output!.target as BufferTarget).buffer!], { type: info.mime });
@@ -636,6 +665,10 @@ class FrameWindow {
     }
     return result.value;
   }
+}
+
+function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(t('Não foi possível criar a imagem do quadro.')))), 'image/png'));
 }
 
 function throwIfAborted(signal?: AbortSignal): void {

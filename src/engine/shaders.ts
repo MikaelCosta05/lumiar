@@ -1,4 +1,5 @@
 import { t } from '../i18n';
+import { EFFECT_LIB, TRANSITION_LIB } from './glslLib';
 import type { ParamType, ShaderPlugin } from './types';
 
 export const VERTEX_SHADER = `#version 300 es
@@ -34,6 +35,8 @@ uniform float uTurn;    // 0..3 = 0°, 90°, 180°, 270° (horário)
 uniform vec2 uFlip;     // espelhar x / y
 uniform float uBgMode;  // 0 preto, 1 cor, 2 desfocado
 uniform vec3 uBgColor;
+uniform float uKeepAlpha; // 1 = fundo transparente: a textura vem pré-multiplicada e a saída leva a transparência dela
+vec2 gEdge;               // último ponto lido (para a cor em volta das partes transparentes)
 
 /** Ponto da imagem como aparece na tela (0 a 1, y para cima) → coordenada da textura (linha 0 em cima). */
 vec2 sourceUv(vec2 p) {
@@ -71,7 +74,9 @@ vec4 view(vec4 cam) {
   vec2 p = s / vec2(uRatio, 1.0) / uScale + center;
   float inside = step(0.0, p.x) * step(p.x, 1.0) * step(0.0, p.y) * step(p.y, 1.0);
   // Lê sempre (fora da imagem, na borda): ler dentro de um "if" estraga o mipmap entre pixels vizinhos.
-  return vec4(texture(uTexture, sourceUv(clamp(p, 0.0, 1.0))).rgb * inside, inside);
+  vec4 t = texture(uTexture, sourceUv(clamp(p, 0.0, 1.0)));
+  gEdge = p;
+  return uKeepAlpha > 0.5 ? t * inside : vec4(t.rgb * inside, inside);
 }
 
 void main() {
@@ -81,6 +86,14 @@ void main() {
   for (int i = 0; i < 32; i++) {
     if (float(i) >= n) break;
     sum += view(mix(uCamera, uCamera2, n > 1.5 ? float(i) / (n - 1.0) : 0.0));
+  }
+  if (uKeepAlpha > 0.5) {
+    // Fundo transparente, sem preencher: sai com alfa normal (o que os efeitos esperam). Onde é todo transparente,
+    // a cor vem da vizinhança (nível borrado): ao ampliar, desfocar ou girar, a borda não puxa preto (franja escura).
+    vec4 near = textureLod(uTexture, sourceUv(clamp(gEdge, 0.0, 1.0)), 4.0);
+    vec3 fill = near.a > 0.0 ? near.rgb / near.a : vec3(0.0);
+    outColor = vec4(sum.a > 0.0 ? sum.rgb / sum.a : fill, sum.a / n);
+    return;
   }
   vec3 color = sum.rgb;
   if (sum.a < n - 0.001) {
@@ -102,9 +115,10 @@ void main() {
 /**
  * Fluxo de movimento (imagem reduzida): para cada pixel, procura o deslocamento d
  * que faz o quadro anterior (em -d/2) e o seguinte (em +d/2) ficarem mais parecidos.
- * Guarda d em pixels reduzidos, codificado de 0 a 1 (±16 px).
+ * Guarda d em pixels reduzidos, codificado de 0 a 1 (±16 px). São dois passos:
+ * FLOW_COARSE_FRAGMENT (busca larga numa grade 4× mais rala) e FLOW_FRAGMENT (escolhe e refina por pixel).
  */
-export const FLOW_FRAGMENT = `${HEADER}
+const FLOW_COMMON = `${HEADER}
 uniform sampler2D uPrev;
 uniform sampler2D uNext;
 uniform vec2 uTexel;
@@ -121,30 +135,65 @@ float patchCost(vec2 uv, vec2 d, float spacing, float lod) {
   }
   return s;
 }
+/** Custo da busca grossa: nas imagens borradas, movimentos grandes custam um pouco mais. */
+float coarseCost(vec2 uv, vec2 d) { return patchCost(uv, d, 3.0, 1.5) + length(d) * 0.02; }
+`;
 
+/**
+ * Busca grossa nas imagens borradas (mipmap), feita numa grade 4× mais rala que a do fluxo (16× menos pixels):
+ * errar por pouco custa pouco, então o movimento certo não "escapa" entre os passos da grade. Em áreas lisas
+ * várias explicações batem, e a menor (a mais provável) deve ganhar em vez de um salto falso.
+ */
+export const FLOW_COARSE_FRAGMENT = `${FLOW_COMMON}
 void main() {
-  // 1) Busca grossa nas imagens borradas (mipmap): errar por pouco custa pouco,
-  //    então o movimento certo não "escapa" entre os passos da grade.
-  //    Movimentos grandes custam um pouco mais: em áreas lisas várias explicações batem,
-  //    e a menor (a mais provável) deve ganhar em vez de um salto falso.
   vec2 best = vec2(0.0);
   float bestCost = patchCost(vUv, best, 3.0, 1.5);
   for (int y = -6; y <= 6; y++) {
     for (int x = -6; x <= 6; x++) {
       vec2 d = vec2(float(x), float(y)) * 2.0;
-      float c = patchCost(vUv, d, 3.0, 1.5) + length(d) * 0.02;
+      float c = coarseCost(vUv, d);
       if (c < bestCost) { bestCost = c; best = d; }
     }
   }
-  // 2) Refinamento de 1 px na imagem nítida, com pedaços em duas escalas.
-  vec2 coarse = best;
-  bestCost = 1e9;
-  for (int y = -2; y <= 2; y++) {
-    for (int x = -2; x <= 2; x++) {
-      vec2 d = coarse + vec2(float(x), float(y));
-      float c = patchCost(vUv, d, 1.5, 0.0) + patchCost(vUv, d, 3.0, 0.0) * 0.5 + length(d) * 0.02;
+  outColor = vec4(best / 32.0 + FLOW_ZERO, 0.0, 1.0);
+}`;
+
+/**
+ * Fluxo por pixel: entre o resultado grosso dos 3×3 pontos da grade rala em volta (e o zero), fica o que melhor
+ * explica este pixel (assim a borda de um objeto não herda o movimento do fundo, nem vira bloco); depois,
+ * refinamento de 1 px na imagem nítida, com pedaços em duas escalas.
+ */
+export const FLOW_FRAGMENT = `${FLOW_COMMON}
+uniform sampler2D uCoarse;
+float fineCost(vec2 uv, vec2 d) { return patchCost(uv, d, 1.5, 0.0) + patchCost(uv, d, 3.0, 0.0) * 0.5 + length(d) * 0.02; }
+vec2 coarseAt(ivec2 p) {
+  ivec2 size = textureSize(uCoarse, 0);
+  return floor((texelFetch(uCoarse, clamp(p, ivec2(0), size - 1), 0).xy - FLOW_ZERO) * 32.0 + 0.5);
+}
+void main() {
+  ivec2 cell = ivec2(vUv * vec2(textureSize(uCoarse, 0)));
+  vec2 best = vec2(0.0);
+  float bestCost = patchCost(vUv, best, 3.0, 1.5);
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 d = coarseAt(cell + ivec2(x, y));
+      float c = coarseCost(vUv, d);
       if (c < bestCost) { bestCost = c; best = d; }
     }
+  }
+  // Refinamento em descida: anda 1 px para o vizinho mais parecido, até 2 vezes (quase sempre para na primeira).
+  bestCost = fineCost(vUv, best);
+  for (int k = 0; k < 2; k++) {
+    vec2 center = best;
+    for (int y = -1; y <= 1; y++) {
+      for (int x = -1; x <= 1; x++) {
+        if (x == 0 && y == 0) continue;
+        vec2 d = center + vec2(float(x), float(y));
+        float c = fineCost(vUv, d);
+        if (c < bestCost) { bestCost = c; best = d; }
+      }
+    }
+    if (best == center) break;
   }
   // O zero fica em 128/255, que a textura de 8 bits guarda exato (0,5 viraria um leve deslocamento).
   outColor = vec4(best / 32.0 + FLOW_ZERO, 0.0, 1.0);
@@ -173,8 +222,33 @@ void main() {
 
 export const COPY_FRAGMENT = `${HEADER}
 uniform sampler2D uTexture;
+uniform float uPremultiply; // 1 = de alfa normal para pré-multiplicado (fundo transparente)
 void main() {
-  outColor = texture(uTexture, vUv);
+  vec4 c = texture(uTexture, vUv);
+  outColor = uPremultiply > 0.5 ? vec4(c.rgb * c.a, c.a) : c;
+}`;
+
+/**
+ * Saída para a tela (e para a exportação, que lê a tela): a montagem em 16 bits vira 8 bits com dither triangular
+ * de ±1 nível. Sem ele, degradês suaves (céu, vinheta, fumaça) mostram faixas. O padrão é fixo no quadro, o que
+ * não pesa no tamanho do vídeo exportado (um chuvisco que muda a cada quadro pesaria).
+ */
+export const PRESENT_FRAGMENT = `${HEADER}
+uniform sampler2D uTexture;
+uniform float uTransparent; // 1 = fundo transparente: a montagem é pré-multiplicada e a tela recebe alfa normal
+float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+void main() {
+  vec4 s = texture(uTexture, vUv);
+  vec3 c = s.rgb;
+  float a = 1.0;
+  if (uTransparent > 0.5) {
+    a = s.a;
+    // Todo transparente: cor zerada (sem o chuvisco do dither, que pesaria no vídeo).
+    if (a <= 0.0) { outColor = vec4(0.0); return; }
+    c /= a;
+  }
+  float dither = ign(gl_FragCoord.xy) + ign(gl_FragCoord.xy + vec2(47.0, 13.0)) - 1.0;
+  outColor = vec4(c + dither / 255.0, a);
 }`;
 
 /**
@@ -472,6 +546,8 @@ uniform float duration;  // duração do clipe em segundos
 uniform float ratio;     // largura / altura
 uniform vec2 resolution; // tamanho do quadro em pixels
 vec4 getColor(vec2 uv) { return texture(uInput, uv); }
+/** A entrada num nível de detalhe (0 = nítida, +1 = metade da resolução): o motor monta os níveis quando o plugin usa. */
+vec4 getColorLod(vec2 uv, float level) { return textureLod(uInput, uv, level); }
 // Entradas extras: o motor só calcula as que o código do plugin chama.
 uniform sampler2D uPerson;
 uniform sampler2D uDepth;
@@ -505,7 +581,7 @@ vec4 getPast(vec2 uv, float seconds) {
 }
 /** O fundo sem a pessoa (o que estava atrás dela). */
 vec4 getBackground(vec2 uv) { return texture(uBackground, uv); }
-`;
+${EFFECT_LIB}`;
 
 /**
  * Filtro de cor. O plugin escreve: vec4 applyFilter(vec4 color, vec2 uv)
@@ -524,6 +600,8 @@ uniform float ratio;
 uniform vec2 resolution;
 vec4 getFromColor(vec2 uv) { return texture(uFrom, uv); }
 vec4 getToColor(vec2 uv) { return texture(uTo, uv); }
+vec4 getFromColorLod(vec2 uv, float level) { return textureLod(uFrom, uv, level); }
+vec4 getToColorLod(vec2 uv, float level) { return textureLod(uTo, uv, level); }
 uniform sampler2D uFromPerson;
 uniform sampler2D uToPerson;
 uniform sampler2D uState;
@@ -550,7 +628,7 @@ vec4 getPrevious(vec2 uv) { return texture(uState, uv); }
 bool firstFrame() { return uFresh > 0.5; }
 /** Movimento do próximo clipe desde o quadro anterior (em uv). */
 vec2 getMotion(vec2 uv) { return (texture(uMotion, uv).xy - FLOW_ZERO) * uMotionScale; }
-`;
+${TRANSITION_LIB}`;
 
 const GLSL_TYPE: Record<ParamType, string> = { float: 'float', vec2: 'vec2', color: 'vec3' };
 

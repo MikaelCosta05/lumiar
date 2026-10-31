@@ -1,72 +1,56 @@
-vec3 sCurve(vec3 c, float k) {
-  c = clamp(c, 0.0, 1.0);
-  return mix(c, c * c * (3.0 - 2.0 * c), k);
-}
+// Kodak Gold 200: o filme de consumo quente e alegre. Amarelos dourados (puxados para o laranja) e bem cheios,
+// vermelhos ricos, verdes indo para o amarelo, azuis um pouco ciano, tudo saturado mas com a pele protegida
+// (quente e natural, sem laranja). Curva de cópia com contraste médio, sombras levemente quentes e altas luzes
+// cremosas que não estouram.
 
-vec3 saturate(vec3 c, float s) {
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  return mix(vec3(l), c, s);
+// ---- Ferramentas de cor em Oklab (L = claridade percebida 0 a 1; a/b = verde-vermelho e azul-amarelo).
+// Mexer na cor aqui não muda o brilho percebido, e a pele é protegida pelo matiz dela.
+vec3 toLab(vec3 srgb) { return lmToOklab(lmToLinear(srgb)); }
+vec3 labToSrgb(vec3 lab) { return clamp(lmToSrgb(max(lmFromOklab(lab), 0.0)), 0.0, 1.0); }
+/** Peso de um matiz (radianos) com largura w; dá a volta no círculo. */
+float hueBand(float h, float center, float w) {
+  float d = abs(mod(h - center + PI, 2.0 * PI) - PI);
+  return exp(-0.5 * d * d / (w * w));
 }
-
-vec3 splitTone(vec3 c, vec3 shadows, vec3 highlights, float amount) {
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  return c + (mix(shadows, highlights, smoothstep(0.0, 1.0, l)) - 0.5) * amount;
+/** Quanto a cor parece pele (matiz laranja-rosado, com alguma cor). */
+float skinWeight(vec3 lab) {
+  float c = length(lab.yz);
+  return hueBand(atan(lab.z, lab.y), 0.95, 0.32) * smoothstep(0.015, 0.045, c) * (1.0 - smoothstep(0.16, 0.22, c));
 }
-
-float vignette(vec2 uv, float strength) {
-  vec2 p = (uv - 0.5) * vec2(ratio, 1.0);
-  return 1.0 - dot(p, p) * strength;
+/** Curva de filme sobre L: contraste em S no meio, preto levantado (fosco) e branco contido. */
+float filmCurve(float L, float contrast, float black, float white) {
+  float x = clamp(L, 0.0, 1.0);
+  float s = mix(x, x * x * (3.0 - 2.0 * x), contrast);
+  // Ombro suave: as altas luzes chegam no branco sem bater no teto.
+  s = s - 0.12 * contrast * s * s * (1.0 - s);
+  return black + (white - black) * s;
 }
-
-/** Brilho suave em volta das partes claras (amostras em círculo). */
-vec3 bloom(vec2 uv, float radiusPx, float threshold) {
-  float k = resolution.y / 720.0;
-  vec3 glow = vec3(0.0);
-  for (int i = 0; i < 12; i++) {
-    float a = float(i) * 0.5236;
-    vec3 s = getColor(uv + vec2(cos(a), sin(a)) * radiusPx * k / resolution).rgb;
-    glow += s * smoothstep(threshold, 1.0, dot(s, vec3(0.333)));
-  }
-  return glow / 12.0;
+/** Tom dividido: puxa a cor das sombras e das altas luzes (a/b de Oklab), mais forte nos extremos. */
+vec2 splitTone(float L, vec2 shadows, vec2 highlights) {
+  float sh = (1.0 - smoothstep(0.0, 0.6, L));
+  float hi = smoothstep(0.4, 1.0, L);
+  return shadows * sh * sh + highlights * hi * hi;
 }
-
-/** Média dos vizinhos (para nitidez/clareza). */
-vec3 blurCross(vec2 uv, float radiusPx) {
-  float k = resolution.y / 720.0;
-  vec2 px = vec2(radiusPx * k) / resolution;
-  return (getColor(uv + vec2(px.x, 0.0)).rgb + getColor(uv - vec2(px.x, 0.0)).rgb
-    + getColor(uv + vec2(0.0, px.y)).rgb + getColor(uv - vec2(0.0, px.y)).rgb
-    + getColor(uv + px).rgb + getColor(uv - px).rgb
-    + getColor(uv + vec2(px.x, -px.y)).rgb + getColor(uv + vec2(-px.x, px.y)).rgb) / 8.0;
+/** Gira o matiz de uma faixa de cores e muda a saturação dela. */
+vec2 hueShift(vec2 ab, float center, float width, float angle, float sat) {
+  float w = hueBand(atan(ab.y, ab.x), center, width);
+  float a = angle * w;
+  float s = sin(a), c = cos(a);
+  return mat2(c, s, -s, c) * ab * mix(1.0, sat, w);
 }
-
-/** Desfoque que respeita bordas (alisa pele e ruído sem borrar contornos). */
-vec3 smoothSkin(vec2 uv, vec3 center, float sharpness) {
-  float k = resolution.y / 720.0;
-  vec3 sum = center;
-  float wsum = 1.0;
-  for (int j = -2; j <= 2; j++) {
-    for (int i = -2; i <= 2; i++) {
-      if (i == 0 && j == 0) continue;
-      vec3 s = getColor(uv + vec2(float(i), float(j)) * 1.5 * k / resolution).rgb;
-      vec3 d = s - center;
-      float w = exp(-dot(d, d) * sharpness);
-      sum += s * w;
-      wsum += w;
-    }
-  }
-  return sum / wsum;
-}
-
-/** Vibração: realça mais as cores apagadas do que as já fortes. */
-vec3 vibrance(vec3 c, float amount) {
-  float mx = max(c.r, max(c.g, c.b));
-  float mn = min(c.r, min(c.g, c.b));
-  return saturate(c, 1.0 + amount * (1.0 - (mx - mn)));
-}
+// Matizes em Oklab (radianos): vermelho ~0,5 · laranja/pele ~0,95 · amarelo ~1,9 · verde ~2,5 · ciano ~3,4 ·
+// azul ~4,5 (−1,8) · roxo/magenta ~5,6 (−0,7).
 
 vec4 applyFilter(vec4 c, vec2 uv) {
-  vec3 col = c.rgb * vec3(1.06, 1.03, 0.85);
-  col = sCurve(saturate(col, 1.2), 0.4);
-  return vec4(clamp(col, 0.0, 1.0), c.a);
+  vec3 col = lmWhiteBalance(c.rgb, 0.42, -0.04);
+  vec3 lab = toLab(col);
+  float skin = skinWeight(lab);
+  lab.yz = hueShift(lab.yz, 1.9, 0.35, -0.16, 1.3);   // amarelos -> dourado, mais cheios
+  lab.yz = hueShift(lab.yz, 2.5, 0.35, -0.2, 1.05);   // verdes -> amarelo-esverdeado
+  lab.yz = hueShift(lab.yz, 0.5, 0.25, 0.0, 1.15);    // vermelhos ricos
+  lab.yz = hueShift(lab.yz, 4.5, 0.45, -0.15, 0.95);  // azuis -> ciano, um pouco menos
+  lab.yz *= mix(1.14, 1.04, skin);
+  lab.x = filmCurve(lab.x, 0.32, 0.02, 0.97);
+  lab.yz += splitTone(lab.x, vec2(0.006, 0.014), vec2(0.0, 0.035)) + vec2(0.0, 0.012);
+  return vec4(labToSrgb(lab), c.a);
 }

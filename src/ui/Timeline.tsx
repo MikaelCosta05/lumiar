@@ -70,6 +70,7 @@ import {
   type TimelineLayout,
 } from '../project/model';
 import { addTextTrack, moveTextClip, removeTextTrack, resizeTextClip } from '../project/text';
+import { moveCaption, resizeCaption, updateCaptions } from '../project/captions';
 import {
   addPackTrack,
   movePackClip,
@@ -135,6 +136,8 @@ interface Props {
   onDropPlugin: (target: NonNullable<Selection>, pluginId: string) => void;
   onDropMedia: (mediaId: string, target: MediaDropTarget) => void;
   onDropTextPreset: (presetId: string, track: number, time: number) => void;
+  /** Dois cliques numa legenda: abre o texto dela na aba Legendas */
+  onEditCaption?: (id: string) => void;
   /** Pacote de edição solto numa trilha de pacotes */
   onDropPack: (packId: string, track: number, time: number) => void;
   /** Efeito sonoro solto numa trilha de áudio */
@@ -153,7 +156,8 @@ interface Props {
 }
 
 const HEADER_W = 172;
-const RULER_H = 28;
+/** Régua: os números do tempo em cima, os comentários numa faixa embaixo deles (sem cobrir) e os marcadores na base. */
+const RULER_H = 34;
 const VIDEO_H = 84;
 const AUDIO_H = 60;
 const TICK_STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
@@ -171,6 +175,8 @@ type Drag =
   | { type: 'pack-in' | 'pack-out'; id: string; x0: number; original: PackClip }
   /** Alça do momento da câmera lenta (onde começa a parte mais lenta) */
   | { type: 'pack-moment'; id: string; x0: number; at: number }
+  /** Legendas: arrastar inteira ou puxar uma das bordas */
+  | { type: 'caption-move' | 'caption-in' | 'caption-out'; id: string; x0: number; start: number; length: number }
   | {
       type: 'audio-in' | 'audio-out' | 'text-in' | 'text-out' | 'overlay-in' | 'overlay-out';
       id: string;
@@ -290,6 +296,7 @@ export function Timeline(props: Props) {
     ...packTracksOf(project).flatMap((t) =>
       t.clips.filter((c) => c.id !== ignoreId).flatMap((c) => [c.start, c.start + c.duration]),
     ),
+    ...(project.captions?.captions ?? []).filter((c) => c.id !== ignoreId).flatMap((c) => [c.start, c.end]),
   ];
   const snapTo = (value: number, points: number[]): number | null => {
     if (!snapping) return null;
@@ -375,6 +382,25 @@ export function Timeline(props: Props) {
             const track = drag.track - Math.round((ev.clientY - drag.y0) / TEXT_H);
             onEdit((p) => withGroup(p, moveTextClip(p, drag.id, track, start)));
           }
+          break;
+        }
+        case 'caption-move': {
+          let start = Math.max(0, drag.start + dt);
+          const a = snapTo(start, points);
+          const b = snapTo(start + drag.length, points);
+          if (a !== null && (b === null || Math.abs(a - start) <= Math.abs(b - start - drag.length))) start = a;
+          else if (b !== null) start = b - drag.length;
+          setSnapLine(a ?? b);
+          onEdit((p) => updateCaptions(p, (track) => moveCaption(track, drag.id, start)));
+          break;
+        }
+        case 'caption-in':
+        case 'caption-out': {
+          const edge = drag.type === 'caption-in' ? 'in' : 'out';
+          const raw = edge === 'in' ? drag.start + dt : drag.start + drag.length + dt;
+          const snapped = snapTo(raw, points);
+          setSnapLine(snapped);
+          onEdit((p) => updateCaptions(p, (track) => resizeCaption(track, drag.id, edge, snapped ?? raw)));
           break;
         }
         case 'audio-in':
@@ -491,7 +517,7 @@ export function Timeline(props: Props) {
 
   return (
     <section
-      className="flex h-full min-h-0 flex-col border-t border-line bg-panel"
+      className="surface flex h-full min-h-0 flex-col overflow-hidden"
       onPointerDownCapture={(e) => (modifier.current = e.ctrlKey || e.metaKey || e.shiftKey)}
     >
       {/* ------------------------------------------------ Barra de ferramentas */}
@@ -701,7 +727,7 @@ export function Timeline(props: Props) {
               {ticks.map((t) => (
                 <span
                   key={t}
-                  className="pointer-events-none absolute inset-y-0 border-l border-line-strong pl-1 pt-1 font-mono text-[10px] text-faint"
+                  className="pointer-events-none absolute inset-y-0 border-l border-line-strong pl-1 pt-0.5 font-mono text-[10px] tabular-nums text-faint"
                   style={{ left: t * pxPerSecond }}
                 >
                   {formatTime(t).replace(/\.\d+$/, '')}
@@ -721,7 +747,7 @@ export function Timeline(props: Props) {
                   key={c.id}
                   title={`${c.done ? '✓ ' : ''}${c.text || t('Comentário')} · ${formatTime(c.time)}\n${t('Clique para ver · botão direito para mais')}`}
                   className={cx(
-                    'absolute top-0.5 z-[12] -ml-2 flex h-4 w-4 items-center justify-center rounded-[5px] rounded-bl-none text-[9px] font-bold text-black transition-transform hover:scale-125',
+                    'absolute top-[15px] z-[12] -ml-[7px] flex size-3.5 items-center justify-center rounded-[4px] rounded-bl-none text-[8px] font-bold text-black shadow-sm shadow-black/40 transition-transform hover:scale-125',
                     c.done ? 'bg-success/70' : 'bg-sky-300',
                   )}
                   style={{ left: c.time * pxPerSecond }}
@@ -790,22 +816,33 @@ export function Timeline(props: Props) {
             >
               {project.captions.captions.map((c) => {
                 const playing = time >= c.start && time < c.end;
+                const drag = (e: ReactPointerEvent, type: 'caption-move' | 'caption-in' | 'caption-out') =>
+                  startDrag(e, { type, id: c.id, x0: e.clientX, start: c.start, length: c.end - c.start });
                 return (
-                  <button
+                  // Clique: vai para a legenda; arrastar: muda o tempo; dois cliques: edita o texto.
+                  <div
                     key={c.id}
-                    title={c.text}
+                    data-item={`caption:${c.id}`}
+                    title={`${c.text}\n${t('Dois cliques para editar o texto; arraste para mudar o tempo')}`}
                     onPointerDown={(e) => {
-                      e.stopPropagation();
                       onSeek(c.start + 0.01);
+                      drag(e, 'caption-move');
                     }}
+                    onDoubleClick={() => props.onEditCaption?.(c.id)}
                     className={cx(
-                      'absolute inset-y-1 overflow-hidden rounded px-1 text-left text-[10px] font-medium text-amber-950 transition-colors',
+                      'group absolute inset-y-1 cursor-grab overflow-hidden rounded px-1 text-left text-[10px] font-medium text-amber-950 transition-colors active:cursor-grabbing',
                       playing ? 'bg-amber' : 'bg-amber/60 hover:bg-amber/80',
                     )}
                     style={{ left: c.start * pxPerSecond, width: Math.max(4, (c.end - c.start) * pxPerSecond - 1) }}
                   >
-                    <span className="block truncate">{c.text}</span>
-                  </button>
+                    <span className="pointer-events-none block truncate leading-[22px]">{c.text}</span>
+                    {(c.end - c.start) * pxPerSecond > 16 && (
+                      <>
+                        <TrimHandle side="left" visible={false} onPointerDown={(e) => drag(e, 'caption-in')} />
+                        <TrimHandle side="right" visible={false} onPointerDown={(e) => drag(e, 'caption-out')} />
+                      </>
+                    )}
+                  </div>
                 );
               })}
             </Row>

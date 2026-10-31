@@ -8,6 +8,7 @@ import { onSegmenterReady, segmentFrame } from '../media/segment';
 import type { PreviewMedia, ShaderPlugin } from '../engine/types';
 import { createProject, layoutProject, resolveFrame, toFrameInput } from '../project/model';
 import { createPackClip, type PackTemplate } from '../project/packs';
+import { fingerprint, PREVIEW_ENGINE, readThumbs, writeThumbs, type StoredThumb } from './previewCache';
 import { PREVIEW_SOURCES, packMedia, pluginMedia, secondMedia } from './previewMedia';
 
 const WIDTH = 256;
@@ -188,6 +189,8 @@ interface Sample {
   /** Máscara da pessoa e profundidade de cada quadro já analisado */
   masks: Map<string, HTMLCanvasElement>;
   depths: Map<string, HTMLCanvasElement>;
+  /** O carregamento em andamento (para quem precisa esperar por ele) */
+  pending?: Promise<void>;
 }
 
 const samples = new Map<PreviewMedia, Sample>();
@@ -214,8 +217,18 @@ function fallbackScene(media: PreviewMedia): HTMLCanvasElement {
 /** Quadros parados da mídia (null enquanto carregam; o carregamento começa no primeiro pedido). */
 function stillsOf(media: PreviewMedia): HTMLCanvasElement[] | null {
   const s = sample(media);
-  if (s.state === 'idle') void loadStills(media);
+  if (s.state === 'idle') s.pending = loadStills(media);
   return s.stills;
+}
+
+/** Espera todas as mídias de exemplo carregarem (as que falharem ficam com a cena desenhada). */
+export async function loadPreviewMedia(): Promise<void> {
+  const all = Object.keys(PREVIEW_SOURCES) as PreviewMedia[];
+  for (let round = 0; round < 3; round++) {
+    all.forEach((media) => stillsOf(media));
+    await Promise.all(all.map((media) => sample(media).pending));
+    if (all.every((media) => sample(media).state !== 'idle')) return;
+  }
 }
 
 /** O quadro das miniaturas paradas (ou a cena desenhada enquanto carrega). */
@@ -566,29 +579,96 @@ export function getPluginPreviews(): Map<string, string> {
   cache ??= new Map();
   const stage = getStage();
   if (!stage) return cache;
-  for (const plugin of plugins) {
-    if (cache.has(plugin.id)) continue;
-    const inputs = pluginInputs(plugin);
-    const needs = needsOf(plugin);
-    const media = pluginMedia(plugin, inputs);
-    const transition = plugin.kind === 'transition';
-    // Quem olha para o passado recebe a sequência inteira (o vídeo andando); os outros, só o último quadro.
-    const first = inputs.history || inputs.state || inputs.motion || inputs.background ? 0 : SEQUENCE - 1;
-    let ready = true;
-    // O último quadro fica em 1,3 s do clipe (efeitos que começam num instante já aparecem).
-    for (let i = first; i < SEQUENCE; i++) {
-      const k = first === SEQUENCE - 1 ? 1 : i / (SEQUENCE - 1);
-      const a = stillFrame(media, i, needs);
-      const b = transition ? stillFrame(secondMedia(media), i, needs) : null;
-      const value = transition ? (first === 0 ? 0.2 + k * 0.4 : 0.35) : 1;
-      drawPlugin(stage, plugin, 1.3 - (SEQUENCE - 1 - i) * STEP, value, a, b);
-      ready &&= a.ready && (b?.ready ?? true);
-    }
-    cache.set(plugin.id, stage.canvas.toDataURL('image/jpeg', 0.85));
-    if (ready) provisional.delete(plugin.id);
-    else provisional.add(plugin.id);
-  }
+  for (const plugin of plugins) if (!cache.has(plugin.id)) renderPluginPreview(stage, cache, plugin);
   return cache;
+}
+
+/** Desenha a miniatura de um plugin e guarda em `into`; devolve se saiu com tudo pronto (mídia e recorte). */
+function renderPluginPreview(stage: Stage, into: Map<string, string>, plugin: ShaderPlugin): boolean {
+  const inputs = pluginInputs(plugin);
+  const needs = needsOf(plugin);
+  const media = pluginMedia(plugin, inputs);
+  const transition = plugin.kind === 'transition';
+  // Quem olha para o passado recebe a sequência inteira (o vídeo andando); os outros, só o último quadro.
+  const first = inputs.history || inputs.state || inputs.motion || inputs.background ? 0 : SEQUENCE - 1;
+  let ready = true;
+  // O último quadro fica em 1,3 s do clipe (efeitos que começam num instante já aparecem).
+  for (let i = first; i < SEQUENCE; i++) {
+    const k = first === SEQUENCE - 1 ? 1 : i / (SEQUENCE - 1);
+    const a = stillFrame(media, i, needs);
+    const b = transition ? stillFrame(secondMedia(media), i, needs) : null;
+    const value = transition ? (first === 0 ? 0.2 + k * 0.4 : 0.35) : 1;
+    drawPlugin(stage, plugin, 1.3 - (SEQUENCE - 1 - i) * STEP, value, a, b);
+    ready &&= a.ready && (b?.ready ?? true);
+  }
+  into.set(plugin.id, stage.canvas.toDataURL('image/jpeg', 0.85));
+  if (ready) provisional.delete(plugin.id);
+  else provisional.add(plugin.id);
+  return ready;
+}
+
+/** O que muda a miniatura de um plugin: o código, os controles, a mídia de exemplo e o motor. */
+const pluginPrint = (plugin: ShaderPlugin) =>
+  fingerprint([PREVIEW_ENGINE, plugin.kind, plugin.category, plugin.previewMedia ?? '', plugin.glsl, JSON.stringify(plugin.params), JSON.stringify(plugin.previewParams)].join('|'));
+
+/**
+ * Deixa prontas as miniaturas de todos os plugins e pacotes antes de abrir a biblioteca (tela de carregamento):
+ * as guardadas no disco que ainda valem voltam na hora, e as outras são desenhadas em pedaços (a tela não trava)
+ * e guardadas. Melhor chamar depois de as mídias de exemplo e o recorte da pessoa estarem prontos: miniatura feita
+ * sem eles é provisória e não vai para o disco.
+ */
+export async function warmPreviews(
+  templates: PackTemplate[],
+  onProgress: (done: number, total: number, stored: number) => void,
+): Promise<void> {
+  const stage = getStage();
+  if (!stage) return;
+  const stored = await readThumbs();
+  const plugged = (cache ??= new Map());
+  const prints = new Map(plugins.map((p) => [p.id, pluginPrint(p)]));
+  // Um pacote depende dos plugins que usa: qualquer plugin mudou, os pacotes são refeitos.
+  const allPlugins = fingerprint([...prints.values()].join(''));
+  const total = plugins.length + templates.length;
+  const fresh: StoredThumb[] = [];
+  let done = 0;
+  let hits = 0;
+  let slice = performance.now();
+  const step = async () => {
+    onProgress(++done, total, hits);
+    // A cada ~40 ms de trabalho, devolve a vez (a barra anda e a janela responde).
+    if (performance.now() - slice > 40) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      slice = performance.now();
+    }
+  };
+  for (const plugin of plugins) {
+    const id = `p:${plugin.id}`;
+    const hash = prints.get(plugin.id)!;
+    const hit = stored.get(id);
+    if (!plugged.has(plugin.id)) {
+      if (hit?.hash === hash) (plugged.set(plugin.id, hit.url), hits++);
+      else if (renderPluginPreview(stage, plugged, plugin)) fresh.push({ id, hash, url: plugged.get(plugin.id)! });
+    }
+    await step();
+  }
+  for (const template of templates) {
+    const id = `k:${template.id}`;
+    const hash = fingerprint(`${PREVIEW_ENGINE}|${allPlugins}|${JSON.stringify(template)}`);
+    const hit = stored.get(id);
+    if (!packCache.has(template.id)) {
+      if (hit?.hash === hash) (packCache.set(template.id, hit.url), hits++);
+      else {
+        const url = getPackPreview(template);
+        if (url && !packProvisional.has(template.id)) fresh.push({ id, hash, url });
+      }
+    }
+    await step();
+  }
+  await writeThumbs(fresh);
+  // Outro Map: quem já mostrava as miniaturas percebe que elas chegaram.
+  cache = new Map(plugged);
+  version++;
+  listeners.forEach((l) => l());
 }
 
 /**
@@ -699,7 +779,8 @@ function drawPack(stage: Stage, template: PackTemplate, time: number, source: Fr
   const clip = createPackClip(template, 0);
   const project = { ...createProject(), packTracks: [{ id: 'preview', name: '', hidden: false, clips: [clip] }] };
   const local = Math.min(time, clip.duration - 0.001);
-  const frame = toFrameInput(resolveFrame(project, layoutProject(project), local), () => ({ source: null }));
+  // A LUT de "Meus pacotes" vem junto no pacote (não há projeto com ela aqui).
+  const frame = toFrameInput(resolveFrame(project, layoutProject(project), local), () => ({ source: null }), null, template.lut ? [template.lut.data] : undefined);
   frame.a = layerOf('a', source, time, clip.duration);
   stage.renderer.render(frame);
 }

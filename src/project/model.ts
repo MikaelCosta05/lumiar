@@ -1,6 +1,6 @@
 import { defaultParams, getPlugin } from '../engine/registry';
 import { t } from '../i18n';
-import type { AdjustInput, FrameInput, LayerInput, LayerMask, PlacedLayer } from '../engine/renderer';
+import type { AdjustInput, FrameInput, LayerColor, LayerInput, LayerMask, PlacedLayer } from '../engine/renderer';
 import { gradeInput, type ColorGrade } from './grade';
 import { lutInput, type SavedLut } from './lut';
 import { resolveParams, shiftKeyframes } from '../engine/keyframes';
@@ -1248,10 +1248,13 @@ export interface LayerNeeds {
 
 const NO_NEEDS: LayerNeeds = { person: false, depth: false };
 
-function effectNeeds(effects: EffectInstance[]): LayerNeeds {
+/** O que os efeitos e o filtro (filtros também podem usar a pessoa e a profundidade) precisam. */
+function effectNeeds(effects: EffectInstance[], filter?: FilterInstance | null): LayerNeeds {
   const needs = { ...NO_NEEDS };
-  for (const effect of effects) {
-    const plugin = effect.enabled ? getPlugin(effect.pluginId) : undefined;
+  const ids = effects.filter((e) => e.enabled).map((e) => e.pluginId);
+  if (filter && filter.intensity > 0) ids.push(filter.pluginId);
+  for (const id of ids) {
+    const plugin = getPlugin(id);
     if (!plugin) continue;
     const inputs = pluginInputs(plugin);
     needs.person ||= inputs.person;
@@ -1265,8 +1268,8 @@ function joinNeeds(...list: LayerNeeds[]): LayerNeeds {
 }
 
 /** O clipe precisa da pessoa ou da profundidade (pelos próprios efeitos ou pelo fundo removido)? */
-export function clipNeeds(clip: Pick<VideoClip, 'effects' | 'matte'>): LayerNeeds {
-  const needs = effectNeeds(clip.effects);
+export function clipNeeds(clip: Pick<VideoClip, 'effects' | 'matte'> & { filter?: FilterInstance | null }): LayerNeeds {
+  const needs = effectNeeds(clip.effects, clip.filter);
   return { person: needs.person || !!clip.matte, depth: needs.depth };
 }
 
@@ -1276,7 +1279,7 @@ export function projectNeeds(project: Project): LayerNeeds {
   const transitions = project.transitions.map((tr) => (tr ? getPlugin(tr.pluginId) : undefined));
   return joinNeeds(
     ...clips.map(clipNeeds),
-    ...project.packTracks.flatMap((t) => t.clips).map((c) => effectNeeds(c.effects)),
+    ...project.packTracks.flatMap((t) => t.clips).map((c) => effectNeeds(c.effects, c.filter)),
     {
       person: transitions.some((p) => p && pluginInputs(p).person) || project.textTracks.some((t) => t.clips.some((c) => c.behind)),
       depth: transitions.some((p) => p && pluginInputs(p).depth),
@@ -1287,7 +1290,7 @@ export function projectNeeds(project: Project): LayerNeeds {
 /** Pacotes, transições e textos atrás da pessoa usam a pessoa e a profundidade da trilha principal. */
 function baseNeeds(state: FrameState, behind: boolean): LayerNeeds {
   const transitionPlugin = state.transition ? getPlugin(state.transition.instance.pluginId) : undefined;
-  return joinNeeds(...state.packs.map((p) => effectNeeds(p.clip.effects)), {
+  return joinNeeds(...state.packs.map((p) => effectNeeds(p.clip.effects, p.clip.filter)), {
     person: behind || (!!transitionPlugin && pluginInputs(transitionPlugin).person),
     depth: !!transitionPlugin && pluginInputs(transitionPlugin).depth,
   });
@@ -1309,6 +1312,12 @@ export type SourceProvider = (active: ActiveClip, needs: LayerNeeds) => Pick<Lay
   /** Profundidade do quadro (claro = perto) */
   depth?: TexImageSource | null;
 };
+
+/** Cor manual e LUT de um pacote (null quando não muda nada). */
+function packColor(clip: Pick<VideoClip, 'grade' | 'lut'>, luts: SavedLut[] | undefined): LayerColor | null {
+  const color = { ...gradeInput(clip.grade), lut: lutInput(luts, clip.lut) };
+  return color.grade || color.curves || color.lut ? color : null;
+}
 
 /** Efeitos e filtro com os keyframes resolvidos no instante t: o renderizador só recebe valores prontos. */
 function resolveLook(source: { effects: EffectInstance[]; filter: FilterInstance | null }, t: number) {
@@ -1379,14 +1388,23 @@ export function toFrameInput(
         corners: o.corners ?? null,
       },
     })),
-    adjust: state.packs.map(({ clip, local, amount }): AdjustInput => ({
-      key: `pacote:${clip.id}`,
-      ...resolveLook(clip, local),
-      time: local,
-      duration: clip.duration,
-      camera: clip.camera ? { ...evaluateCamera(clip.camera, local, local), fill: false } : null,
-      amount,
-    })),
+    // Bloco sem nada ligado (o bloco de ajuste recém-posto) não muda a imagem: não custa passadas na placa.
+    adjust: state.packs.flatMap(({ clip, local, amount }): AdjustInput[] => {
+      const color = packColor(clip, luts);
+      if (!clip.filter && !clip.camera && !color && !clip.effects.some((e) => e.enabled)) return [];
+      return [
+        {
+          key: `pacote:${clip.id}`,
+          ...resolveLook(clip, local),
+          time: local,
+          duration: clip.duration,
+          camera: clip.camera ? { ...evaluateCamera(clip.camera, local, local), fill: false } : null,
+          amount,
+          // Só com cor manual: os outros pacotes seguem iguais (e sem passada a mais).
+          ...(color ? { color } : {}),
+        },
+      ];
+    }),
     transition: state.transition && {
       pluginId: state.transition.instance.pluginId,
       params: state.transition.instance.params,

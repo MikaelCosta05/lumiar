@@ -1,6 +1,6 @@
 import { CircleCheck, FilePlus2, Layers, LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { CAPTION_LANGUAGES, transcribeProject } from '../media/captioning';
+import { CAPTION_LANGUAGES, DEFAULT_CAPTION_MODEL, transcribeProject } from '../media/captioning';
 import { exportProject } from '../media/exporter';
 import { importMedia } from '../media/importer';
 import { applyBrand } from '../project/brand';
@@ -110,7 +110,7 @@ export function BatchDialog({ onClose, notify }: { onClose: () => void; notify: 
         }
         if (recipe.captions && media.hasAudio) {
           step(t('Criando as legendas'));
-          const captions = await transcribeProject(p, { model: 'Xenova/whisper-base', language: recipe.language, maxWords: 6 }, (stage, f) => step(stage, f ?? 0));
+          const captions = await transcribeProject(p, { model: DEFAULT_CAPTION_MODEL, language: recipe.language, maxWords: 6 }, (stage, f) => step(stage, f ?? 0));
           p = updateCaptions(p, (track) => ({ ...track, enabled: true, captions, style: captionStyle(recipe.captionPreset) }));
         }
         if (kit) p = applyBrand(p, kit, brandMedia, { logo: !!kit.logo, intro: !!kit.intro, outro: !!kit.outro, texts: true, captions: true });

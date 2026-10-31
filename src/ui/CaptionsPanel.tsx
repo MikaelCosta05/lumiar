@@ -1,7 +1,7 @@
-import { Download, FileUp, LoaderCircle, Mic, Plus, Trash, Users, X } from 'lucide-react';
+import { Download, FileUp, Gauge, LoaderCircle, Mic, Plus, Trash, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadFonts } from '../media/fonts';
-import { CAPTION_LANGUAGES, CAPTION_MODELS, transcribeProject } from '../media/captioning';
+import { CAPTION_LANGUAGES, CAPTION_MODELS, cancelTranscription, DEFAULT_CAPTION_MODEL, transcribeProject, TranscriptionCancelled } from '../media/captioning';
 import { separateSpeakers } from '../media/speakers';
 import { TRANSLATE_LANGUAGES, translateTexts } from '../media/ai';
 import { drawCaption } from '../media/textRender';
@@ -11,8 +11,13 @@ import {
   captionAt,
   captionStyle,
   getCaptions,
+  giveAllReadingTime,
+  giveReadingTime,
   parseSubtitles,
+  READING_LIMIT,
+  readingSpeed,
   regroup,
+  retext,
   toSrt,
   toVtt,
   updateCaptions,
@@ -34,6 +39,8 @@ interface Props {
   onChange: (update: (project: Project) => Project) => void;
   onSeek: (time: number) => void;
   notify: (text: string, error?: boolean) => void;
+  /** Legenda para abrir no texto (dois cliques nela na timeline) */
+  focus?: { id: string; n: number } | null;
 }
 
 const POSITIONS = [
@@ -42,15 +49,17 @@ const POSITIONS = [
   { label: t('Embaixo'), y: 0.85 },
 ];
 
-export function CaptionsPanel({ project, time, onChange, onSeek, notify }: Props) {
+export function CaptionsPanel({ project, time, onChange, onSeek, notify, focus }: Props) {
   const track = getCaptions(project);
   const style = track.style;
   const [language, setLanguage] = useState<string | null>('portuguese');
-  const [model, setModel] = useState(CAPTION_MODELS[1].id);
+  const [model, setModel] = useState(DEFAULT_CAPTION_MODEL);
   const [translate, setTranslate] = useState(false);
-  const [progress, setProgress] = useState<{ stage: string; fraction: number | null } | null>(null);
+  /** Andamento; `left` = minutos que ainda faltam (estimados pelo ritmo até agora). */
+  const [progress, setProgress] = useState<{ stage: string; fraction: number | null; left?: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const active = captionAt(track, time);
+  const fast = track.captions.filter((c) => readingSpeed(c) > READING_LIMIT).length;
   const listRef = useRef<HTMLDivElement>(null);
 
   const setTrack = (update: (t: CaptionTrack) => CaptionTrack) => onChange((p) => updateCaptions(p, update));
@@ -119,17 +128,33 @@ export function CaptionsPanel({ project, time, onChange, onSeek, notify }: Props
     listRef.current?.querySelector(`[data-caption="${active.id}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [active?.id]);
 
+  // Dois cliques na timeline: rola até a legenda e põe o cursor no fim do texto dela.
+  useEffect(() => {
+    if (!focus) return;
+    const area = listRef.current?.querySelector<HTMLTextAreaElement>(`[data-caption="${focus.id}"] textarea`);
+    if (!area) return;
+    area.scrollIntoView({ block: 'center' });
+    area.focus();
+    area.setSelectionRange(area.value.length, area.value.length);
+  }, [focus?.n]);
+
   const generate = async () => {
     if (track.captions.length && !confirm(t('Substituir as legendas atuais pelas novas?'))) return;
     try {
       setProgress({ stage: t('Preparando'), fraction: null });
-      const captions = await transcribeProject(project, { model, language, maxWords: track.maxWords, translate }, (stage, fraction) =>
-        setProgress({ stage, fraction }),
-      );
+      // Começo da etapa atual, para estimar quanto falta (vídeos longos levam vários minutos).
+      let since = { stage: '', at: 0, fraction: 0 };
+      const captions = await transcribeProject(project, { model, language, maxWords: track.maxWords, translate }, (stage, fraction) => {
+        if (stage !== since.stage) since = { stage, at: performance.now(), fraction: fraction ?? 0 };
+        const done = (fraction ?? 0) - since.fraction;
+        const minutes = done > 0.02 ? ((performance.now() - since.at) / done) * (1 - (fraction ?? 0)) / 60000 : undefined;
+        setProgress({ stage, fraction, left: minutes });
+      });
       setTrack((t) => ({ ...t, enabled: true, captions }));
       notify(captions.length ? t('{n} legendas criadas. Confira e corrija o texto na lista.', { n: captions.length }) : t('Nenhuma fala reconhecida.'), !captions.length);
     } catch (error) {
-      notify(t('Não foi possível gerar as legendas: {error}', { error: error instanceof Error ? error.message : String(error) }), true);
+      if (error instanceof TranscriptionCancelled) notify(t('Geração de legendas cancelada.'));
+      else notify(t('Não foi possível gerar as legendas: {error}', { error: error instanceof Error ? error.message : String(error) }), true);
     } finally {
       setProgress(null);
     }
@@ -206,6 +231,7 @@ export function CaptionsPanel({ project, time, onChange, onSeek, notify }: Props
                 <LoaderCircle size={12} className="animate-spin text-accent" />
                 {progress.stage}
                 {progress.fraction !== null && ` · ${Math.round(progress.fraction * 100)}%`}
+                {progress.left !== undefined && progress.left >= 1 && ` · ${t('faltam uns {n} min', { n: Math.ceil(progress.left) })}`}
               </p>
               <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-panel-3">
                 <div
@@ -213,6 +239,9 @@ export function CaptionsPanel({ project, time, onChange, onSeek, notify }: Props
                   style={progress.fraction !== null ? { width: `${progress.fraction * 100}%` } : undefined}
                 />
               </div>
+              <Button variant="ghost" className="mt-1.5 h-7 w-full text-[11px]" icon={<X size={12} />} onClick={cancelTranscription}>
+                {t('Cancelar')}
+              </Button>
             </div>
           ) : (
             <Button variant="primary" icon={<Mic size={14} />} className="mt-2.5 w-full" onClick={() => void generate()}>
@@ -455,6 +484,15 @@ export function CaptionsPanel({ project, time, onChange, onSeek, notify }: Props
 
         {/* Lista */}
         <SectionTitle extra={<span className="text-[11px] text-faint">{track.captions.length}</span>}>{t('Texto')}</SectionTitle>
+        {fast > 0 && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber/40 bg-amber/10 px-2 py-1.5 text-[11px] text-amber">
+            <Gauge size={13} className="shrink-0" />
+            <span className="flex-1">{t('{n} legenda(s) rápida(s) demais para ler.', { n: fast })}</span>
+            <button className="rounded px-1.5 py-0.5 font-medium hover:bg-amber/20" onClick={() => setTrack(giveAllReadingTime)}>
+              {t('Ajustar todas')}
+            </button>
+          </div>
+        )}
         {track.captions.length === 0 && (
           <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-xs text-faint">
             {t('Gere automaticamente, importe um .srt ou crie uma nova no cursor.')}
@@ -483,6 +521,16 @@ export function CaptionsPanel({ project, time, onChange, onSeek, notify }: Props
                   {formatTime(c.start)} → {formatTime(c.end)}
                 </button>
                 <span className="flex-1" />
+                {readingSpeed(c) > READING_LIMIT && (
+                  <button
+                    title={t('Rápida demais para ler ({n} caracteres por segundo; o confortável é até {limit}). Clique para dar mais tempo de tela, pela pausa antes ou depois da fala. Se não houver pausa, encurte o texto.', { n: Math.round(readingSpeed(c)), limit: READING_LIMIT })}
+                    onClick={() => setTrack((t) => giveReadingTime(t, c.id))}
+                    className="flex items-center gap-0.5 rounded px-1 text-[10px] text-amber hover:bg-amber/15"
+                  >
+                    <Gauge size={11} />
+                    {t('{n} car/s', { n: Math.round(readingSpeed(c)) })}
+                  </button>
+                )}
                 <button
                   title={t('Começar no cursor')}
                   onClick={() => setCaption(c.id, { start: Math.min(time, c.end - 0.1), words: undefined })}
@@ -509,9 +557,9 @@ export function CaptionsPanel({ project, time, onChange, onSeek, notify }: Props
                 value={c.text}
                 rows={Math.min(3, Math.ceil(c.text.length / 34) || 1)}
                 onChange={(e) => {
-                  const text = e.target.value;
-                  // Mudou o texto: o tempo das palavras deixa de valer (é redistribuído).
-                  setCaption(c.id, { text, words: c.words && c.words.map((w) => w.text).join(' ') === text ? c.words : undefined });
+                  // As palavras que não mudaram continuam no tempo em que são faladas.
+                  const next = retext(c, e.target.value);
+                  setCaption(c.id, { text: next.text, words: next.words });
                 }}
                 className="w-full resize-none bg-transparent text-xs leading-snug outline-none"
               />

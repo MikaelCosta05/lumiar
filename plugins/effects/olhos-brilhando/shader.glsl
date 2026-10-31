@@ -1,5 +1,9 @@
 /**
- * Distância "de olho" até o ponto: elipse mais larga que alta, em unidades do tamanho.
+ * Olhos brilhando: os olhos acendem como os de um bicho no escuro, ou ficam totalmente pretos.
+ * - No modo aceso a íris vira fonte de luz: a cor emite por cima (mais quente e quase branca no miolo), o desenho
+ *   do olho continua por baixo, e o halo que vaza pela pele soma como luz em luz linear, com as altas luzes
+ *   comprimidas (o brilho não estoura em branco chapado).
+ * - Distância "de olho": elipse mais larga que alta, em unidades do tamanho, com a proporção da tela corrigida.
  * Os pontos vêm na posição da tela (y para baixo); o uv do GL tem y para cima.
  */
 float eyeDistance(vec2 uv, vec2 point) {
@@ -17,14 +21,16 @@ vec4 effect(vec2 uv) {
   float core = 1.0 - smoothstep(0.55, 1.0, d);
   vec3 col = c.rgb;
   if (modo < 0.5) {
-    // Íris acesa: a cor por cima, mais clara no meio, e um halo que vaza pela pele em volta.
+    vec3 lin = lmToLinear(c.rgb);
+    vec3 glowLin = lmToLinear(cor);
     float hot = 1.0 - smoothstep(0.0, 0.6, d);
-    // O desenho do olho continua por baixo (a luz sai de dentro dele, não é um adesivo por cima).
-    float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-    vec3 glow = mix(cor * 1.3, vec3(1.0), hot * 0.5) * (0.55 + 0.9 * l);
-    col = mix(col, glow * beat, core * 0.85);
+    float l = lmLuma(c.rgb);
+    // A luz sai de dentro do olho: a emissão segue um pouco o desenho da íris.
+    vec3 emit = mix(glowLin * 1.8, vec3(1.6), hot * 0.45) * (0.5 + 0.9 * l);
+    lin = mix(lin, emit * beat, core * 0.85);
     float halo = exp(-d * d * 0.35) * 0.9 + exp(-d * 0.6) * 0.35;
-    col += cor * halo * brilho * beat * (1.0 - core * 0.5);
+    lin += glowLin * halo * brilho * beat * (1.0 - core * 0.5) * 1.1;
+    col = lmSoftClip(lmToSrgb(lin), 0.8);
   } else {
     // Preto de ponta a ponta, uma sombra funda em volta e só um reflexo pequeno de luz.
     float rim = exp(-d * d * 0.25);

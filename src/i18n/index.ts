@@ -75,6 +75,24 @@ function fill(text: string, vars?: Record<string, string | number>): string {
   return text.replace(/\{(\w+)\}/g, (match, key: string) => (key in vars ? String(vars[key]) : match));
 }
 
+let reverse: Map<string, string> | null = null;
+
+/**
+ * O texto em português que deu esta tradução (a busca da paleta de comandos acha "Brilho" também em inglês).
+ * Em português, ou sem tradução, devolve undefined.
+ */
+export function sourceText(translated: string): string | undefined {
+  if (!reverse) {
+    reverse = new Map();
+    for (const [key, value] of Object.entries(dictionary)) {
+      // "contexto|texto": o português é só o texto.
+      if (!reverse.has(value)) reverse.set(value, key.includes('|') ? key.slice(key.indexOf('|') + 1) : key);
+    }
+  }
+  const original = reverse.get(translated);
+  return original && original !== translated ? original : undefined;
+}
+
 /** Troca o idioma e recarrega a interface (o salvamento automático oferece o projeto de volta). */
 export function setLang(next: Lang): void {
   try {

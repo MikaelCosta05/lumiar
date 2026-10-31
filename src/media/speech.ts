@@ -2,6 +2,7 @@ import { AudioBufferSource, BufferTarget, Output, WavOutputFormat } from 'mediab
 import { assetUrl } from '../assetUrl';
 import { t } from '../i18n';
 import type { SpeakMessage, SpeakRequest } from './tts.worker';
+import { IDLE_DEFAULT, IdleResource } from './idleRelease';
 
 /** Vozes sintéticas guardadas no app (public/models/tts), funcionam sem internet. */
 export const VOICES = [
@@ -10,25 +11,39 @@ export const VOICES = [
   { id: 'Xenova/mms-tts-spa', label: 'Español' },
 ];
 
-let worker: Worker | null = null;
+/**
+ * A voz é usada de vez em quando e o modelo ocupa ~40 MB no disco (bem mais carregado): parado, o worker é
+ * desligado e volta a carregar na próxima fala (alguns segundos, do próprio app).
+ */
+const worker = new IdleResource<Worker>({
+  create: () => new Worker(new URL('./tts.worker.ts', import.meta.url), { type: 'module' }),
+  release: (w) => w.terminate(),
+  idleMs: IDLE_DEFAULT,
+});
 /** Um pedido por vez (o worker responde na ordem). */
 let queue: Promise<unknown> = Promise.resolve();
 
 /** Transforma texto em fala e devolve um arquivo WAV. */
 export function speak(text: string, model: string, onLoading?: (fraction: number) => void): Promise<File> {
   const run = async () => {
-    worker ??= new Worker(new URL('./tts.worker.ts', import.meta.url), { type: 'module' });
-    const w = worker;
-    const { audio, sampleRate } = await new Promise<{ audio: Float32Array; sampleRate: number }>((resolve, reject) => {
-      w.onmessage = (event: MessageEvent<SpeakMessage>) => {
-        const msg = event.data;
-        if (msg.type === 'loading') onLoading?.(msg.fraction);
-        else if (msg.type === 'done') resolve(msg);
-        else reject(new Error(msg.message));
-      };
-      const request: SpeakRequest = { text, model, baseUrl: assetUrl('') };
-      w.postMessage(request);
-    });
+    const { audio, sampleRate } = await worker.use(
+      (w) =>
+        new Promise<{ audio: Float32Array; sampleRate: number }>((resolve, reject) => {
+          w.onmessage = (event: MessageEvent<SpeakMessage>) => {
+            const msg = event.data;
+            if (msg.type === 'loading') onLoading?.(msg.fraction);
+            else if (msg.type === 'done') resolve(msg);
+            else reject(new Error(msg.message));
+          };
+          // Worker que caiu (falta de memória…): o próximo pedido cria outro.
+          w.onerror = (event) => {
+            worker.drop();
+            reject(new Error(event.message || t('Falha na voz sintética.')));
+          };
+          const request: SpeakRequest = { text, model, baseUrl: assetUrl('') };
+          w.postMessage(request);
+        }),
+    );
     return new File([await encodeWav(audio, sampleRate)], `${fileName(text)}.wav`, { type: 'audio/wav' });
   };
   const result = queue.then(run, run);

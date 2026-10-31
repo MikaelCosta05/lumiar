@@ -1,27 +1,45 @@
-float luma(vec3 c) {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722));
-}
+// Sin City: P&B de quadrinho, duríssimo, e só o vermelho fica (e fica vermelho de verdade).
+// - P&B: luminância em luz linear com um leve filtro laranja (pele clara), curva de papel muito dura; antes da
+//   curva a imagem é alisada 1,2 px de 1080p para que o ruído do vídeo não vire pontinhos.
+// - O vermelho é escolhido em Oklab, por matiz e croma: só vermelhos saturados (batom, vestido, sangue). A pele
+//   (matiz mais alaranjado e croma baixo) fica fora, e a máscara é suave nas bordas e some nas sombras fundas,
+//   onde o croma é só ruído.
+// - O que é vermelho vira um vermelho puro, saturado ao máximo que a tela permite, com a claridade vinda do P&B
+//   duro (mantém a forma do objeto).
 
-vec3 rgb2hsv(vec3 c) {
-  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y);
-  float e = 1.0e-10;
-  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+bool inGamut(vec3 lin) { return all(greaterThanEqual(lin, vec3(-1e-4))) && all(lessThanEqual(lin, vec3(1.0001))); }
+/** Oklab → sRGB reduzindo só o croma até caber na tela (claridade e matiz ficam). */
+vec3 okToSrgb(vec3 lab) {
+  lab.x = clamp(lab.x, 0.0, 1.0);
+  if (inGamut(lmFromOklab(lab))) return clamp(lmToSrgb(lmFromOklab(lab)), 0.0, 1.0);
+  float lo = 0.0, hi = 1.0;
+  for (int i = 0; i < 8; i++) {
+    float m = 0.5 * (lo + hi);
+    if (inGamut(lmFromOklab(vec3(lab.x, lab.yz * m)))) lo = m; else hi = m;
+  }
+  return clamp(lmToSrgb(lmFromOklab(vec3(lab.x, lab.yz * lo))), 0.0, 1.0);
 }
-
-vec3 hsv2rgb(vec3 c) {
-  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+vec3 okOf(vec3 srgb) { return lmToOklab(lmToLinear(srgb)); }
+float paperCurve(float x, float hard, float pivot) {
+  x = pow(clamp(x, 0.0, 1.0), log(0.5) / log(pivot));
+  hard = max(hard, 0.05);
+  float a = 1.0 / (1.0 + exp(0.5 * hard));
+  return (1.0 / (1.0 + exp(-hard * (x - 0.5))) - a) / (1.0 - 2.0 * a);
 }
 
 vec4 applyFilter(vec4 c, vec2 uv) {
-  vec3 hsv = rgb2hsv(c.rgb);
-  float dh = min(hsv.x, 1.0 - hsv.x);
-  float red = (1.0 - smoothstep(0.04, 0.09, dh)) * smoothstep(0.25, 0.45, hsv.y);
-  float l = smoothstep(0.1, 0.8, luma(c.rgb));
-  vec3 col = mix(vec3(l), vec3(1.0, 0.05, 0.08) * (0.5 + hsv.z * 0.6), red);
-  return vec4(clamp(col, 0.0, 1.0), c.a);
+  vec3 smooth_ = lmGaussianBlur(uv, lmPx(1.2)).rgb;
+  vec3 base = mix(c.rgb, smooth_, 0.6);
+  vec3 lin = lmToLinear(base);
+  float v = lmToSrgb(vec3(dot(lin, vec3(0.36, 0.56, 0.08)))).x;
+  float t = paperCurve(v, 11.0, 0.46);
+  // Máscara do vermelho (pela cor alisada: sem pontinhos).
+  vec3 lab = okOf(smooth_);
+  float hue = atan(lab.z, lab.y);
+  float chroma = length(lab.yz);
+  float red = (1.0 - smoothstep(0.28, 0.52, abs(hue - 0.42))) * smoothstep(0.1, 0.16, chroma) * smoothstep(0.2, 0.35, lab.x);
+  vec3 gray = vec3(t);
+  float redL = mix(0.36, 0.66, paperCurve(v, 4.0, 0.46));
+  vec3 redInk = okToSrgb(vec3(redL, vec2(cos(0.5), sin(0.5)) * 0.3));
+  return vec4(mix(gray, redInk, red), c.a);
 }

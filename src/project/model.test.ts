@@ -391,3 +391,17 @@ describe('editPoints e maskAt', () => {
     expect(maskAt(null, 1)).toBeNull();
   });
 });
+
+describe('o que cada clipe precisa da IA', () => {
+  it('um filtro que usa a pessoa ou a profundidade também pede o recorte e a profundidade', async () => {
+    const { clipNeeds } = await import('./model');
+    const m = media('a');
+    expect(clipNeeds(clip(m, 0, 5))).toEqual({ person: false, depth: false });
+    const skin = clip(m, 0, 5, { filter: { pluginId: 'filters/pele-suave', intensity: 1, params: {} } });
+    expect(clipNeeds(skin).person).toBe(true);
+    const fog = clip(m, 0, 5, { filter: { pluginId: 'filters/nevoa', intensity: 1, params: {} } });
+    expect(clipNeeds(fog).depth).toBe(true);
+    // Filtro desligado (intensidade 0) não custa nada.
+    expect(clipNeeds({ ...skin, filter: { ...skin.filter!, intensity: 0 } })).toEqual({ person: false, depth: false });
+  });
+});

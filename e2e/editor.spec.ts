@@ -4,6 +4,8 @@ import { box, cursorTime, drag, importMedia, mainClips, openSample, PESSOA_WEBM,
 test('abre o editor vazio e o projeto de exemplo', async ({ page }) => {
   await expect(page).toHaveTitle(/Lumiar/);
   await expect(page.getByRole('heading', { name: 'Mídia do projeto' })).toBeVisible();
+  // A tela de carregamento sai depois que o editor aparece (e não fica por cima, pegando os cliques).
+  await expect(page.locator('#splash')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Exportar' })).toBeDisabled();
   await openSample(page);
   await expect(page.getByRole('textbox', { name: 'Nome do projeto' })).toHaveValue('Projeto de exemplo');

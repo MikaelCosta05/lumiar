@@ -90,11 +90,14 @@ import { useCompounds } from './app/useCompounds';
 import { useFaceBlur } from './app/useFaceBlur';
 import { useFileDrop } from './app/useFileDrop';
 import { useKeyboardShortcuts } from './app/useKeyboardShortcuts';
-import { onShortcutsDialogRequest, shortcutLabel, useShortcutsVersion, withShortcut } from './app/shortcuts';
+import { onShortcutsDialogRequest, shortcutLabel, useShortcut, useShortcutsVersion, withShortcut } from './app/shortcuts';
+import { buildCommands, CommandPalette, type PaletteCommand } from './ui/CommandPalette';
+import { getUserPacks } from './ui/packStore';
 import { SampleOffer, useSampleProject } from './app/sample';
 import { usePreviewPlayer } from './app/usePreviewPlayer';
 import { missingMediaText, useProjectFiles } from './app/useProjectFiles';
 import { useProxies } from './app/useProxies';
+import { useSidePanels } from './app/useSidePanels';
 import { useVoice } from './app/useVoice';
 import { visualTools } from './app/visualTools';
 import { loopTools } from './app/loopTools';
@@ -156,6 +159,7 @@ import { Inspector } from './ui/Inspector';
 import { Button, cx, IconButton, Slider } from './ui/kit';
 import { LanguagePicker } from './ui/LanguagePicker';
 import { Library, Rail, type LibraryTab } from './ui/Library';
+import { captionAt } from './project/captions';
 import { loadFonts } from './media/fonts';
 import { loadSamplePhotos, setPreviewClip } from './ui/previews';
 import { typingDuration } from './media/typingRender';
@@ -208,12 +212,19 @@ export default function App() {
   /** Janela de comentários aberta (com o comentário em foco) */
   const [commentsOpen, setCommentsOpen] = useState<{ focus: string | null } | null>(null);
   const [tab, setTab] = useState<LibraryTab>('media');
+  /** Dois cliques numa legenda da timeline: a aba Legendas abre no texto dela. */
+  const [captionFocus, setCaptionFocus] = useState<{ id: string; n: number } | null>(null);
+  const editCaption = (id: string) => {
+    setTab('captions');
+    setCaptionFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+  };
   const [importing, setImporting] = useState(0);
   /** Mensagem de "trabalhando…" (salvar/abrir/analisar). */
   const [busy, setBusy] = useState<string | null>(null);
   /** Clipe esperando o clique no vídeo para escolher o ponto que a câmera vai seguir. */
   const [picking, setPicking] = useState<string | null>(null);
   const [timelineHeight, startTimelineResize] = useTimelineHeight();
+  const panels = useSidePanels();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [clipboard, setClipboard] = useState<CopiedItem | null>(null);
   const [projectDialog, setProjectDialog] = useState(false);
@@ -678,12 +689,14 @@ export default function App() {
           ? Math.max(3, timeline.duration - currentTime())
           : preset.shape === 'progress' ? Math.max(1, timeline.duration - currentTime()) : preset.shape === 'countdown' ? 5 : preset.id.startsWith('sticker/') || preset.shape ? 3 : 4;
 
-  const toolsMenu = (e: ReactMouseEvent) => {
+  const toolsMenu = (e: ReactMouseEvent) => openMenu(e, toolsEntries());
+  /** O menu Ferramentas (também entra na paleta de comandos, sem o item que abre a própria paleta). */
+  const toolsEntries = (inPalette = false): MenuEntry[] => {
     const add = (id: string) => {
       const p = findTextPreset(id);
       if (p) addText(p);
     };
-    openMenu(e, [
+    return [
       { header: t('Criar') },
       { label: t('Tela dividida…'), icon: <Columns2 size={14} />, onClick: () => setExtraDialog('split') },
       (project.captions?.captions.length ?? 0) > 0 && { label: t('Imagens de apoio automáticas (pela fala)…'), icon: <Clapperboard size={14} />, onClick: () => setExtraDialog('broll') },
@@ -720,9 +733,35 @@ export default function App() {
       'separator',
       { header: t('Ajuda') },
       { label: t('Atalhos do teclado…'), icon: <Keyboard size={14} />, shortcut: shortcutLabel('shortcuts'), onClick: () => setShortcutsOpen(true) },
+      !inPalette && {
+        label: t('Buscar filtro, efeito, pacote ou ação…'),
+        icon: <Search size={14} />,
+        shortcut: shortcutLabel('commandPalette'),
+        onClick: () => setPalette(paletteCommands()),
+      },
       { label: t('Abrir projeto de exemplo'), icon: <Sparkles size={14} />, onClick: () => void sample.openSample() },
-    ]);
+    ];
   };
+
+  // Paleta de comandos (Ctrl+K): a lista é montada ao abrir, com os menus de agora (item selecionado e cursor).
+  const [palette, setPalette] = useState<PaletteCommand[] | null>(null);
+  useShortcut('commandPalette', () => {
+    if (exporting.exportState) return false;
+    setPalette(palette ? null : paletteCommands());
+  });
+  const paletteCommands = () =>
+    buildCommands({
+      applyPlugin: (plugin) => applyTo(selection, plugin),
+      addPack: (pack) => void packs.addPack(pack),
+      addText,
+      addSound: (sound) => void audio.addSound(sound),
+      userPacks: getUserPacks(),
+      menus: [
+        ...(selection ? [{ where: t('Item selecionado'), entries: timelineMenu(editorApi, selection) }] : []),
+        { where: t('Linha do tempo'), entries: timelineMenu(editorApi, { kind: 'empty', time: currentTime() }) },
+        { where: t('Ferramentas'), entries: toolsEntries(true) },
+      ],
+    });
 
   const addText = (preset: TextPreset) => {
     // Stickers ficam pouco tempo na tela.
@@ -838,18 +877,28 @@ export default function App() {
 
   return (
     <div
-      className="grid h-full grid-cols-[64px_272px_minmax(0,1fr)_304px] grid-rows-[52px_minmax(0,1fr)_var(--timeline-h)] min-[1500px]:grid-cols-[72px_320px_minmax(0,1fr)_340px]"
-      style={{ '--timeline-h': `${timelineHeight}px` } as CSSProperties}
+      className="grid h-full grid-cols-[64px_var(--library-w)_minmax(0,1fr)_var(--inspector-w)] grid-rows-[46px_minmax(0,1fr)_var(--timeline-h)] gap-1.5 bg-[radial-gradient(120%_80%_at_50%_-20%,#141726_0%,var(--color-bg)_55%)] px-1.5 pb-1.5 min-[1500px]:grid-cols-[72px_var(--library-w)_minmax(0,1fr)_var(--inspector-w)]"
+      style={
+        {
+          '--timeline-h': `${timelineHeight}px`,
+          '--library-w': `${panels.widths.library}px`,
+          '--inspector-w': `${panels.widths.inspector}px`,
+        } as CSSProperties
+      }
     >
       {/* ------------------------------------------------ Barra superior */}
-      <header className="col-span-4 flex items-center gap-4 border-b border-line bg-panel px-4">
+      <header className="col-span-4 flex items-center gap-4 px-2.5">
         <div className="flex items-center gap-2.5">
-          <span className="size-6 rounded-full bg-[conic-gradient(from_200deg,var(--color-accent),var(--color-accent-2),var(--color-pink),var(--color-accent))] shadow-[0_0_16px_rgba(111,125,255,0.6)]" />
+          {/* A mesma marca da tela de carregamento: um anel de luz. */}
+          <span className="relative size-6">
+            <span className="absolute inset-0 rounded-full bg-[conic-gradient(from_200deg,var(--color-accent),var(--color-accent-2),var(--color-pink),var(--color-accent))] opacity-60 blur-[7px]" />
+            <span className="absolute inset-0 rounded-full bg-[conic-gradient(from_200deg,var(--color-accent),var(--color-accent-2),var(--color-pink),var(--color-accent))] [mask:radial-gradient(circle,transparent_0_5px,#000_5.5px)]" />
+          </span>
           <span className="text-[17px] font-bold tracking-tight">Lumiar</span>
           <span className="rounded-full border border-line-strong px-1.5 text-[10px] font-medium text-faint">beta</span>
         </div>
         <span className="h-5 w-px bg-line" />
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 rounded-lg border border-line bg-panel-2/60 p-0.5">
           <IconButton label={t('Novo projeto')} onClick={files.newProject}>
             <FilePlus size={16} />
           </IconButton>
@@ -971,6 +1020,7 @@ export default function App() {
         onChange={setProject}
         onSeek={(t) => playerRef.current?.seek(t)}
         notify={notify}
+        captionFocus={captionFocus}
         onGallery={(kind) => setGallery({ kind })}
         onRemoveMedia={(media) => {
           setProject((p) => removeMedia(p, media.id));
@@ -1002,13 +1052,36 @@ export default function App() {
       />
 
       {/* ------------------------------------------------ Visualizador */}
-      <main className="flex min-h-0 flex-col bg-[radial-gradient(ellipse_at_center,#171a24_0%,#0a0b0e_70%)]">
+      <main className="surface relative flex min-h-0 flex-col bg-[radial-gradient(ellipse_at_center,#161924_0%,#0b0c10_75%)]">
+        {/* Bordas da biblioteca e do painel de ajustes: arraste para alargar, dois cliques voltam ao padrão. */}
+        {(['library', 'inspector'] as const).map((side) => (
+          <div
+            key={side}
+            title={t('Arraste para redimensionar · dois cliques voltam ao tamanho padrão')}
+            onPointerDown={(e) => panels.startResize(side, e)}
+            onDoubleClick={() => panels.reset(side)}
+            className={cx(
+              'group absolute inset-y-0 z-30 flex w-2.5 cursor-col-resize justify-center',
+              side === 'library' ? '-left-[9px]' : '-right-[9px]',
+            )}
+          >
+            <span className="my-3 w-[3px] rounded-full bg-accent/70 opacity-0 transition-opacity group-hover:opacity-100" />
+          </div>
+        ))}
         <div className="relative flex min-h-0 flex-1 items-center justify-center p-5">
           <canvas
             ref={canvasRef}
             onPointerDown={onCanvasPointerDown}
             onPointerMove={onCanvasPointerMove}
             onPointerUp={() => (textDrag.current = null)}
+            onDoubleClick={(e) => {
+              // Dois cliques em cima da legenda: abre o texto dela para editar.
+              const caption = captionAt(project.captions, time);
+              if (!caption || picking || selection?.kind === 'text' || selection?.kind === 'overlay') return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const y = (e.clientY - rect.top) / rect.height;
+              if (Math.abs(y - project.captions!.style.y) < project.captions!.style.size * 2 + 0.05) editCaption(caption.id);
+            }}
             onContextMenu={(e) => openMenu(e, previewMenu(editorApi))}
             title={
               picking
@@ -1018,7 +1091,7 @@ export default function App() {
                   : t('Clique para tocar/pausar')
             }
             className={cx(
-              'max-h-full max-w-full rounded-md bg-black shadow-[0_10px_40px_rgba(0,0,0,0.7)] ring-1 ring-white/5',
+              'max-h-full max-w-full rounded-lg bg-black shadow-[0_18px_50px_-10px_rgba(0,0,0,0.85)] ring-1 ring-white/[0.07]',
               selection?.kind === 'text' && !picking && 'cursor-move ring-2 ring-fuchsia-400/60',
               selection?.kind === 'overlay' && !picking && 'cursor-move ring-2 ring-accent/60',
               picking && 'cursor-crosshair ring-2 ring-amber',
@@ -1083,7 +1156,7 @@ export default function App() {
           {(gpu === 'lost' || gpu === 'failed') && <GpuLostOverlay failed={gpu === 'failed'} />}
         </div>
 
-        <div className="border-t border-line bg-panel">
+        <div className="rounded-b-xl border-t border-white/[0.05] bg-panel/85 backdrop-blur">
           <div className="px-4 pt-2">
             <Slider
               label={t('Posição')}
@@ -1094,7 +1167,8 @@ export default function App() {
               onChange={(t) => playerRef.current?.seek(t)}
             />
           </div>
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 pb-2.5 pt-1">
+          {/* @container: com o vídeo estreito (painéis largos), os detalhes da direita somem em vez de quebrar a linha. */}
+          <div className="@container grid grid-cols-[1fr_auto_1fr] items-center px-4 pb-2.5 pt-1">
             <span className="font-mono text-sm tabular-nums">
               {formatTime(time)}
               <span className="text-faint"> / {formatTime(timeline.duration)}</span>
@@ -1127,12 +1201,12 @@ export default function App() {
                 onClick={() => setScopes((v) => !v)}
                 title={t('Gráficos de cor: histograma, forma de onda e vetorscópio do quadro atual,\npara acertar a exposição e a cor com precisão')}
                 className={cx(
-                  'flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-sans text-[11px] transition-colors',
+                  'flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 font-sans text-[11px] transition-colors',
                   scopes ? 'border-accent/60 bg-accent/15 text-fg' : 'border-line text-faint hover:border-line-strong hover:text-dim',
                 )}
               >
                 <ChartColumn size={11} />
-                {t('Gráficos')}
+                <span className="hidden @[620px]:inline">{t('Gráficos')}</span>
               </button>
               <button
                 onClick={() => setProxyMode((v) => !v)}
@@ -1140,14 +1214,16 @@ export default function App() {
                   'Prévia leve: cria cópias em 540p dos vídeos pesados (4K, 1080p) só para editar.\nTocar e pular na timeline fica mais rápido; a exportação continua usando os arquivos originais.',
                 )}
                 className={cx(
-                  'flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-sans text-[11px] transition-colors',
+                  'flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 font-sans text-[11px] transition-colors',
                   proxyMode ? 'border-accent/60 bg-accent/15 text-fg' : 'border-line text-faint hover:border-line-strong hover:text-dim',
                 )}
               >
                 <Feather size={11} />
-                {t('Prévia leve')}
+                <span className="hidden @[620px]:inline">{t('Prévia leve')}</span>
               </button>
-              {project.width}×{project.height} · {project.fps} fps
+              <span className="hidden whitespace-nowrap @[760px]:inline">
+                {project.width}×{project.height} · {project.fps} fps
+              </span>
             </span>
           </div>
         </div>
@@ -1195,9 +1271,9 @@ export default function App() {
         <div
           title={t('Arraste para redimensionar')}
           onPointerDown={startTimelineResize}
-          className="group absolute inset-x-0 -top-1.5 z-40 flex h-3 cursor-row-resize items-center justify-center"
+          className="group absolute inset-x-0 -top-[9px] z-40 flex h-2.5 cursor-row-resize items-center justify-center"
         >
-          <span className="h-1 w-12 rounded-full bg-line-strong opacity-0 transition-opacity group-hover:opacity-100" />
+          <span className="h-[3px] w-12 rounded-full bg-accent/70 opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
         <Timeline
           project={project}
@@ -1225,6 +1301,7 @@ export default function App() {
           }}
           onDropMedia={dropMedia}
           onDropTextPreset={dropTextPreset}
+          onEditCaption={editCaption}
           onDropPack={packs.dropPack}
           onDropSound={(soundId, track, t) => {
             const sound = getSound(soundId);
@@ -1470,6 +1547,7 @@ export default function App() {
         />
       )}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+      {palette && <CommandPalette commands={palette} onClose={() => setPalette(null)} notify={notify} />}
       {templateDialog && (
         <TemplateDialog
           onPick={(t) => {

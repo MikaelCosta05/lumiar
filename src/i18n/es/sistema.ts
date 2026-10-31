@@ -14,7 +14,6 @@ export default {
   'Preparando o áudio': 'Preparando el audio',
   'Este projeto não tem áudio para legendar.': 'Este proyecto no tiene audio para subtitular.',
   'Carregando o modelo de fala': 'Cargando el modelo de voz',
-  'Reconhecendo a fala (placa de vídeo)': 'Reconociendo la voz (tarjeta gráfica)',
   'Reconhecendo a fala': 'Reconociendo la voz',
   'Falha no reconhecimento de fala.': 'Falló el reconocimiento de voz.',
   'Lendo os quadros': 'Leyendo los fotogramas',

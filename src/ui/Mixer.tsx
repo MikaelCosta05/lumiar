@@ -383,7 +383,7 @@ export function SoloButton({ project, strip, onEdit }: { project: Project; strip
       className={cx(solo && '!bg-amber/20 !text-amber')}
       onClick={() => onEdit((p) => setStripMix(p, strip, { solo: !solo }))}
     >
-      <span className="text-[10px] font-bold leading-none">{tc('mixer', 'S')}</span>
+      <span className="rounded-[3px] border border-current px-[3px] text-[9px] font-bold uppercase leading-[11px]">{tc('mixer', 'S')}</span>
     </IconButton>
   );
 }

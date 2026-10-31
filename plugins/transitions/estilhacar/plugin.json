@@ -11,6 +11,6 @@
     }
   ],
   "name": "Estilhaçar",
-  "description": "O clipe trinca como vidro e os cacos somem.",
+  "description": "O clipe trinca como vidro a partir de um ponto de impacto e os cacos caem girando.",
   "category": "Criativas"
 }

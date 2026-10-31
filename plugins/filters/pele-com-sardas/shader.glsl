@@ -1,61 +1,113 @@
-float luma(vec3 c) {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722));
+// ---- Cor em Oklab: L = claridade percebida (0 a 1), ab = cor. Matiz em graus: vermelho ~28, pele ~50,
+// laranja ~55, dourado ~85, verde-amarelado ~120, verde ~140, ciano ~210, azul do céu ~250, magenta ~340.
+vec3 toLab(vec3 srgb) { return lmToOklab(lmToLinear(srgb)); }
+/** Oklab → sRGB. O que sai da gama perde saturação (mesma luminância e matiz) em vez de virar outra cor. */
+vec3 fromLab(vec3 lab) {
+  vec3 c = lmFromOklab(vec3(max(lab.x, 0.0), lab.yz));
+  float y = clamp(lmLuma(c), 0.0, 1.0);
+  float lo = min(c.r, min(c.g, c.b));
+  float hi = max(c.r, max(c.g, c.b));
+  float k = 1.0;
+  if (lo < 0.0) k = min(k, y / max(y - lo, 1e-6));
+  if (hi > 1.0) k = min(k, (1.0 - y) / max(hi - y, 1e-6));
+  return lmToSrgb(mix(vec3(y), c, clamp(k, 0.0, 1.0)));
 }
-
-vec3 rgb2hsv(vec3 c) {
-  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y);
-  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1.0e-6)), d / (q.x + 1.0e-6), q.x);
+float hueDeg(vec3 lab) { return degrees(atan(lab.z, lab.y + 1e-7)); }
+/** 1 no matiz `center` (graus), caindo até 0 a `width` graus; cores quase cinza não contam. */
+float hueBand(vec3 lab, float center, float width) {
+  float d = abs(mod(hueDeg(lab) - center + 540.0, 360.0) - 180.0);
+  return (1.0 - smoothstep(width * 0.3, width, d)) * smoothstep(0.012, 0.045, length(lab.yz));
 }
-
-vec3 hsv2rgb(vec3 c) {
-  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+/** Peso de pele: matiz perto de 50°, croma moderado (laranja vivo não é pele), nem preto nem branco. */
+float skinWeight(vec3 lab) {
+  float d = abs(mod(hueDeg(lab) - 52.0 + 540.0, 360.0) - 180.0);
+  float c = length(lab.yz);
+  return (1.0 - smoothstep(12.0, 30.0, d)) * smoothstep(0.028, 0.055, c) * (1.0 - smoothstep(0.13, 0.19, c))
+    * smoothstep(0.22, 0.38, lab.x) * (1.0 - smoothstep(0.93, 0.99, lab.x));
 }
-
-/** 1 perto do matiz `center` (0 a 1, dá a volta), 0 a partir de `width` de distância. */
-float hueBand(float h, float center, float width) {
-  float d = abs(fract(h - center + 0.5) - 0.5);
-  return 1.0 - smoothstep(width * 0.5, width, d);
+vec2 rotAB(vec2 ab, float deg) { float r = radians(deg); float s = sin(r), k = cos(r); return mat2(k, s, -s, k) * ab; }
+/** Curva racional: inclinação s no fim (t = 1) e 1/s no começo; s = 1 não muda nada. */
+float rcurve(float t, float s) { return t / ((s - 1.0) * (1.0 - t) + 1.0); }
+/** Contraste em S em volta do pivô, sem cortar 0 nem 1 e sem esmagar os pretos (s = inclinação no pivô). */
+float contrastL(float x, float s, float p) {
+  x = clamp(x, 0.0, 1.0);
+  return x < p ? p * rcurve(x / p, s) : 1.0 - (1.0 - p) * rcurve((1.0 - x) / (1.0 - p), s);
 }
-
-/** Onde a cor parece pele (matiz entre o vermelho e o amarelo, saturação moderada). */
-float skinMask(vec3 c, float width) {
-  vec3 h = rgb2hsv(c);
-  return hueBand(h.x, 0.07, width) * smoothstep(0.08, 0.2, h.y) * (1.0 - smoothstep(0.65, 0.85, h.y)) * smoothstep(0.12, 0.3, h.z);
+/** Pesos das faixas tonais em L (somam ~1): sombras, meios-tons, altas luzes. */
+float wShadow(float L) { return 1.0 - smoothstep(0.08, 0.62, L); }
+float wHigh(float L) { return smoothstep(0.42, 0.95, L); }
+float wMid(float L) { return max(1.0 - wShadow(L) - wHigh(L), 0.0); }
+/** Vibração em Oklab: realça o croma baixo mais que o alto; "skin" = quanto poupar a pele (0 a 1). */
+vec3 vibranceLab(vec3 lab, float amount, float skin) {
+  float c = length(lab.yz);
+  float room = 1.0 - smoothstep(0.0, 0.2, c);
+  float g = 1.0 + amount * room * room * (1.0 - skin * skinWeight(lab));
+  lab.yz *= g;
+  return lab;
 }
-
-vec4 applyFilter(vec4 c, vec2 uv) {
-  float k = resolution.y / 720.0;
-  vec2 st = vec2(1.6 * k) / resolution;
-  vec3 center = c.rgb;
-  // Desfoque que respeita bordas: quanto mais detalhe guardado, mais exigente com a diferença de cor.
-  float sharpness = mix(30.0, 160.0, keep);
+/** Menor giro (graus, −180 a 180) para levar o matiz `from` até `to`. */
+float hueDelta(float from, float to) { return mod(to - from + 540.0, 360.0) - 180.0; }
+// ---- Pele: filtro bilateral (respeita bordas) + separação de frequências (os poros voltam).
+/**
+ * Média das cores em volta (Oklab), com peso que cai com a distância e com a diferença de claridade e cor:
+ * alisa manchas e textura irregular, mas não atravessa bordas (olhos, boca, cabelo, contorno do rosto).
+ * Raio em px de 1080p; `count` amostras (até 32) numa espiral áurea fixa (sem chuvisco de quadro a quadro).
+ */
+vec3 bilateralLab(vec2 uv, vec3 center, float radiusPx, float sigmaL, float sigmaC, int count) {
   vec3 sum = center;
   float wsum = 1.0;
-  for (int j = -2; j <= 2; j++) {
-    for (int i = -2; i <= 2; i++) {
-      if (i == 0 && j == 0) continue;
-      vec3 s = getColor(uv + vec2(float(i), float(j)) * st).rgb;
-      vec3 d = s - center;
-      float w = exp(-dot(d, d) * sharpness);
-      sum += s * w;
-      wsum += w;
-    }
+  vec2 scale = lmPxUv(radiusPx);
+  float iL = 0.5 / (sigmaL * sigmaL);
+  float iC = 0.5 / (sigmaC * sigmaC);
+  float n = float(count);
+  for (int i = 0; i < 32; i++) {
+    if (i >= count) break;
+    float r = sqrt((float(i) + 0.5) / n);
+    float a = float(i) * 2.39996323;
+    vec3 s = toLab(getColor(uv + vec2(cos(a), sin(a)) * r * scale).rgb);
+    vec3 d = s - center;
+    float w = exp(-2.0 * r * r - d.x * d.x * iL - dot(d.yz, d.yz) * iC);
+    sum += s * w;
+    wsum += w;
   }
-  vec3 smoothed = sum / wsum;
-  // Sardas e pintas: pontos mais escuros que a pele em volta voltam como estavam.
-  float freckle = smoothstep(0.025, 0.07, luma(smoothed) - luma(center)) * keep;
-  vec3 col = mix(smoothed, center, freckle);
-  // Um pouco da textura fina volta, para a pele não parecer de plástico.
-  vec2 p = vec2(k) / resolution;
-  vec3 fine = center - (getColor(uv + vec2(p.x, 0.0)).rgb + getColor(uv - vec2(p.x, 0.0)).rgb
-    + getColor(uv + vec2(0.0, p.y)).rgb + getColor(uv - vec2(0.0, p.y)).rgb) * 0.25;
-  col += fine * keep * 0.35;
-  float skin = clamp(skinMask(center, 0.1) * 1.2, 0.0, 1.0);
-  col = mix(center, col, smoothAmt * skin);
-  return vec4(clamp(col, 0.0, 1.0), c.a);
+  return sum / wsum;
+}
+/** Média de 1 px de 1080p em volta (4 leituras entre os pixels): o que sobra de center − isto são os poros. */
+vec3 tinyBlurLab(vec2 uv) {
+  vec2 p = lmPxUv(0.75);
+  return toLab((getColor(uv + vec2(p.x, p.y)).rgb + getColor(uv + vec2(-p.x, p.y)).rgb
+    + getColor(uv + vec2(p.x, -p.y)).rgb + getColor(uv + vec2(-p.x, -p.y)).rgb) * 0.25);
+}
+// ---- A pessoa (recorte da IA), com a borda alargada e suavizada para não aparecer recorte.
+/** Recorte suavizado num raio de `radiusPx` px de 1080p (9 leituras); sem o recorte da IA devolve −1. */
+float personSoft(vec2 uv, float radiusPx) {
+  if (uHasPerson < 0.5) return -1.0;
+  vec2 r = lmPxUv(radiusPx);
+  float m = getPerson(uv) * 2.0;
+  for (int i = 0; i < 8; i++) {
+    float a = float(i) * 0.785398 + 0.39;
+    m += getPerson(uv + vec2(cos(a), sin(a)) * r);
+  }
+  return m / 10.0;
+}
+/** Onde está a pessoa (bordas suaves); sem o recorte da IA, vale a imagem toda. */
+float personOrAll(vec2 uv) { float p = personSoft(uv, 4.0); return p < 0.0 ? 1.0 : p; }
+
+// Pele lisa com sardas: suaviza a textura irregular da pele, mas sardas, pintas e cílios ficam. Filtro bilateral em
+// Oklab (não atravessa bordas) + separação de frequências (os poros de 1 px voltam). Pontos pequenos bem mais
+// escuros que a pele lisa em volta (sardas, pintas) voltam como eram, na medida de "Manter detalhes".
+// Só na pele e, com o recorte da IA, só na pessoa.
+vec4 applyFilter(vec4 c, vec2 uv) {
+  vec3 lab = toLab(c.rgb);
+  // Quanto mais detalhe guardado, mais exigente o filtro fica com a diferença de claridade.
+  float sigmaL = mix(0.1, 0.05, keep);
+  vec3 base = bilateralLab(uv, lab, mix(5.0, 12.0, smoothAmt), sigmaL, 0.035, 32);
+  vec3 pores = lab - tinyBlurLab(uv);
+  vec3 smoothSkin = base + pores * mix(0.35, 0.8, keep);
+  // Sardas e pintas: mais escuras que a base lisa e com cor de pele mais densa.
+  float freckle = smoothstep(0.012, 0.04, base.x - lab.x) * keep;
+  smoothSkin = mix(smoothSkin, lab, freckle);
+  float mask = smoothstep(0.08, 0.6, skinWeight(base)) * personOrAll(uv);
+  lab = mix(lab, smoothSkin, mask * smoothAmt);
+  return vec4(fromLab(lab), c.a);
 }

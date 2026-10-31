@@ -1,3 +1,4 @@
+import { reverseBezier } from '../engine/cubicBezier';
 import type { Easing, Keyframe, KeyframeMap } from '../engine/keyframes';
 import type { Camera } from './camera';
 import {
@@ -82,7 +83,14 @@ export function mirrorKeyframes(map: KeyframeMap | undefined, length: number): K
       const sorted = [...kfs].sort((a, b) => a.time - b.time);
       // A curva de um trecho fica no keyframe do começo dele: invertido, ela passa para o vizinho.
       const mirrored: Keyframe[] = sorted
-        .map((k, i) => ({ time: Math.max(0, length - k.time), value: k.value, easing: (i > 0 ? MIRRORED[sorted[i - 1].easing] ?? sorted[i - 1].easing : k.easing) as Easing }))
+        .map((k, i): Keyframe => {
+          const from = i > 0 ? sorted[i - 1] : k;
+          const easing = (i > 0 ? MIRRORED[from.easing] ?? from.easing : k.easing) as Easing;
+          // A curva personalizada tocada ao contrário é a mesma Bézier girada meia volta.
+          return easing === 'custom' && from.bezier
+            ? { time: Math.max(0, length - k.time), value: k.value, easing, bezier: reverseBezier(from.bezier) }
+            : { time: Math.max(0, length - k.time), value: k.value, easing };
+        })
         .reverse();
       return [id, mirrored];
     }),

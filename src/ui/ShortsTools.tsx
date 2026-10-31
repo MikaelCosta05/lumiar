@@ -128,7 +128,7 @@ export function ChaptersDialog({ project, onClose, notify }: { project: Project;
     <Modal title={t('Capítulos para o YouTube')} icon={<BookmarkPlus size={18} />} onClose={onClose}>
       {chapters.length < 3 ? (
         <p className="text-xs leading-relaxed text-dim">
-          {t('Para criar capítulos, marque os pontos com')} <b>M</b> {t('(e dê nome aos marcadores) ou transcreva o vídeo na aba')} <b>{t('Texto')}</b>.{' '}
+          {t('Para criar capítulos, marque os pontos com')} <b>M</b> {t('(e dê nome aos marcadores) ou transcreva o vídeo na aba')} <b>{t('Transcrição')}</b>.{' '}
           {t('O YouTube precisa de pelo menos 3 capítulos de 10 segundos ou mais.')}
         </p>
       ) : (

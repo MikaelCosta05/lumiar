@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { ADJUSTMENT_TEMPLATE } from '../project/adjustmentBlock';
 import { PACKS } from '../project/packLibrary';
 import type { PackTemplate } from '../project/packs';
 import { t } from '../i18n';
@@ -74,7 +75,8 @@ export async function importUserPacks(file: File): Promise<number> {
   return incoming.length;
 }
 
-/** Procura um pacote pelo id (prontos e do usuário). */
+/** Procura um pacote pelo id (prontos, do usuário e o bloco de ajuste). */
 export function findPackTemplate(id: string): PackTemplate | undefined {
+  if (id === ADJUSTMENT_TEMPLATE.id) return ADJUSTMENT_TEMPLATE;
   return current.find((p) => p.id === id) ?? PACKS.find((p) => p.id === id);
 }

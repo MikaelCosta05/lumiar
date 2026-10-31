@@ -4,8 +4,179 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lumiar</title>
+    <!-- Tela de carregamento: aparece antes de qualquer JavaScript (src/app/splash.ts a controla e tira). -->
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #0c0d11;
+      }
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        color: #e9ebf1;
+        font-family: 'Inter Variable', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+        background:
+          radial-gradient(60% 50% at 50% 42%, rgba(111, 125, 255, 0.16), transparent 70%),
+          radial-gradient(40% 35% at 62% 60%, rgba(179, 107, 255, 0.1), transparent 70%),
+          #0c0d11;
+        transition: opacity 0.35s ease;
+        user-select: none;
+        -webkit-app-region: drag;
+      }
+      #splash.saindo {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #splash .centro {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 320px;
+      }
+      #splash .marca {
+        position: relative;
+        width: 64px;
+        height: 64px;
+        margin-bottom: 22px;
+      }
+      #splash .marca::before,
+      #splash .marca::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: conic-gradient(from 200deg, #6f7dff, #b36bff, #ff6bb5, #6f7dff);
+      }
+      #splash .marca::before {
+        filter: blur(18px);
+        opacity: 0.7;
+        animation: splash-pulso 2.4s ease-in-out infinite;
+      }
+      #splash .marca::after {
+        animation: splash-gira 6s linear infinite;
+        -webkit-mask: radial-gradient(circle at 50% 50%, transparent 0 13px, #000 14px);
+        mask: radial-gradient(circle at 50% 50%, transparent 0 13px, #000 14px);
+      }
+      #splash .nome {
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      #splash .lema {
+        margin-top: 4px;
+        min-height: 16px;
+        font-size: 12.5px;
+        color: #9aa0b2;
+      }
+      #splash .barra {
+        position: relative;
+        width: 100%;
+        height: 4px;
+        margin-top: 34px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #232733;
+      }
+      #splash .barra > span {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #6f7dff, #b36bff);
+        box-shadow: 0 0 12px rgba(111, 125, 255, 0.7);
+        transition: width 0.25s ease;
+      }
+      #splash .etapa {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+        min-height: 16px;
+        margin-top: 12px;
+        font-size: 12px;
+        color: #9aa0b2;
+        font-variant-numeric: tabular-nums;
+      }
+      #splash .etapa b {
+        font-weight: 500;
+        color: #636a7e;
+      }
+      #splash .dica {
+        min-height: 32px;
+        margin-top: 14px;
+        font-size: 11.5px;
+        line-height: 16px;
+        text-align: center;
+        color: #636a7e;
+      }
+      #splash button {
+        margin-top: 6px;
+        padding: 6px 14px;
+        border: 1px solid #343a4a;
+        border-radius: 8px;
+        background: #1a1d25;
+        color: #e9ebf1;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease, background 0.15s ease;
+        -webkit-app-region: no-drag;
+      }
+      #splash button.visivel {
+        opacity: 1;
+        visibility: visible;
+      }
+      #splash button:hover {
+        background: #232733;
+      }
+      #splash .versao {
+        position: fixed;
+        bottom: 18px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 11px;
+        color: #4b5163;
+      }
+      @keyframes splash-gira {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes splash-pulso {
+        50% {
+          opacity: 0.35;
+          transform: scale(0.92);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #splash .marca::before,
+        #splash .marca::after {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="splash" role="progressbar" aria-label="Lumiar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="centro">
+        <div class="marca"></div>
+        <div class="nome">Lumiar</div>
+        <div class="lema"></div>
+        <div class="barra"><span></span></div>
+        <div class="etapa"><span></span><b></b></div>
+        <div class="dica"></div>
+        <button type="button"></button>
+      </div>
+      <div class="versao"></div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

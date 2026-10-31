@@ -5,9 +5,16 @@ import {
   captionStyle,
   captionWords,
   createCaptionTrack,
+  giveAllReadingTime,
+  giveReadingTime,
   groupWords,
+  moveCaption,
   parseSubtitles,
+  READING_LIMIT,
+  readingSpeed,
   regroup,
+  resizeCaption,
+  retext,
   speakerOf,
   toSrt,
   toVtt,
@@ -112,7 +119,24 @@ describe('groupWords', () => {
     const words = [...speak('um dois'), ...speak('três', 0.9), ...speak('quatro', 5)];
     const groups = groupWords(words, 2);
     expect(groups[0].end).toBe(groups[1].start);
-    expect(groups[1].end).toBeCloseTo(1.2);
+    // "três" fala 0,3 s, mas fica o mínimo para ler (0,8 s), sem chegar na próxima.
+    expect(groups[1].end).toBeCloseTo(1.7);
+    expect(groups[2].start).toBe(5);
+  });
+
+  it('não termina a legenda pendurada num "de", "que", "o"…', () => {
+    const groups = groupWords(speak('eu gosto muito de cinema antigo'), 4);
+    expect(groups.map((c) => c.text)).toEqual(['eu gosto muito', 'de cinema antigo']);
+    // Pausa ou fim de frase continuam cortando onde estão.
+    expect(groupWords(speak('vou de.'), 2).map((c) => c.text)).toEqual(['vou de.']);
+  });
+
+  it('a legenda gerada fica o tempo de ler, sem invadir a próxima', () => {
+    const words = [...speak('Paralelepípedo.'), ...speak('Sim', 0.6)];
+    const groups = groupWords(words, 6);
+    expect(groups[0].end).toBeLessThanOrEqual(groups[1].start);
+    const alone = groupWords(speak('Paralelepípedo.'), 6)[0];
+    expect(readingSpeed(alone)).toBeLessThanOrEqual(READING_LIMIT);
   });
 
   it('sem palavras, sem legendas', () => {
@@ -148,6 +172,31 @@ describe('captionWords, captionAt e regroup', () => {
   });
 });
 
+describe('arrastar legendas na timeline', () => {
+  const words: CaptionWord[] = [
+    { text: 'um', start: 1, end: 1.5 },
+    { text: 'dois', start: 1.5, end: 2 },
+  ];
+  const track = () => ({ ...createCaptionTrack(), captions: [cap(1, 2, 'um dois', { words }), cap(3, 4, 'manual')] });
+
+  it('moveCaption leva as palavras junto, não passa do zero e reordena a lista', () => {
+    const moved = moveCaption(track(), '1', 5);
+    expect(moved.captions.map((c) => c.text)).toEqual(['manual', 'um dois']);
+    expect(moved.captions[1]).toMatchObject({ start: 5, end: 6 });
+    expect(moved.captions[1].words?.map((w) => [w.start, w.end])).toEqual([[5, 5.5], [5.5, 6]]);
+    expect(moveCaption(track(), '3', -2).captions[0]).toMatchObject({ start: 0, end: 1 });
+  });
+
+  it('resizeCaption estica as palavras na mesma proporção e não deixa a legenda sumir', () => {
+    const longer = resizeCaption(track(), '1', 'out', 3);
+    expect(longer.captions[0]).toMatchObject({ start: 1, end: 3 });
+    expect(longer.captions[0].words?.map((w) => [w.start, w.end])).toEqual([[1, 2], [2, 3]]);
+    expect(resizeCaption(track(), '1', 'in', 1.9).captions[0].start).toBeCloseTo(1.8);
+    expect(resizeCaption(track(), '3', 'out', 0).captions[1]).toMatchObject({ start: 3, end: 3.2 });
+    expect(resizeCaption(track(), '3', 'in', 2).captions[1]).toMatchObject({ start: 2, end: 4, text: 'manual' });
+  });
+});
+
 describe('pessoas que falam', () => {
   it('assignSpeakers dá a pessoa para a legenda e as palavras, mantendo nomes que já existiam', () => {
     const track = {
@@ -170,5 +219,75 @@ describe('pessoas que falam', () => {
     expect(style.y).toBe(0.5);
     expect(style.preset).toBe('karaoke');
     expect(captionStyle('nao-existe').preset).toBe('classica');
+  });
+});
+
+describe('velocidade de leitura', () => {
+  const track = (...captions: Caption[]) => ({ ...createCaptionTrack(), captions });
+
+  it('readingSpeed conta os caracteres por segundo', () => {
+    expect(readingSpeed(cap(0, 2, 'vinte caracteres aí!'))).toBe(10);
+  });
+
+  it('dar mais tempo estica pela pausa seguinte, sem encostar na próxima', () => {
+    const fast = cap(0, 1, 'Uma legenda comprida demais para um segundo');
+    const next = track(fast, cap(5, 6, 'depois'));
+    const after = giveReadingTime(next, fast.id).captions[0];
+    expect(after.start).toBe(0);
+    expect(readingSpeed(after)).toBeLessThanOrEqual(READING_LIMIT);
+    expect(after.end).toBeLessThan(5);
+  });
+
+  it('sem pausa depois, adianta o começo um pouco; sem pausa nenhuma, fica como está', () => {
+    const fast = cap(2, 3, 'Uma legenda comprida demais para um segundo');
+    const before = giveReadingTime(track(cap(0, 1, 'antes'), fast, cap(3, 4, 'depois')), fast.id).captions[1];
+    expect(before.end).toBe(3);
+    expect(before.start).toBeCloseTo(1.7);
+    const stuck = track(cap(0, 2, 'antes'), fast, cap(3, 4, 'depois'));
+    expect(giveReadingTime(stuck, fast.id)).toBe(stuck);
+  });
+
+  it('ajustar todas só mexe nas rápidas', () => {
+    const t = track(cap(0, 1, 'Uma legenda comprida demais para um segundo'), cap(5, 8, 'calma'));
+    const next = giveAllReadingTime(t);
+    expect(next.captions[1]).toBe(t.captions[1]);
+    expect(readingSpeed(next.captions[0])).toBeLessThanOrEqual(READING_LIMIT);
+  });
+});
+
+describe('corrigir o texto de uma legenda automática', () => {
+  const auto = (text: string) => {
+    const words = speak(text);
+    return cap(0, words.at(-1)!.end, text, { words });
+  };
+
+  it('trocar uma palavra mantém o tempo das outras', () => {
+    const c = auto('a luz deixa a píliba mais bonita');
+    const next = retext(c, 'a luz deixa a pele mais bonita');
+    expect(next.words!.map((w) => w.text)).toEqual(['a', 'luz', 'deixa', 'a', 'pele', 'mais', 'bonita']);
+    next.words!.forEach((w, i) => {
+      expect(w.start).toBe(c.words![i].start);
+      expect(w.end).toBe(c.words![i].end);
+    });
+  });
+
+  it('palavra que vira duas divide o tempo dela; palavra inserida pega tempo das vizinhas', () => {
+    const c = auto('eu lhe rei ontem');
+    const merged = retext(c, 'eu errei ontem');
+    expect(merged.words!.map((w) => w.text)).toEqual(['eu', 'errei', 'ontem']);
+    expect(merged.words![1].start).toBeCloseTo(0.4);
+    expect(merged.words![1].end).toBeCloseTo(1.1);
+    expect(merged.words![2].start).toBeCloseTo(1.2);
+    const inserted = retext(auto('bom dia'), 'bom dia mesmo');
+    expect(inserted.words![2].end - inserted.words![2].start).toBeGreaterThan(0);
+    const between = retext(auto('bom dia'), 'muito bom dia');
+    for (const w of between.words!) expect(w.end).toBeGreaterThan(w.start);
+  });
+
+  it('pontuação e maiúscula não contam como troca; texto vazio tira as palavras', () => {
+    const c = auto('oi gente');
+    expect(retext(c, 'Oi, gente!').words!.map((w) => w.start)).toEqual(c.words!.map((w) => w.start));
+    expect(retext(c, '').words).toBeUndefined();
+    expect(retext(cap(0, 1, 'manual'), 'outro').words).toBeUndefined();
   });
 });

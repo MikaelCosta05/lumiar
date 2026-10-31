@@ -92,7 +92,70 @@ vec4 effect(vec2 uv) {
 }
 ```
 
-Efeitos com passado dependem da ordem dos quadros: tocando, eles funcionam; pausado, mostram só o instante atual.
+Efeitos com passado dependem da ordem dos quadros. Tocando, o motor recebe um quadro depois do outro. Pausado (ou ao
+soltar o cursor depois de arrastar), o preview mostra primeiro só o instante atual e, em seguida, calcula por trás
+o trecho anterior (cerca de 1 s; numa transição, desde o começo dela) e mostra o quadro igual ao da exportação. Por
+isso `firstFrame()` também é verdadeiro no começo desse trecho.
+
+### A biblioteca pronta (funções `lm…`)
+
+Todo filtro, efeito e transição já recebe uma biblioteca de funções testadas (o código está em
+`src/engine/glslLib.ts`). O que o plugin não usa é descartado pelo compilador, então ela não pesa. Use-a no lugar
+dos truques comuns que deixam o resultado com cara de amador:
+
+| Para | Use | Em vez de |
+|---|---|---|
+| Acaso | `lmHash(p)`, `lmHash2`, `lmHash3`, `lmCellHash(floor)`; `lmIGN(gl_FragCoord.xy)` para girar amostras e fazer dither | `fract(sin(dot(p, …)) * 43758.5)`, que faz listras e muda de placa para placa |
+| Texturas orgânicas | `lmNoise(vec2/vec3)`, `lmFbm(p, oitavas)`, `lmCurl(p, t)` | acaso por pixel |
+| Grão de filme | `lmFilmGrain(cor, uv, intensidade, tamanho, time)`: mais forte nos meios-tons, 24 quadros de grão por segundo | ruído branco somado |
+| Desfoque | `lmGaussianBlur(uv, raio)`, `lmDiskBlur` (lente), `lmMotionBlur(uv, direção, n)`, `lmZoomBlur(uv, centro, quanto, n)` | grade de amostras, que deixa cópias fantasmas |
+| Brilho largo | `lmBloom(uv, limiar, raio)`: devolve a luz extra (luz linear), em vários níveis de detalhe, sem blocos | laço enorme de amostras |
+| Aberração cromática | `lmChromatic(uv, centro, quanto)`: espectro contínuo, crescendo para a borda | três cópias deslocadas |
+| Cor | `lmLuma` (Rec.709), `lmToLinear`/`lmToSrgb`, `lmSaturate`, `lmHueRotate` (Oklab), `lmWhiteBalance`, `lmSoftClip`, `lmTonemap` | `dot(c, vec3(0.299, 0.587, 0.114))`, girar matiz em HSV |
+| Misturas | `lmScreen`, `lmOverlay`, `lmSoftLight`, `lmColorDodge`, `lmAddLight` (soma de luz em luz linear) | somar e cortar em 1 |
+| Formas | `lmCentered(uv)` (círculo é círculo), `lmRotate`, `lmSdCircle`/`lmSdBox`/`lmSdRoundBox`/`lmSdSegment` + `lmFill(distância)` (borda sem serrilhado), `lmStep`, `lmVignette` | `step`, `length(uv - 0.5)` |
+| Tamanhos | `lmPx(n)` / `lmPxUv(n)`: n pixels de um vídeo 1080p, iguais em qualquer resolução e na miniatura | pixels de `resolution` |
+| Animação | `lmEaseInOutCubic`, `lmEaseOutExpo`, `lmEaseInOutQuint`, `lmEaseOutBack`, `lmSpring`, `lmBell`, `lmPulse`… | movimento linear |
+
+Nas transições, as funções que leem a imagem existem para os dois clipes, com `From` e `To` no nome:
+`lmMotionBlurFrom(uv, direção, n)`, `lmZoomBlurTo(…)`, `lmBloomFrom(…)` etc. `getColorLod(uv, nível)` (e
+`getFromColorLod`/`getToColorLod`) lê a imagem num nível de detalhe (0 = nítida, cada +1 = metade da resolução).
+
+As imagens entre um efeito e outro são de 16 bits, e a saída tem dither: degradês não fazem degraus. A cor que o
+plugin devolve continua sendo cortada entre 0 e 1.
+
+Para ver um plugin em alta resolução e comparar versões, há uma bancada (só para quem desenvolve):
+
+```
+npx electron scripts/bench/run.cjs --ids effects/meu-efeito --out pasta [--ai] [--size 1920x1080] [--timing]
+npx electron scripts/bench/compare.cjs pasta-antes pasta-depois
+```
+
+**Teste visual** (comparar antes e depois sem ser a olho). Antes de mexer, grave a referência; depois de mexer,
+compare:
+
+```
+npm run visual:ref                               # referência de tudo em .tmp-visual/referencia (uns minutos)
+npm run visual                                   # desenha de novo e compara
+npm run visual -- --ids effects/desfoque,packs/  # só esses (ids ou prefixos; vale para os dois comandos)
+```
+
+Cada plugin é desenhado a 480x270, nos mesmos instantes da bancada (efeitos e filtros em 0,5, 1,5 e 2,5 s,
+transições em 25%, 50% e 75%, pacotes em 4 pontos do bloco), com a pessoa e a profundidade da IA, e salvo em PNG
+(sem o ruído do JPEG). Os quadros do vídeo de exemplo são decodificados um a um, sem buscar no `<video>` (a busca às
+vezes entrega o quadro vizinho): duas rodadas seguidas na mesma máquina dão diferença zero, inclusive nos efeitos
+com memória, nos de ruído e nos de IA. A referência fica fora do git porque cada placa de vídeo desenha um pouco
+diferente: gere a sua antes de mexer. `visual:ref` com `--ids` troca só esses na referência.
+
+Um pixel conta como mudado quando um canal muda mais de 6 (de 255); um quadro mudou quando mais de 0,15% dos pixels
+mudaram ou a diferença média passou de 0,5 (pega o que mudou pouco na imagem toda). Para comparar, um desfoque de 6
+para 9 px (o que acontece ao trocar a referência de tamanho de 720p para 1080p) muda 1,3% dos pixels. A lista sai
+no terminal do mais diferente para o menos (erros, plugins que sumiram, os que mudaram, os sem referência), e
+`.tmp-visual/relatorio.html` mostra referência | atual | diferença de cada quadro que mudou (clique na atual para
+piscar com a referência; na diferença, o que mudou fica em magenta). O comando sai com erro se algo mudou. A lógica
+(métrica, limites, ordem, relatório) fica em `scripts/bench/visualDiff.ts`, com testes ao lado. `--todos` lista
+também os iguais; `--param effects/desfoque:radius=9` troca um valor só nessa rodada (para conferir que acusa);
+`--pasta outra` usa outra pasta no lugar de `.tmp-visual`.
 
 ## Compartilhando efeitos (.lumiarfx)
 
@@ -157,7 +220,8 @@ vec4 applyFilter(vec4 color, vec2 uv) {
 }
 ```
 
-Disponível: tudo que um efeito tem (`getColor`, `time`, `ratio`…) mais `intensity`.
+Disponível: tudo que um efeito tem (`getColor`, `time`, `ratio`, `getPerson`, `getDepth`, a biblioteca `lm…`) mais
+`intensity`.
 
 Se o shader tiver erro, o editor mostra a mensagem com a **linha do seu `shader.glsl`**.
 Cuidado com palavras reservadas do GLSL como nome de variável (`active`, `input`, `output`, `filter`, `sample`…)

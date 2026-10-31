@@ -15,5 +15,5 @@
     "noUnusedParameters": true,
     "types": ["vite/client"]
   },
-  "include": ["src"]
+  "include": ["src", "scripts/bench"]
 }

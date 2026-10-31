@@ -6,6 +6,12 @@ contextBridge.exposeInMainWorld('lumiarDesktop', {
   startCursor: () => ipcRenderer.invoke('cursor:start'),
   /** Para e devolve { points: [t, x, y, …], clicks: [t, …] } com x/y de 0 a 1 na tela gravada. */
   stopCursor: () => ipcRenderer.invoke('cursor:stop'),
+  /** Programas abertos cujo som dá para gravar separado (Windows): [{ pid, name, title }], ou null. */
+  listAppAudio: () => ipcRenderer.invoke('appAudio:list'),
+  /** Grava o som de um programa ('include') ou de tudo menos ele ('exclude'): { id, startedAt }. */
+  startAppAudio: (pid, mode) => ipcRenderer.invoke('appAudio:start', pid, mode),
+  /** Para e devolve o WAV gravado (bytes), ou null. */
+  stopAppAudio: (id) => ipcRenderer.invoke('appAudio:stop', id),
   /** Versão nova no GitHub: { version, notes, page, automatic } */
   onUpdate: (listener) => ipcRenderer.on('update:available', (_event, info) => listener(info)),
   onUpdateProgress: (listener) => ipcRenderer.on('update:progress', (_event, fraction) => listener(fraction)),

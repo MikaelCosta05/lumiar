@@ -3,6 +3,8 @@ import {
   createTarget,
   createTexture,
   deleteTarget,
+  forgetFloatTargets,
+  hasFloatTargets,
   setUniform,
   ShaderError,
   WebGL2Unavailable,
@@ -15,6 +17,7 @@ import {
   BLEND_FRAGMENT,
   buildPluginSource,
   COPY_FRAGMENT,
+  FLOW_COARSE_FRAGMENT,
   FLOW_FRAGMENT,
   formatShaderLog,
   HISTORY_FRAGMENT,
@@ -24,12 +27,14 @@ import {
   MATTE_FRAGMENT,
   COLOR_FRAGMENT,
   pluginInputs,
+  PRESENT_FRAGMENT,
   SOURCE_FRAGMENT,
   VERTEX_SHADER,
   WARP_FRAGMENT,
   type PluginInputs,
 } from './shaders';
 import type { EffectInstance, FilterInstance, ParamValues, ShaderPlugin } from './types';
+import { LOD_CALL } from './glslLib';
 import { screenToLayerMatrix } from './homography';
 
 /** Enquadramento da câmera virtual (ver project/camera.ts). */
@@ -178,6 +183,8 @@ export interface AdjustInput {
   amount: number;
   /** Desfoque de movimento da câmera do pacote */
   motionBlur?: CameraBlur | null;
+  /** Correção de cor manual e LUT do pacote, depois dos efeitos e do filtro (sem = nenhuma passada a mais) */
+  color?: LayerColor | null;
 }
 
 export interface FrameInput {
@@ -196,6 +203,8 @@ export interface FrameInput {
 
 /** O fluxo de movimento é calculado numa imagem 4× menor (bem mais rápido). */
 const FLOW_DOWNSCALE = 4;
+/** A busca larga do fluxo usa uma grade mais rala ainda (4× de novo): é a parte cara e o movimento muda devagar. */
+const FLOW_COARSE = 4;
 const SLOT = 3;
 /** Quadros guardados para os efeitos com o passado (getPast) e quantos por segundo. */
 const HISTORY = 32;
@@ -243,9 +252,12 @@ export class Renderer {
   private quad!: WebGLBuffer;
   private sourceProgram!: CompiledProgram;
   private copyProgram!: CompiledProgram;
+  /** Passa a montagem (16 bits) para a tela com dither, sem faixas nos degradês. */
+  private presentProgram!: CompiledProgram;
   private overlayProgram!: CompiledProgram;
   private blendProgram!: CompiledProgram;
   private flowProgram!: CompiledProgram;
+  private flowCoarseProgram!: CompiledProgram;
   private warpProgram!: CompiledProgram;
   private placeProgram!: CompiledProgram;
   private matteProgram!: CompiledProgram;
@@ -277,7 +289,7 @@ export class Renderer {
   private compose: RenderTarget[] = [];
   /** Onde a montagem é desenhada: a tela (null) ou compose, quando há pacotes no quadro. */
   private screen: RenderTarget | null = null;
-  /** Imagens reduzidas para o fluxo de movimento: [anterior, atual, fluxo] */
+  /** Imagens reduzidas para o fluxo de movimento: [anterior, atual, fluxo, fluxo grosso] */
   private small: RenderTarget[] = [];
   /** null = shader com erro (não tenta compilar de novo). */
   private readonly plugins = new Map<string, CompiledProgram | null>();
@@ -289,13 +301,22 @@ export class Renderer {
   /** O contexto voltou: `error` é null quando tudo foi recriado e dá para desenhar de novo. */
   onContextRestored?: (error: unknown) => void;
 
+  /**
+   * Fundo transparente (exportar para outro editor): onde não há clipe fica transparente e a transparência das
+   * mídias, camadas e textos chega até a saída. As camadas guardam alfa normal (o que os efeitos esperam) e a
+   * montagem guarda alfa pré-multiplicado (o que a mistura precisa); a passada final desfaz a pré-multiplicação.
+   */
+  readonly transparent: boolean;
+
   constructor(
     private readonly canvas: HTMLCanvasElement | OffscreenCanvas,
     width: number,
     height: number,
+    options: { transparent?: boolean } = {},
   ) {
+    this.transparent = !!options.transparent;
     const gl = canvas.getContext('webgl2', {
-      alpha: false,
+      alpha: this.transparent,
       antialias: false,
       premultipliedAlpha: false,
       // Necessário para capturar o canvas na exportação.
@@ -335,6 +356,7 @@ export class Renderer {
     this.compose = [];
     this.small = [];
     this.screen = null;
+    forgetFloatTargets(this.gl);
     const { width, height } = this;
     this.width = 0;
     this.height = 0;
@@ -360,9 +382,11 @@ export class Renderer {
 
     this.sourceProgram = compileProgram(gl, VERTEX_SHADER, SOURCE_FRAGMENT);
     this.copyProgram = compileProgram(gl, VERTEX_SHADER, COPY_FRAGMENT);
+    this.presentProgram = compileProgram(gl, VERTEX_SHADER, PRESENT_FRAGMENT);
     this.overlayProgram = compileProgram(gl, VERTEX_SHADER, OVERLAY_FRAGMENT);
     this.blendProgram = compileProgram(gl, VERTEX_SHADER, BLEND_FRAGMENT);
     this.flowProgram = compileProgram(gl, VERTEX_SHADER, FLOW_FRAGMENT);
+    this.flowCoarseProgram = compileProgram(gl, VERTEX_SHADER, FLOW_COARSE_FRAGMENT);
     this.warpProgram = compileProgram(gl, VERTEX_SHADER, WARP_FRAGMENT);
     this.placeProgram = compileProgram(gl, VERTEX_SHADER, PLACE_FRAGMENT);
     this.matteProgram = compileProgram(gl, VERTEX_SHADER, MATTE_FRAGMENT);
@@ -394,6 +418,7 @@ export class Renderer {
     this.targets = Array.from({ length: SLOT * 2 }, () => createTarget(gl, width, height));
     this.compose = Array.from({ length: 2 }, () => createTarget(gl, width, height));
     this.small = Array.from({ length: 3 }, () => createTarget(gl, this.smallWidth, this.smallHeight));
+    this.small.push(createTarget(gl, this.coarseWidth, this.coarseHeight));
     for (const t of this.small.slice(0, 2)) {
       gl.bindTexture(gl.TEXTURE_2D, t.texture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
@@ -408,14 +433,30 @@ export class Renderer {
     return Math.max(1, Math.round(this.height / FLOW_DOWNSCALE));
   }
 
-  render(frame: FrameInput): void {
+  private get coarseWidth() {
+    return Math.max(1, Math.ceil(this.smallWidth / FLOW_COARSE));
+  }
+
+  private get coarseHeight() {
+    return Math.max(1, Math.ceil(this.smallHeight / FLOW_COARSE));
+  }
+
+  /**
+   * Desenha o quadro na tela. Com `hidden`, só alimenta a memória dos efeitos (rastro, datamosh, passado…) e a tela
+   * continua mostrando o quadro anterior: o preview pausado usa isso para calcular o trecho antes do cursor.
+   */
+  render(frame: FrameInput, options: { hidden?: boolean } = {}): void {
     // Sem contexto, compilar um shader daria erro (e o plugin ficaria marcado como quebrado).
     if (this.gl.isContextLost()) return;
     this.gl.bindVertexArray(this.vao);
     this.renderCount++;
     const adjust = (frame.adjust ?? []).filter((a) => a.amount > 0.001);
-    // Com pacotes, a montagem vai para uma imagem intermediária em vez de direto para a tela.
-    this.screen = adjust.length ? this.compose[0] : null;
+    // Com pacotes (ou com imagens de 16 bits), a montagem vai para uma imagem intermediária em vez de direto
+    // para a tela: no fim ela passa para a tela com dither, sem as faixas que os 8 bits fariam nos degradês.
+    // Fundo transparente: sempre pela montagem (a mistura pré-multiplicada não pode ir direto para a tela).
+    const hidden = !!options.hidden;
+    const composing = hidden || adjust.length > 0 || hasFloatTargets(this.gl) || this.transparent;
+    this.screen = composing ? this.compose[0] : null;
     this.drawBase(frame);
     if (frame.behind) this.drawOverlay(frame.behind, this.basePerson, true);
     // A trilha principal já está desenhada: os alvos podem ser reaproveitados pelas camadas.
@@ -423,17 +464,18 @@ export class Renderer {
       if (layer.place.opacity <= 0.001 || layer.place.scale <= 0) continue;
       this.drawPlaced(this.renderLayer(layer, 0, 2), layer);
     }
-    if (adjust.length) {
-      let current = this.compose[0];
-      for (const a of adjust) current = this.drawAdjust(a, current, current === this.compose[0] ? this.compose[1] : this.compose[0]);
-      this.screen = null;
+    let current = this.compose[0];
+    for (const a of adjust) current = this.drawAdjust(a, current, current === this.compose[0] ? this.compose[1] : this.compose[0]);
+    if (frame.overlay) this.drawOverlay(frame.overlay, null, false, composing ? current : null);
+    this.screen = null;
+    if (composing && !hidden) {
       this.bindOutput(null);
-      this.gl.useProgram(this.copyProgram.program);
+      this.gl.useProgram(this.presentProgram.program);
       this.bindTexture(0, current.texture);
-      setUniform(this.gl, this.copyProgram, 'uTexture', 0);
+      setUniform(this.gl, this.presentProgram, 'uTexture', 0);
+      setUniform(this.gl, this.presentProgram, 'uTransparent', this.transparent ? 1 : 0);
       this.draw();
     }
-    if (frame.overlay) this.drawOverlay(frame.overlay, null, false);
     // Efeitos que não aparecem há um tempo liberam a memória.
     for (const [key, st] of this.effectStates) if (this.renderCount - st.used > 240) this.forgetState(key);
   }
@@ -477,6 +519,7 @@ export class Renderer {
       this.overlayProgram,
       this.blendProgram,
       this.flowProgram,
+      this.flowCoarseProgram,
       this.warpProgram,
       this.placeProgram,
       this.matteProgram,
@@ -497,7 +540,7 @@ export class Renderer {
     this.baseDepth = null;
     if (!frame.a) {
       this.bindOutput(this.screen);
-      gl.clearColor(0, 0, 0, 1);
+      gl.clearColor(0, 0, 0, this.transparent ? 0 : 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       return;
     }
@@ -513,22 +556,30 @@ export class Renderer {
         this.basePerson = to.person;
         this.baseDepth = to.depth;
       }
-      if (this.drawTransition(frame.transition, output, b, from, to)) return;
-      // Shader da transição com erro: faz um corte seco no meio.
-      if (frame.transition.progress >= 0.5) output = b;
+      // Fundo transparente: a transição sai com alfa normal num alvo livre e passa pela cópia pré-multiplicada.
+      const spare = this.targets[SLOT * 2 - 1];
+      if (this.drawTransition(frame.transition, output, b, from, to, this.transparent ? spare : this.screen)) {
+        if (!this.transparent) return;
+        output = spare;
+      } else if (frame.transition.progress >= 0.5) {
+        // Shader da transição com erro: faz um corte seco no meio.
+        output = b;
+      }
     }
     this.bindOutput(this.screen);
     gl.useProgram(this.copyProgram.program);
     this.bindTexture(0, output.texture);
     setUniform(gl, this.copyProgram, 'uTexture', 0);
+    setUniform(gl, this.copyProgram, 'uPremultiply', this.transparent ? 1 : 0);
     this.draw();
+    setUniform(gl, this.copyProgram, 'uPremultiply', 0);
   }
 
   /**
    * Mistura a sobreposição (com transparência) por cima do que já está na tela.
    * Com `mask` (textos atrás da pessoa), vai para a montagem e some onde a pessoa está.
    */
-  private drawOverlay(source: TexImageSource, mask: RenderTarget | null, behind: boolean): void {
+  private drawOverlay(source: TexImageSource, mask: RenderTarget | null, behind: boolean, target: RenderTarget | null = null): void {
     const gl = this.gl;
     this.overlayTexture ??= createTexture(gl);
     gl.bindTexture(gl.TEXTURE_2D, this.overlayTexture);
@@ -536,7 +587,7 @@ export class Renderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 
-    this.bindOutput(behind ? this.screen : null);
+    this.bindOutput(behind ? this.screen : target);
     gl.useProgram(this.overlayProgram.program);
     this.bindTexture(0, this.overlayTexture);
     this.bindTexture(1, mask?.texture ?? this.blank);
@@ -581,7 +632,7 @@ export class Renderer {
     setUniform(gl, p, 'uKey', place.chroma ? hexToRgb(place.chroma.color) : [0, 1, 0]);
     setUniform(gl, p, 'uKeyParams', place.chroma ? [place.chroma.similarity, place.chroma.smoothness] : [-1, 0]);
     setUniform(gl, p, 'uPixel', [1 / this.width, 1 / this.height]);
-    setUniform(gl, p, 'uUseAlpha', layer.matte?.mode === 'cut' ? 1 : 0);
+    setUniform(gl, p, 'uUseAlpha', this.transparent || layer.matte?.mode === 'cut' ? 1 : 0);
     const mask = place.mask;
     const shapes = { ellipse: 1, rect: 2, heart: 3, star: 4, diamond: 5, path: 6 } as const;
     const path = mask?.shape === 'path' ? (mask.points ?? []).slice(0, 64) : [];
@@ -627,7 +678,7 @@ export class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
     gl.generateMipmap(gl.TEXTURE_2D);
-    this.drawSource({ ...layer, background: null }, texture, target);
+    this.drawSource({ ...layer, background: null }, texture, target, false);
     return target;
   }
 
@@ -762,10 +813,12 @@ export class Renderer {
       const step = stateful ? this.stepState(`${ctx.key}|${effect.uid}`, inputs, layer.time, current, ctx.person) : null;
       const stateProgram = inputs.state ? this.getProgram(plugin, 'state') : null;
 
+      const lod = usesLod(plugin);
       const run = (program: CompiledProgram, target: RenderTarget) => {
         this.bindOutput(target);
         gl.useProgram(program.program);
         this.bindTexture(0, current.texture);
+        if (lod) this.buildLevels(current);
         setUniform(gl, program, 'uInput', 0);
         setUniform(gl, program, 'time', layer.time);
         setUniform(gl, program, 'duration', layer.duration);
@@ -773,6 +826,7 @@ export class Renderer {
         this.setParams(program, plugin, effect.params);
         this.bindInputs(program, ctx.person, ctx.depth, step);
         this.draw();
+        if (lod) this.dropLevels(current);
       };
       // Primeiro o estado deste quadro (state() lê o do anterior); depois o efeito, que já vê o novo.
       if (step && stateProgram && step.st.state) {
@@ -795,13 +849,19 @@ export class Renderer {
       this.bindOutput(spare);
       gl.useProgram(filterProgram.program);
       this.bindTexture(0, current.texture);
+      const lod = usesLod(filterPlugin);
+      if (lod) this.buildLevels(current);
       setUniform(gl, filterProgram, 'uInput', 0);
       setUniform(gl, filterProgram, 'time', layer.time);
       setUniform(gl, filterProgram, 'duration', layer.duration);
       setUniform(gl, filterProgram, 'intensity', filter.intensity);
       this.setCommonUniforms(filterProgram);
       this.setParams(filterProgram, filterPlugin, filter.params);
+      // Filtros também podem usar a pessoa e a profundidade (pele, névoa, luz de janela…).
+      this.bindInputs(filterProgram, ctx.person, ctx.depth, null);
       this.draw();
+      this.unbindInputs();
+      if (lod) this.dropLevels(current);
       current = spare;
     }
     return current;
@@ -977,13 +1037,35 @@ export class Renderer {
     };
     this.drawSource(view, input.texture, t0);
     // O pacote vê a pessoa e a profundidade da trilha principal (já no enquadramento da tela).
-    const result = this.drawLook(adjust, t0, t1, { key: adjust.key ?? 'pacote', person: this.basePerson, depth: this.baseDepth });
+    let result = this.drawLook(adjust, t0, t1, { key: adjust.key ?? 'pacote', person: this.basePerson, depth: this.baseDepth });
+    // Cor manual como a do clipe: depois dos efeitos e do filtro, ainda com alfa normal (antes da pré-multiplicação).
+    const color = adjust.color;
+    if (color && (color.grade || color.curves || color.lut)) {
+      const spare = result === t0 ? t1 : t0;
+      this.drawColor(color, result, spare);
+      result = spare;
+    }
+    if (this.transparent) {
+      // A montagem é pré-multiplicada: o resultado dos efeitos (alfa normal) também precisa ser antes da mistura.
+      const premultiplied = result === t0 ? t1 : t0;
+      this.bindOutput(premultiplied);
+      this.gl.useProgram(this.copyProgram.program);
+      this.bindTexture(0, result.texture);
+      setUniform(this.gl, this.copyProgram, 'uTexture', 0);
+      setUniform(this.gl, this.copyProgram, 'uPremultiply', 1);
+      this.draw();
+      setUniform(this.gl, this.copyProgram, 'uPremultiply', 0);
+      result = premultiplied;
+    }
     this.drawBlend(input, result, Math.min(1, adjust.amount), out);
     return out;
   }
 
-  /** Desenha a mídia com encaixe e câmera no alvo indicado. */
-  private drawSource(layer: LayerInput, texture: WebGLTexture, target: RenderTarget): void {
+  /**
+   * Desenha a mídia com encaixe e câmera no alvo indicado. `keepAlpha` (fundo transparente): a textura vem
+   * pré-multiplicada e a saída leva a transparência dela; máscaras e profundidade (false) não têm transparência.
+   */
+  private drawSource(layer: LayerInput, texture: WebGLTexture, target: RenderTarget, keepAlpha = this.transparent): void {
     const gl = this.gl;
     const cam = layer.camera;
     this.bindOutput(target);
@@ -1004,6 +1086,7 @@ export class Renderer {
     const bg = layer.stretch ? null : layer.background;
     setUniform(gl, this.sourceProgram, 'uBgMode', bg?.kind === 'blur' ? 2 : bg?.kind === 'color' ? 1 : 0);
     setUniform(gl, this.sourceProgram, 'uBgColor', bg?.kind === 'color' ? hexToRgb(bg.color) : [0, 0, 0]);
+    setUniform(gl, this.sourceProgram, 'uKeepAlpha', keepAlpha ? 1 : 0);
     this.draw();
   }
 
@@ -1043,7 +1126,7 @@ export class Renderer {
   /** Movimento de `a` para `b`, numa imagem 4× menor (fica em small[2]). */
   private computeFlow(a: RenderTarget, b: RenderTarget): RenderTarget {
     const gl = this.gl;
-    const [smallA, smallB, flow] = this.small;
+    const [smallA, smallB, flow, coarse] = this.small;
     const texel = [1 / this.smallWidth, 1 / this.smallHeight];
 
     for (const [src, dst] of [[a, smallA], [b, smallB]] as const) {
@@ -1057,19 +1140,33 @@ export class Renderer {
       gl.generateMipmap(gl.TEXTURE_2D);
     }
 
-    this.bindSmall(flow);
-    gl.useProgram(this.flowProgram.program);
-    this.bindTexture(0, smallA.texture);
-    this.bindTexture(1, smallB.texture);
-    setUniform(gl, this.flowProgram, 'uPrev', 0);
-    setUniform(gl, this.flowProgram, 'uNext', 1);
-    setUniform(gl, this.flowProgram, 'uTexel', texel);
-    this.draw();
+    // Busca larga na grade rala; depois cada pixel escolhe entre os vizinhos dela e refina.
+    for (const [program, target] of [[this.flowCoarseProgram, coarse], [this.flowProgram, flow]] as const) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+      gl.viewport(0, 0, target === coarse ? this.coarseWidth : this.smallWidth, target === coarse ? this.coarseHeight : this.smallHeight);
+      gl.useProgram(program.program);
+      this.bindTexture(0, smallA.texture);
+      this.bindTexture(1, smallB.texture);
+      this.bindTexture(2, target === flow ? coarse.texture : null);
+      setUniform(gl, program, 'uPrev', 0);
+      setUniform(gl, program, 'uNext', 1);
+      setUniform(gl, program, 'uCoarse', 2);
+      setUniform(gl, program, 'uTexel', texel);
+      this.draw();
+    }
     this.bindTexture(1, null);
+    this.bindTexture(2, null);
     return flow;
   }
 
-  private drawTransition(transition: TransitionInput, from: RenderTarget, to: RenderTarget, fromCtx: LookContext, toCtx: LookContext): boolean {
+  private drawTransition(
+    transition: TransitionInput,
+    from: RenderTarget,
+    to: RenderTarget,
+    fromCtx: LookContext,
+    toCtx: LookContext,
+    target: RenderTarget | null = this.screen,
+  ): boolean {
     const gl = this.gl;
     const plugin = getPlugin(transition.pluginId);
     const compiled = plugin && this.getProgram(plugin);
@@ -1083,9 +1180,14 @@ export class Renderer {
         : null;
     const stateProgram = inputs.state ? this.getProgram(plugin, 'state') : null;
 
+    const lod = usesLod(plugin);
     const run = (program: CompiledProgram, target: RenderTarget | null) => {
       this.bindOutput(target);
       gl.useProgram(program.program);
+      if (lod) {
+        this.buildLevels(from);
+        this.buildLevels(to);
+      }
       this.bindTexture(0, from.texture);
       this.bindTexture(1, to.texture);
       this.bindTexture(2, fromCtx.person?.texture ?? this.blank);
@@ -1106,6 +1208,10 @@ export class Renderer {
       this.setCommonUniforms(program);
       this.setParams(program, plugin, transition.params);
       this.draw();
+      if (lod) {
+        this.dropLevels(from);
+        this.dropLevels(to);
+      }
     };
     // Como nos efeitos: primeiro o estado deste quadro, depois a imagem (que já vê o novo).
     if (step && stateProgram && step.st.state) {
@@ -1113,7 +1219,7 @@ export class Renderer {
       run(stateProgram, st.state![1 - st.read]);
       st.read = 1 - st.read;
     }
-    run(compiled, this.screen);
+    run(compiled, target);
     if (step?.st.last) this.copyTarget(to, step.st.last);
     for (let unit = 1; unit <= 7; unit++) this.bindTexture(unit, null);
     return true;
@@ -1133,6 +1239,8 @@ export class Renderer {
 
   private uploadSource(layer: LayerInput): WebGLTexture {
     const gl = this.gl;
+    // Fundo transparente: pré-multiplicada no envio, a textura não escurece nas bordas ao reduzir (mipmap).
+    if (this.transparent) gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     const previous = layer.interpolation?.previous;
     if (previous === 'shift' && layer.source) {
       // O quadro atual vira o anterior trocando as texturas (sem copiar pixels).
@@ -1155,6 +1263,7 @@ export class Renderer {
       if (isStatic) this.staticSources.set(layer.key, layer.source);
       else this.staticSources.delete(layer.key);
     }
+    if (this.transparent) gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     return texture;
   }
 
@@ -1198,6 +1307,23 @@ export class Renderer {
     return media > output ? [1, output / media] : [media / output, 1];
   }
 
+  /** Monta o mapa de níveis (mipmaps) de uma imagem para o plugin ler com getColorLod / lmBloom. */
+  private buildLevels(target: RenderTarget): void {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, target.texture);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  }
+
+  /** Volta a ler só a imagem nítida (os outros plugins não usam os níveis, que ficam velhos no próximo quadro). */
+  private dropLevels(target: RenderTarget): void {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, target.texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  }
+
   private bindOutput(target: RenderTarget | null): void {
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, target ? target.framebuffer : null);
     this.gl.viewport(0, 0, this.width, this.height);
@@ -1216,4 +1342,16 @@ export class Renderer {
   private draw(): void {
     this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
   }
+}
+
+const lodCache = new Map<string, boolean>();
+
+/** O plugin lê a imagem por níveis de detalhe (brilho largo, desfoque grande)? */
+function usesLod(plugin: ShaderPlugin): boolean {
+  let found = lodCache.get(plugin.glsl);
+  if (found === undefined) {
+    found = LOD_CALL.test(plugin.glsl.replace(/\/\/.*$/gm, ''));
+    lodCache.set(plugin.glsl, found);
+  }
+  return found;
 }

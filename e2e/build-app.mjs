@@ -31,6 +31,12 @@ export async function buildApp() {
   const electronDir = path.join(APP_DIR, 'electron');
   fs.mkdirSync(electronDir, { recursive: true });
   for (const file of ['main.cjs', 'preload.cjs', 'icon.png']) fs.copyFileSync(path.join(ROOT, 'electron', file), path.join(electronDir, file));
+  // O gravador de som por programa (Windows): o main.cjs procura em electron/bin.
+  const audioExe = path.join(ROOT, 'electron', 'bin', 'lumiar-audio.exe');
+  if (fs.existsSync(audioExe)) {
+    fs.mkdirSync(path.join(electronDir, 'bin'), { recursive: true });
+    fs.copyFileSync(audioExe, path.join(electronDir, 'bin', 'lumiar-audio.exe'));
+  }
   fs.writeFileSync(
     path.join(APP_DIR, 'e2e-main.cjs'),
     [

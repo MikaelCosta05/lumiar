@@ -3,6 +3,7 @@ import { t } from '../i18n';
 import { groupWords, type Caption } from '../project/captions';
 import { layoutProject, type Project } from '../project/model';
 import { mixAudio } from './exporter';
+import { IDLE_DEFAULT, IdleResource } from './idleRelease';
 import type { TranscribeMessage, TranscribeRequest } from './transcribe.worker';
 
 export const CAPTION_MODELS = [
@@ -10,6 +11,11 @@ export const CAPTION_MODELS = [
   { id: 'Xenova/whisper-base', label: t('Equilibrada'), size: '~80 MB' },
   { id: 'Xenova/whisper-small', label: t('Precisa'), size: '~250 MB' },
 ];
+/**
+ * O padrão para legendas e texto: o "Precisa" erra menos da metade das palavras do "Equilibrada" (medido com fala
+ * limpa, com ruído, com música, baixa e com pausas longas) e leva cerca do dobro do tempo.
+ */
+export const DEFAULT_CAPTION_MODEL = CAPTION_MODELS[2].id;
 
 export const CAPTION_LANGUAGES: { id: string | null; label: string }[] = [
   { id: 'portuguese', label: t('Português') },
@@ -21,7 +27,22 @@ export const CAPTION_LANGUAGES: { id: string | null; label: string }[] = [
 
 export type CaptionProgress = (stage: string, fraction: number | null) => void;
 
-let worker: Worker | null = null;
+// O Whisper ocupa centenas de MB (o "Precisa", mais de meio GB): sai da memória depois de um tempo sem legendar.
+const worker = new IdleResource<Worker>({
+  create: () => new Worker(new URL('./transcribe.worker.ts', import.meta.url), { type: 'module' }),
+  release: (w) => w.terminate(),
+  idleMs: IDLE_DEFAULT,
+});
+/** Interrompe a transcrição que está rodando (se houver). */
+let stop: (() => void) | null = null;
+
+/** Cancela a transcrição: o worker é desligado (o modelo é carregado de novo na próxima). */
+export function cancelTranscription() {
+  stop?.();
+}
+
+/** Erro de transcrição cancelada pela pessoa (não é falha: não precisa de aviso vermelho). */
+export class TranscriptionCancelled extends Error {}
 
 /**
  * Ouve todo o áudio do projeto (vídeos + trilhas de áudio, já mixados) e devolve as legendas
@@ -44,23 +65,26 @@ export async function transcribeProject(
   source.start();
   const audio = new Float32Array((await context.startRendering()).getChannelData(0));
 
-  worker ??= new Worker(new URL('./transcribe.worker.ts', import.meta.url), { type: 'module' });
-  const w = worker;
-  return new Promise((resolve, reject) => {
+  return worker.use((w) => new Promise<Caption[]>((resolve, reject) => {
+    stop = () => {
+      worker.drop();
+      reject(new TranscriptionCancelled(t('Cancelado.')));
+    };
     w.onmessage = (event: MessageEvent<TranscribeMessage>) => {
       const msg = event.data;
       if (msg.type === 'download') onProgress(t('Carregando o modelo de fala'), msg.fraction);
-      else if (msg.type === 'transcribing') onProgress(msg.device === 'webgpu' ? t('Reconhecendo a fala (placa de vídeo)') : t('Reconhecendo a fala'), null);
+      else if (msg.type === 'transcribing') onProgress(t('Reconhecendo a fala'), msg.fraction);
       else if (msg.type === 'error') reject(new Error(msg.message));
-      else {
-        const words = msg.chunks
-          .map((c) => ({ text: c.text.trim(), start: c.timestamp[0], end: c.timestamp[1] ?? c.timestamp[0] + 0.3 }))
-          .filter((word) => word.text && Number.isFinite(word.start));
-        resolve(groupWords(words, options.maxWords));
-      }
+      else resolve(groupWords(msg.words, options.maxWords));
     };
-    w.onerror = (event) => reject(new Error(event.message || t('Falha no reconhecimento de fala.')));
+    w.onerror = (event) => {
+      // O worker caiu: o próximo uso cria outro.
+      worker.drop();
+      reject(new Error(event.message || t('Falha no reconhecimento de fala.')));
+    };
     const request: TranscribeRequest = { audio, model: options.model, language: options.language, baseUrl: assetUrl(''), translate: options.translate };
     w.postMessage(request, [audio.buffer]);
+  })).finally(() => {
+    stop = null;
   });
 }

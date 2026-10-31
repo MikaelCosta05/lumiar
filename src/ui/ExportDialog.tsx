@@ -1,7 +1,7 @@
 import { AudioLines, Camera, CircleCheck, Download, Film, LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import { useState } from 'react';
 import { LOUDNESS_TARGETS, type LoudnessTarget } from '../media/loudness';
-import { FORMAT_INFO, outputSize, type ExportFormat, type ExportProgress, type ExportSettings } from '../media/exporter';
+import { FORMAT_INFO, outputSize, supportsTransparency, type ExportFormat, type ExportProgress, type ExportSettings } from '../media/exporter';
 import type { Project } from '../project/model';
 import { t } from '../i18n';
 import { formatTime } from './format';
@@ -176,6 +176,9 @@ function ExportSetup({
   const set = (patch: Partial<ExportSettings>) => setSettings((s) => ({ ...s, ...patch }));
   const info = FORMAT_INFO[settings.format];
   const gif = settings.format === 'gif';
+  // Sequência de PNG: sem som e sem compressão com perdas (qualidade e volume não se aplicam).
+  const png = settings.format === 'png';
+  const transparent = !!settings.transparent && supportsTransparency(settings.format);
   const size = outputSize(project, settings.height ?? (gif ? 360 : null));
   const fps = settings.fps ?? (gif ? 15 : project.fps);
   const length = custom ? Math.max(0, range.end - range.start) : duration;
@@ -232,6 +235,23 @@ function ExportSetup({
         })}
       </div>
 
+      {supportsTransparency(settings.format) && (
+        <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-line bg-panel-2 p-2.5 text-xs">
+          <input
+            type="checkbox"
+            checked={!!settings.transparent}
+            onChange={(e) => set({ transparent: e.target.checked })}
+            className="mt-0.5 accent-[var(--color-accent)]"
+          />
+          <span className="min-w-0">
+            <span className="block font-medium">{t('Fundo transparente')}</span>
+            <span className="block text-[11px] leading-snug text-faint">
+              {t('Onde não há vídeo fica transparente: leve títulos, stickers, elementos animados ou a pessoa recortada para outro editor.')}
+            </span>
+          </span>
+        </label>
+      )}
+
       {info.video && (
         <div className="grid grid-cols-2 gap-x-4">
           <div>
@@ -266,7 +286,7 @@ function ExportSetup({
         </div>
       )}
 
-      {!gif && settings.format !== 'wav' && (
+      {!gif && !png && settings.format !== 'wav' && (
         <>
           <Label>{t('Qualidade')}</Label>
           <Segmented
@@ -282,7 +302,7 @@ function ExportSetup({
         </>
       )}
 
-      {settings.format !== 'gif' && (
+      {!gif && !png && (
         <>
           <Label>{t('Volume')}</Label>
           <Segmented
@@ -359,7 +379,9 @@ function ExportSetup({
 
       <p className="mt-4 rounded-lg bg-panel-2 px-3 py-2 font-mono text-[11px] text-dim">
         {info.label}
+        {png && ` (.zip)`}
         {info.video && ` · ${size.width}×${size.height} · ${fps} fps`} · {formatTime(length)}
+        {transparent && ` · ${t('fundo transparente')}`}
         {gif && length > 15 && <span className="text-amber"> · {t('GIFs longos ficam pesados')}</span>}
       </p>
 

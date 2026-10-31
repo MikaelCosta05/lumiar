@@ -1,4 +1,7 @@
-import type { LayerInput, Renderer } from '../engine/renderer';
+import type { VideoSample } from 'mediabunny';
+import type { FrameInput, LayerInput, Renderer } from '../engine/renderer';
+import { getPlugin } from '../engine/registry';
+import { pluginInputs } from '../engine/shaders';
 import { assets } from '../media/assets';
 import { drawTextsWithMotionBlur } from '../media/textMotionBlur';
 import { addMotionBlur } from '../project/motionBlur';
@@ -7,8 +10,11 @@ import { onSegmenterReady, segmentFrame } from '../media/segment';
 import { objectOrPerson } from '../media/objectSelect';
 import { depthFrame, onDepthReady } from '../media/depthVideo';
 import { hasBehindText } from '../project/text';
+import { playheadAt, reachedEnd } from './clock';
 import { prerenderCache } from './prerenderCache';
 import { PrerenderPlayback } from './prerenderPlayback';
+import { FrameDecoder } from './frameDecoder';
+import { memorySeconds, warmupTimes, WarmupScheduler } from './memoryWarmup';
 import { buildAudioChain, type VoiceChain } from '../media/voiceFx';
 import { MixerBus } from './mixerBus';
 import {
@@ -19,6 +25,7 @@ import {
   toFrameInput,
   type ActiveClip,
   type FrameState,
+  type MediaItem,
   type Project,
   type TimelineLayout,
   type VoiceEffect,
@@ -28,6 +35,28 @@ import {
 const MAX_DRIFT = 0.25;
 /** Quanto antes (s) o próximo clipe já é posicionado no ponto certo. */
 const PREROLL = 1;
+
+/** Um instante calculado com o passado (efeitos com memória, pausado). */
+interface WarmKey {
+  time: number;
+  project: Project;
+  /** Muda quando algo de fora do projeto chegou (máscara, profundidade, fontes): o cálculo vale de novo. */
+  revision: number;
+  seconds: number;
+}
+
+/** De onde vem a imagem de um clipe num quadro, e a imagem que a IA analisa (null = ainda não dá). */
+interface ClipSource {
+  provided: Pick<LayerInput, 'source' | 'interpolation'>;
+  image: CanvasImageSource | null;
+  /** Instante do arquivo (chave da máscara e da profundidade) */
+  at: number;
+}
+
+/** Tudo o que aparece no quadro (trilha principal e camadas sobrepostas). */
+function visibleClips(state: FrameState): ActiveClip[] {
+  return [state.a, state.b, ...state.overlays.map((o) => o.active)].filter((a): a is ActiveClip => !!a);
+}
 
 /**
  * Toca a timeline em tempo real. Cada clipe de vídeo/áudio tem um elemento
@@ -63,6 +92,14 @@ export class Player {
   private rate = 1;
   /** Trechos pré-renderizados: tocam de um vídeo pronto em vez de renderizar ao vivo */
   private readonly prerender: PrerenderPlayback;
+  /** Pausado, com efeito que lembra do passado: o trecho antes do cursor é calculado em segundo plano. */
+  private readonly warmup = new WarmupScheduler<WarmKey>((key, signal) => this.warm(key, signal));
+  private readonly decoder = new FrameDecoder();
+  /** O quadro calculado com o passado que está na tela agora */
+  private shown: WarmKey | null = null;
+  private revision = 0;
+  /** Última profundidade de cada clipe (os quadros do trecho calculado usam a do cursor). */
+  private readonly lastDepth = new Map<string, HTMLCanvasElement>();
 
   onTime?: (time: number) => void;
   onPlayingChange?: (playing: boolean) => void;
@@ -74,11 +111,11 @@ export class Player {
     document.body.appendChild(this.container);
     this.master.connect(this.audioContext.destination);
     // O modelo de recorte de fundo terminou de carregar: redesenha com a máscara.
-    onSegmenterReady(() => this.requestRender());
+    onSegmenterReady(() => this.changed());
     // Profundidade de um quadro ficou pronta (efeitos de céu, foco e neblina).
-    onDepthReady(() => this.requestRender());
+    onDepthReady(() => this.changed());
     // Mapa-múndi ou análise do som chegaram: os elementos animados podem ser desenhados.
-    onElementData(() => this.requestRender());
+    onElementData(() => this.changed());
     this.prerender = new PrerenderPlayback(renderer, () => {
       if (this.project) this.requestRender();
     });
@@ -115,6 +152,7 @@ export class Player {
     // Confere quais trechos pré-renderizados ainda valem com o projeto novo.
     prerenderCache.check(project, this.timeline);
     this.renderer.setSize(project.width, project.height);
+    this.decoder.keep(new Set(project.media.map((m) => m.id)));
 
     const videoClips = [...this.timeline.clips, ...this.timeline.overlays].filter((l) => l.media.kind === 'video');
     const url = (media: { id: string; url: string }) => (this.proxies && assets.proxies.get(media.id)) || media.url;
@@ -213,14 +251,16 @@ export class Player {
     this.videos.clear();
     this.audios.clear();
     this.prerender.dispose();
+    this.warmup.cancel();
+    this.decoder.dispose();
     this.container.remove();
     void this.audioContext.close();
   }
 
   private tick = (now: number): void => {
     if (!this.playing) return;
-    const t = this.timeAtStart + ((now - this.clockStart) / 1000) * this.rate;
-    if (t >= this.duration || t <= 0) {
+    const t = playheadAt(this.timeAtStart, this.clockStart, now, this.rate);
+    if (reachedEnd(t, this.duration, this.rate)) {
       this.time = Math.min(this.duration, Math.max(0, t));
       this.pause();
       return;
@@ -319,6 +359,12 @@ export class Player {
 
   /** Redesenha o quadro atual (ex.: depois que as fontes terminaram de carregar). */
   refresh(): void {
+    this.changed();
+  }
+
+  /** Algo de fora do projeto chegou (máscara, profundidade, fontes): redesenha e refaz o trecho calculado. */
+  private changed(): void {
+    this.revision++;
     this.requestRender();
   }
 
@@ -326,27 +372,43 @@ export class Player {
     // Trecho pré-renderizado: o quadro vem pronto do vídeo guardado (o som continua pelo sync, igual).
     const ready = this.prerender.frame(this.time, this.playing ? this.rate : 0);
     if (ready) {
+      this.warmup.cancel();
+      this.shown = null;
       this.renderer.render(ready);
       return;
     }
-    const behind = hasBehindText(this.project, this.time);
+    const frame = this.buildFrame(state, this.time, (active) => this.liveSource(active), true);
+    if (this.playing) this.warmup.cancel();
+    else if (this.holdForWarmup(frame, state)) return;
+    this.shown = null;
+    this.renderer.render(frame);
+  }
+
+  /** Monta o quadro do motor no instante `time`. `visible` = vai para a tela (com os textos); senão só alimenta a memória. */
+  private buildFrame(state: FrameState, time: number, sourceOf: (active: ActiveClip) => ClipSource, visible: boolean): FrameInput {
+    const behind = hasBehindText(this.project, time);
     const frame = toFrameInput(
       state,
       (active, needs) => {
         const { clip, media } = active.layout;
-        const provided = this.provideSource(active);
+        const { provided, image, at } = sourceOf(active);
         if (!needs.person && !needs.depth) return provided;
         // A máscara da pessoa e a profundidade saem do mesmo quadro que está na tela.
-        const element = media.kind === 'image' ? assets.bitmaps.get(media.id) : this.videos.get(clip.id);
-        const ready = element && (!(element instanceof HTMLVideoElement) || element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA);
-        if (!ready) return provided;
-        const time = element instanceof HTMLVideoElement ? element.currentTime : 0;
-        const key = `${clip.id}:${media.kind === 'image' ? 'foto' : time.toFixed(3)}`;
+        if (!image) return provided;
+        const key = `${clip.id}:${media.kind === 'image' ? 'foto' : at.toFixed(3)}`;
+        let depth: HTMLCanvasElement | null = null;
+        if (needs.depth && visible) {
+          depth = depthFrame(image, media.width, media.height, clip.id, key);
+          if (depth) this.lastDepth.set(clip.id, depth);
+        } else if (needs.depth) {
+          // Quadros do trecho calculado: a profundidade do cursor (pedir a de cada um só atenderia o último pedido).
+          depth = this.lastDepth.get(clip.id) ?? null;
+        }
         return {
           ...provided,
           // Com "Recorte: objeto selecionado", a máscara do objeto entra no lugar da pessoa.
-          mask: needs.person ? objectOrPerson(clip, time, () => segmentFrame(element, media.width, media.height, key)) : null,
-          depth: needs.depth ? depthFrame(element, media.width, media.height, clip.id, key) : null,
+          mask: needs.person ? objectOrPerson(clip, at, () => segmentFrame(image, media.width, media.height, key)) : null,
+          depth,
         };
       },
       this.project.background,
@@ -355,10 +417,119 @@ export class Player {
     );
     // Desfoque de movimento leve (menos amostras que na exportação).
     const fps = this.project.fps || 30;
-    addMotionBlur(frame, this.project, this.timeline, this.time, fps, 'preview', this.project);
-    if (behind && drawTextsWithMotionBlur(this.behindCanvas, this.project, this.time, fps, 'preview', 'behind')) frame.behind = this.behindCanvas;
-    if (drawTextsWithMotionBlur(this.textCanvas, this.project, this.time, fps, 'preview')) frame.overlay = this.textCanvas;
-    this.renderer.render(frame);
+    addMotionBlur(frame, this.project, this.timeline, time, fps, 'preview', this.project);
+    if (!visible) return frame;
+    if (behind && drawTextsWithMotionBlur(this.behindCanvas, this.project, time, fps, 'preview', 'behind')) frame.behind = this.behindCanvas;
+    if (drawTextsWithMotionBlur(this.textCanvas, this.project, time, fps, 'preview')) frame.overlay = this.textCanvas;
+    return frame;
+  }
+
+  /** Imagem de um clipe no preview ao vivo: o <video> escondido dele (ou a foto). */
+  private liveSource(active: ActiveClip): ClipSource {
+    const { clip, media } = active.layout;
+    const provided = this.provideSource(active);
+    const element = media.kind === 'image' ? assets.bitmaps.get(media.id) : this.videos.get(clip.id);
+    const ready = element && (!(element instanceof HTMLVideoElement) || element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA);
+    return { provided, image: ready ? element : null, at: element instanceof HTMLVideoElement ? element.currentTime : 0 };
+  }
+
+  /**
+   * Pausado, com um efeito ou transição que lembra do passado no quadro: agenda o cálculo do trecho antes do cursor.
+   * Devolve true quando o quadro não deve ser desenhado agora (o calculado já está na tela, ou está sendo feito).
+   */
+  private holdForWarmup(frame: FrameInput, state: FrameState): boolean {
+    const elapsed = state.transition ? state.transition.progress * state.transition.instance.duration : null;
+    const inputsOf = (id: string) => {
+      const plugin = getPlugin(id);
+      return plugin ? pluginInputs(plugin) : null;
+    };
+    const seconds = memorySeconds(frame, inputsOf, elapsed);
+    if (seconds <= 0) {
+      this.warmup.cancel();
+      return false;
+    }
+    const key: WarmKey = { time: this.time, project: this.project, revision: this.revision, seconds };
+    const same = (k: WarmKey | null) => !!k && k.time === key.time && k.project === key.project && k.revision === key.revision;
+    if (same(this.shown)) return true;
+    const running = this.warmup.running;
+    // Calculando este instante: desenhar agora recomeçaria a memória dos efeitos no meio do cálculo.
+    if (running && running.time === key.time) {
+      if (!same(running)) this.warmup.request(key);
+      return true;
+    }
+    this.warmup.request(key);
+    // Mesmo instante (mudou um parâmetro): fica o quadro calculado até o novo ficar pronto, sem piscar.
+    return this.shown?.time === key.time;
+  }
+
+  /**
+   * Calcula o trecho antes do cursor como a reprodução faria (quadro a quadro, sem mostrar) e desenha o quadro do
+   * cursor com a memória cheia. Os vídeos são lidos dos arquivos, como na exportação. Para ao primeiro sinal de
+   * cancelamento (o usuário mexeu de novo); entre um quadro e outro deixa a interface respirar.
+   */
+  private async warm(key: WarmKey, signal: AbortSignal): Promise<void> {
+    const project = key.project;
+    const timeline = this.timeline;
+    const times = [...warmupTimes(key.time, project.fps || 30, key.seconds), key.time];
+    const states = times.map((t) => resolveFrame(project, timeline, t));
+    const wanted = new Map<string, { media: MediaItem; times: number[] }>();
+    for (const state of states) {
+      for (const active of visibleClips(state)) {
+        if (active.layout.media.kind !== 'video') continue;
+        const id = active.layout.clip.id;
+        if (!wanted.has(id)) wanted.set(id, { media: active.layout.media, times: [] });
+        wanted.get(id)!.times.push(active.sourceTime);
+      }
+    }
+    const streams = new Map<string, AsyncGenerator<VideoSample | null, void, unknown>>();
+    const current = new Map<string, VideoSample>();
+    const stale = () => signal.aborted || this.playing || this.project !== project;
+    try {
+      for (const [id, { media, times: at }] of wanted) {
+        const stream = await this.decoder.frames(media.id, media.file, at);
+        if (stream) streams.set(id, stream);
+        if (stale()) return;
+      }
+      for (let k = 0; k < states.length; k++) {
+        const frames = new Map<string, VideoFrame>();
+        try {
+          for (const active of visibleClips(states[k])) {
+            if (active.layout.media.kind !== 'video') continue;
+            const id = active.layout.clip.id;
+            const result = await streams.get(id)?.next();
+            const sample = result && !result.done ? result.value : null;
+            if (stale()) {
+              if (sample && sample !== current.get(id)) sample.close();
+              return;
+            }
+            // O mesmo quadro pode vir repetido (vídeo com fps menor que o do projeto): fica o que já está na placa.
+            if (!sample || sample === current.get(id)) continue;
+            current.get(id)?.close();
+            current.set(id, sample);
+            frames.set(id, sample.toVideoFrame());
+          }
+          const sourceOf = (active: ActiveClip): ClipSource => {
+            const { clip, media } = active.layout;
+            if (media.kind === 'image') {
+              const bitmap = assets.bitmaps.get(media.id) ?? null;
+              return { provided: { source: bitmap }, image: bitmap, at: 0 };
+            }
+            const frame = frames.get(clip.id) ?? null;
+            return { provided: { source: frame }, image: frame, at: active.sourceTime };
+          };
+          const last = k === states.length - 1;
+          this.renderer.render(this.buildFrame(states[k], times[k], sourceOf, last), { hidden: !last });
+          if (last) this.shown = key;
+        } finally {
+          frames.forEach((f) => f.close());
+        }
+        if (k < states.length - 1) await new Promise((resolve) => setTimeout(resolve, 0));
+        if (stale()) return;
+      }
+    } finally {
+      current.forEach((s) => s.close());
+      for (const stream of streams.values()) await stream.return?.().catch(() => {});
+    }
   }
 
   /** Quadro de cada clipe visível (e, na câmera lenta suave, o anterior). */

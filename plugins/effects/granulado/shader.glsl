@@ -1,11 +1,14 @@
-float rand(vec2 co) {
-  return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
-}
+// Granulado de filme: grão de película (aglomerados irregulares, mais fortes nos meios-tons, um quadro de grão a
+// cada 1/24 s) e a cintilação da exposição de projetor, também quadro a quadro de filme (24 por segundo), com uma
+// oscilação lenta por baixo. A cintilação é um ganho de exposição em luz linear (não um véu cinza).
 
 vec4 effect(vec2 uv) {
   vec4 c = getColor(uv);
-  vec2 cell = floor(uv * resolution / max(size, 1.0));
-  float grain = rand(cell + floor(time * 24.0) * 1.7) - 0.5;
-  float flick = 1.0 + (rand(vec2(floor(time * 12.0), 3.0)) - 0.5) * flicker * 0.15;
-  return vec4(clamp(c.rgb * flick + grain * amount * 0.3, 0.0, 1.0), c.a);
+  float frame = floor(time * 24.0);
+  // Cintilação: cada quadro de filme com uma exposição um pouco diferente.
+  float flick = (lmHash(vec2(frame, 3.1)) - 0.5) * 0.09 + lmNoise(vec2(time * 2.3, 1.7)) * 0.05;
+  vec3 lin = lmToLinear(c.rgb) * exp2(flick * flicker * 1.4);
+  vec3 col = lmToSrgb(lin);
+  col = lmFilmGrain(col, uv, amount * 2.6, size, time);
+  return vec4(clamp(col, 0.0, 1.0), c.a);
 }

@@ -2,6 +2,7 @@ import { assetUrl } from '../assetUrl';
 import { t } from '../i18n';
 import type { AiMessage, AiRequest, AiVars } from './ai.worker';
 import type { SamRequest, SamResult } from './objectSam';
+import { IDLE_DEFAULT, IdleResource } from './idleRelease';
 
 /** As mensagens do worker chegam em português (lá não há dicionário): traduz aqui, junto com os valores em texto. */
 const translate = (text: string, vars?: AiVars) =>
@@ -11,13 +12,24 @@ export type AiProgress = (stage: string, fraction: number | null) => void;
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; onProgress?: AiProgress };
 
-let worker: Worker | null = null;
 let nextId = 1;
 const pending = new Map<number, Pending>();
 
-function getWorker(): Worker {
-  if (worker) return worker;
-  worker = new Worker(new URL('./ai.worker.ts', import.meta.url), { type: 'module' });
+/**
+ * O worker guarda todos os modelos que já usou (tradução, CLIP, profundidade, separador de voz, SAM…), centenas de
+ * MB no total. Parado, ele é desligado (o que libera tudo de verdade, até a memória do WebAssembly) e volta a
+ * carregar sozinho no próximo pedido, do cache no disco.
+ */
+const workerResource = new IdleResource<Worker>({ create: createWorker, release: (w) => w.terminate(), idleMs: IDLE_DEFAULT });
+
+/**
+ * Quanto tempo o worker fica carregado depois de cada tarefa. A profundidade vem do preview a cada quadro novo e a
+ * seleção de objeto, de cliques seguidos: ficam mais (recarregar no meio da edição atrasaria a imagem).
+ */
+const KEEP: Partial<Record<AiRequest['task'], number>> = { depth: 5 * 60_000, sam: 3 * 60_000 };
+
+function createWorker(): Worker {
+  const worker = new Worker(new URL('./ai.worker.ts', import.meta.url), { type: 'module' });
   worker.onmessage = (event: MessageEvent<AiMessage>) => {
     const msg = event.data;
     const p = pending.get(msg.id);
@@ -32,7 +44,7 @@ function getWorker(): Worker {
   worker.onerror = (event) => {
     pending.forEach((p) => p.reject(new Error(event.message || t('Falha no modelo de IA.'))));
     pending.clear();
-    worker = null;
+    workerResource.drop();
   };
   return worker;
 }
@@ -41,10 +53,15 @@ type WithoutId<T> = T extends unknown ? Omit<T, 'id' | 'baseUrl'> : never;
 
 function run<T>(request: WithoutId<AiRequest>, onProgress?: AiProgress, transfer: Transferable[] = []): Promise<T> {
   const id = nextId++;
-  return new Promise<T>((resolve, reject) => {
-    pending.set(id, { resolve: resolve as (v: unknown) => void, reject, onProgress });
-    getWorker().postMessage({ ...request, id, baseUrl: assetUrl('') } as AiRequest, transfer);
-  });
+  // O worker não é desligado enquanto houver pedido esperando resposta.
+  return workerResource.use(
+    (worker) =>
+      new Promise<T>((resolve, reject) => {
+        pending.set(id, { resolve: resolve as (v: unknown) => void, reject, onProgress });
+        worker.postMessage({ ...request, id, baseUrl: assetUrl('') } as AiRequest, transfer);
+      }),
+    KEEP[request.task] ?? IDLE_DEFAULT,
+  );
 }
 
 /** Idiomas das legendas traduzidas (o modelo de tradução passa pelo inglês). */

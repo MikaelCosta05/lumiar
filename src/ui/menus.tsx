@@ -119,6 +119,7 @@ import {
   deletePack,
   setSlowMuted,
   templateFromClip,
+  withTemplateLut,
   updatePackClip,
   updatePackTrack,
   type PackTemplate,
@@ -137,7 +138,9 @@ import { startGazeFix } from './gazeFix';
 import { shortcutLabel } from '../app/shortcuts';
 import type { StabilizeStrength } from '../project/stabilize';
 import { stabilizeMenu } from './stabilizeMenu';
-import { Scan, ScanLine } from 'lucide-react';
+import { Scan, ScanLine, SquareDashed } from 'lucide-react';
+import { ADJUSTMENT_HERE } from '../project/adjustmentBlock';
+import { gradeIsNeutral } from '../project/grade';
 import { Infinity as InfinityIcon, Repeat } from 'lucide-react';
 import { requestTracking } from './trackingStore';
 
@@ -361,7 +364,7 @@ function lookEntries(api: EditorApi, selection: Selection): MenuEntry[] {
     : clipLength(clip);
   const hasMove = !!clip.camera && Object.keys(clip.camera.keyframes).length > 0;
   return [
-    (hasLook || hasMove) && {
+    (hasLook || hasMove || !gradeIsNeutral(clip.grade) || !!clip.lut) && {
       label: t('Salvar visual como pacote'),
       icon: <PackagePlus size={14} />,
       onClick: () => {
@@ -377,7 +380,9 @@ function lookEntries(api: EditorApi, selection: Selection): MenuEntry[] {
             filter: clip.filter,
             camera: clip.camera ?? null,
             timing: 'edges',
-          }),
+            grade: clip.grade,
+            lut: clip.lut,
+          }, 'clip', api.project.luts),
         );
         api.notify(t('Salvo em Pacotes → Meus pacotes.'));
       },
@@ -778,7 +783,7 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
         label: t('Salvar como meu pacote'),
         icon: <PackagePlus size={14} />,
         onClick: () => {
-          saveUserPack(templateFromClip(clip, 'cursor'));
+          saveUserPack(templateFromClip(clip, 'cursor', api.project.luts));
           api.notify(t('"{name}" salvo em Pacotes → Meus pacotes.', { name: clip.name }));
         },
       },
@@ -898,6 +903,7 @@ export function timelineMenu(api: EditorApi, target: TimelineTarget): MenuEntry[
     { label: t('Mover o cursor para cá'), icon: <SkipForward size={14} />, onClick: () => api.seek(target.time) },
     { label: t('Adicionar marcador aqui'), icon: <Bookmark size={14} />, shortcut: 'M', onClick: () => api.addMarker(target.time) },
     { label: t('Adicionar comentário aqui'), icon: <MessageSquare size={14} />, onClick: () => api.addComment(target.time) },
+    { label: t('Bloco de ajuste aqui (filtro e efeitos para o que está embaixo)'), icon: <SquareDashed size={14} />, onClick: () => api.addPack(ADJUSTMENT_HERE, target.time) },
     { label: t('Detectar batidas da música aqui'), icon: <Activity size={14} />, onClick: () => api.markBeats(target.time) },
     project.clips.length > 1 && montageMenu(api, target.time),
     project.clips.length > 0 && { label: t('Zoom automático na fala (todos os clipes)'), icon: <ZoomIn size={14} />, onClick: () => api.punchIn() },
@@ -1036,19 +1042,20 @@ export function packMenu(api: EditorApi, template: PackTemplate): MenuEntry[] {
           // No trecho do clipe selecionado ou em todas as batidas.
           const span = layout ? { start: layout.start, end: layout.start + layout.length } : null;
           const beats = (api.project.beats ?? []).filter((b) => !span || (b >= span.start && b < span.end)).slice(0, 300);
-          api.edit((p) => beats.reduce((acc, b) => placePackClip(acc, createPackClip(template, b)), p));
+          api.edit((p) => beats.reduce((acc, b) => placePackClip(acc, createPackClip(template, b)), withTemplateLut(p, template)));
           api.notify(t('"{name}" repetido em {n} batidas.', { name: template.name, n: beats.length }));
         },
       },
     {
       label: t('Fixar direto no clipe selecionado'),
       icon: <Stamp size={14} />,
-      disabled: !clip,
+      // O bloco de ajuste vazio não tem o que fixar.
+      disabled: !clip || template.id === ADJUSTMENT_HERE.id,
       onClick: () => {
         if (!clip || !selected || (selected.kind !== 'clip' && selected.kind !== 'overlay')) return;
         const length = layout?.length ?? clipLength(clip);
-        if (selected.kind === 'clip') api.edit((p) => updateClip(p, selected.id, (c) => bakePack(template, c, length)));
-        else api.edit((p) => updateOverlayClip(p, selected.id, (c) => bakePack(template, c, length)));
+        if (selected.kind === 'clip') api.edit((p) => updateClip(withTemplateLut(p, template), selected.id, (c) => bakePack(template, c, length)));
+        else api.edit((p) => updateOverlayClip(withTemplateLut(p, template), selected.id, (c) => bakePack(template, c, length)));
         api.notify(t('"{name}" fixado no clipe (filtro, efeitos e câmera agora são do clipe).', { name: template.name }));
       },
     },

@@ -225,6 +225,7 @@ export function Inspector(props: Props) {
           onChange={(update) => onChange((p) => updatePackClip(p, clip.id, update))}
           onMuteSlow={(muted) => onChange((p) => setSlowMuted(p, clip.id, muted))}
           attachedCount={clip.attached?.length ?? 0}
+          colors={colors}
           onRemove={() => {
             onChange((p) => deletePack(p, clip.id));
             onSelect(null);
@@ -283,7 +284,7 @@ export function Inspector(props: Props) {
   }
 
   return (
-    <aside className="min-h-0 overflow-y-auto border-l border-line bg-panel">
+    <aside className="surface min-h-0 overflow-y-auto">
       <MotionBlurProvider project={project} onChange={onChange}>
         {content}
       </MotionBlurProvider>
@@ -594,7 +595,7 @@ function TurnFlip({ clip, onChange }: { clip: VideoClip; onChange: (update: (cli
 const ADJUST_ID = 'effects/ajuste-cor';
 
 /** Brilho, contraste, saturação e temperatura direto na aba Cor (usa o efeito "Ajuste de cor"). */
-function QuickAdjust({ effects, onChange }: { effects: EffectInstance[]; onChange: (update: (effects: EffectInstance[]) => EffectInstance[]) => void }) {
+export function QuickAdjust({ effects, onChange }: { effects: EffectInstance[]; onChange: (update: (effects: EffectInstance[]) => EffectInstance[]) => void }) {
   const plugin = getPlugin(ADJUST_ID);
   if (!plugin) return null;
   const effect = effects.find((e) => e.pluginId === ADJUST_ID);

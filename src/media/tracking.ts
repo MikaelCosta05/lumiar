@@ -6,10 +6,10 @@ import type { TrackPoint } from '../project/camera';
 import type { MediaItem } from '../project/model';
 import { assets } from './assets';
 import { smoothTrack, trackGrayPoints, type TrackedPoint, type TrackFrame } from './pointTrack';
+import { IDLE_DEFAULT, IdleResource } from './idleRelease';
 
 export type Progress = (fraction: number) => void;
 
-let detector: Promise<FaceDetector> | null = null;
 /** O detector exige tempos sempre crescentes, mesmo entre análises diferentes. */
 let detectorClock = 0;
 
@@ -30,16 +30,32 @@ export function blockTelemetry() {
   };
 }
 
-function getFaceDetector(): Promise<FaceDetector> {
-  if (!detector) blockTelemetry();
-  detector ??= FilesetResolver.forVisionTasks(assetUrl('mediapipe')).then((fileset) =>
-    FaceDetector.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: assetUrl('models/blaze_face_short_range.tflite') },
-      runningMode: 'VIDEO',
-      minDetectionConfidence: 0.45,
-    }),
-  );
-  return detector;
+/** Rostos são procurados de vez em quando (seguir o rosto, desfocar, reenquadrar): parado, o detector sai da memória. */
+const detector = new IdleResource<Promise<FaceDetector>>({
+  create: () => {
+    blockTelemetry();
+    return FilesetResolver.forVisionTasks(assetUrl('mediapipe')).then((fileset) =>
+      FaceDetector.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: assetUrl('models/blaze_face_short_range.tflite') },
+        runningMode: 'VIDEO',
+        minDetectionConfidence: 0.45,
+      }),
+    );
+  },
+  release: (loading) => void loading.then((d) => d.close(), () => {}),
+  idleMs: IDLE_DEFAULT,
+});
+
+/** Usa o detector de rostos (não é liberado enquanto `work` roda). */
+function withFaceDetector<R>(work: (face: FaceDetector) => Promise<R>): Promise<R> {
+  return detector.use(async (loading) => {
+    // Falhou ao carregar: esquece, para a próxima vez tentar de novo.
+    const face = await loading.catch((error) => {
+      detector.drop();
+      throw error;
+    });
+    return work(face);
+  });
 }
 
 /** Quadros do vídeo (reduzidos) em intervalos regulares, para análise. */
@@ -77,36 +93,37 @@ export async function* videoFrames(media: MediaItem, from: number, to: number, f
  * Quando há vários rostos, segue o que estiver mais perto do anterior.
  */
 export async function trackFace(media: MediaItem, from: number, to: number, onProgress?: Progress): Promise<TrackPoint[]> {
-  const face = await getFaceDetector();
-  const fps = 8;
-  const total = Math.max(1, Math.ceil((to - from) * fps));
-  const points: TrackPoint[] = [];
-  let last: TrackPoint | null = null;
-  let count = 0;
-  for await (const { t, canvas } of videoFrames(media, from, to, fps, 480)) {
-    detectorClock += 50;
-    const result = face.detectForVideo(canvas as HTMLCanvasElement, detectorClock);
-    const candidates = result.detections
-      .map((d) => d.boundingBox)
-      .filter((b): b is NonNullable<typeof b> => !!b)
-      .map((b) => ({
-        t,
-        x: (b.originX + b.width / 2) / canvas.width,
-        // Mira um pouco acima do centro da caixa: os olhos ficam mais bem enquadrados.
-        y: (b.originY + b.height * 0.42) / canvas.height,
-        size: b.width / canvas.width,
-      }));
-    if (candidates.length) {
-      const prev: TrackPoint | null = last;
-      const best: TrackPoint = prev
-        ? candidates.reduce((a, b) => (Math.hypot(a.x - prev.x, a.y - prev.y) < Math.hypot(b.x - prev.x, b.y - prev.y) ? a : b))
-        : candidates.reduce((a, b) => (a.size > b.size ? a : b));
-      points.push(best);
-      last = best;
+  return withFaceDetector(async (face) => {
+    const fps = 8;
+    const total = Math.max(1, Math.ceil((to - from) * fps));
+    const points: TrackPoint[] = [];
+    let last: TrackPoint | null = null;
+    let count = 0;
+    for await (const { t, canvas } of videoFrames(media, from, to, fps, 480)) {
+      detectorClock += 50;
+      const result = face.detectForVideo(canvas as HTMLCanvasElement, detectorClock);
+      const candidates = result.detections
+        .map((d) => d.boundingBox)
+        .filter((b): b is NonNullable<typeof b> => !!b)
+        .map((b) => ({
+          t,
+          x: (b.originX + b.width / 2) / canvas.width,
+          // Mira um pouco acima do centro da caixa: os olhos ficam mais bem enquadrados.
+          y: (b.originY + b.height * 0.42) / canvas.height,
+          size: b.width / canvas.width,
+        }));
+      if (candidates.length) {
+        const prev: TrackPoint | null = last;
+        const best: TrackPoint = prev
+          ? candidates.reduce((a, b) => (Math.hypot(a.x - prev.x, a.y - prev.y) < Math.hypot(b.x - prev.x, b.y - prev.y) ? a : b))
+          : candidates.reduce((a, b) => (a.size > b.size ? a : b));
+        points.push(best);
+        last = best;
+      }
+      onProgress?.(++count / total);
     }
-    onProgress?.(++count / total);
-  }
-  return points;
+    return points;
+  });
 }
 
 // ---------------------------------------------------------------- Rastrear um ponto
@@ -274,48 +291,49 @@ export interface FaceTrack {
  * anterior). Rostos que aparecem só num instante (falsos positivos) ficam de fora.
  */
 export async function trackAllFaces(media: MediaItem, from: number, to: number, onProgress?: Progress): Promise<FaceTrack[]> {
-  const face = await getFaceDetector();
-  const fps = 8;
-  const total = Math.max(1, Math.ceil((to - from) * fps));
-  const tracks: (FaceTrack & { lastT: number })[] = [];
-  let count = 0;
-  for await (const { t, canvas } of videoFrames(media, from, to, fps, 640)) {
-    detectorClock += 50;
-    const result = face.detectForVideo(canvas as HTMLCanvasElement, detectorClock);
-    const boxes = result.detections
-      .map((d) => d.boundingBox)
-      .filter((b): b is NonNullable<typeof b> => !!b)
-      .map((b) => ({ x: (b.originX + b.width / 2) / canvas.width, y: (b.originY + b.height / 2) / canvas.height, w: b.width / canvas.width, h: b.height / canvas.height }));
-    const used = new Set<number>();
-    for (const box of boxes) {
-      // O rastro aberto mais perto (que apareceu há pouco tempo) continua com este rosto.
-      let best = -1;
-      let bestDist = Infinity;
-      tracks.forEach((track, i) => {
-        if (used.has(i) || t - track.lastT > 1) return;
-        const last = track.points[track.points.length - 1];
-        const d = Math.hypot(last.x - box.x, last.y - box.y);
-        if (d < Math.max(0.12, last.w) && d < bestDist) {
-          best = i;
-          bestDist = d;
+  return withFaceDetector(async (face) => {
+    const fps = 8;
+    const total = Math.max(1, Math.ceil((to - from) * fps));
+    const tracks: (FaceTrack & { lastT: number })[] = [];
+    let count = 0;
+    for await (const { t, canvas } of videoFrames(media, from, to, fps, 640)) {
+      detectorClock += 50;
+      const result = face.detectForVideo(canvas as HTMLCanvasElement, detectorClock);
+      const boxes = result.detections
+        .map((d) => d.boundingBox)
+        .filter((b): b is NonNullable<typeof b> => !!b)
+        .map((b) => ({ x: (b.originX + b.width / 2) / canvas.width, y: (b.originY + b.height / 2) / canvas.height, w: b.width / canvas.width, h: b.height / canvas.height }));
+      const used = new Set<number>();
+      for (const box of boxes) {
+        // O rastro aberto mais perto (que apareceu há pouco tempo) continua com este rosto.
+        let best = -1;
+        let bestDist = Infinity;
+        tracks.forEach((track, i) => {
+          if (used.has(i) || t - track.lastT > 1) return;
+          const last = track.points[track.points.length - 1];
+          const d = Math.hypot(last.x - box.x, last.y - box.y);
+          if (d < Math.max(0.12, last.w) && d < bestDist) {
+            best = i;
+            bestDist = d;
+          }
+        });
+        if (best < 0) {
+          const thumb = document.createElement('canvas');
+          thumb.width = 64;
+          thumb.height = 64;
+          const side = Math.max(box.w * canvas.width, box.h * canvas.height) * 1.3;
+          thumb.getContext('2d')!.drawImage(canvas, box.x * canvas.width - side / 2, box.y * canvas.height - side / 2, side, side, 0, 0, 64, 64);
+          tracks.push({ points: [], thumb: thumb.toDataURL('image/jpeg', 0.8), lastT: t });
+          best = tracks.length - 1;
         }
-      });
-      if (best < 0) {
-        const thumb = document.createElement('canvas');
-        thumb.width = 64;
-        thumb.height = 64;
-        const side = Math.max(box.w * canvas.width, box.h * canvas.height) * 1.3;
-        thumb.getContext('2d')!.drawImage(canvas, box.x * canvas.width - side / 2, box.y * canvas.height - side / 2, side, side, 0, 0, 64, 64);
-        tracks.push({ points: [], thumb: thumb.toDataURL('image/jpeg', 0.8), lastT: t });
-        best = tracks.length - 1;
+        used.add(best);
+        tracks[best].points.push({ t, ...box });
+        tracks[best].lastT = t;
       }
-      used.add(best);
-      tracks[best].points.push({ t, ...box });
-      tracks[best].lastT = t;
+      onProgress?.(++count / total);
     }
-    onProgress?.(++count / total);
-  }
-  return tracks.filter((track) => track.points.length >= 3).map(({ points, thumb }) => ({ points, thumb }));
+    return tracks.filter((track) => track.points.length >= 3).map(({ points, thumb }) => ({ points, thumb }));
+  });
 }
 
 // ---------------------------------------------------------------- Mudanças de cena

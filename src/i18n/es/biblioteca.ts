@@ -292,4 +292,7 @@ export default {
   'Nenhum efeito novo no arquivo.': 'Ningún efecto nuevo en el archivo.',
   '{n} já estava(m) lá.': '{n} ya estaba(n) allí.',
   '{n} ficou(aram) de fora: {reason}': '{n} quedó(aron) fuera: {reason}',
+  // Legendas: andamento e cancelar
+  'Geração de legendas cancelada.': 'Generación de subtítulos cancelada.',
+  'faltam uns {n} min': 'faltan unos {n} min',
 } satisfies Record<string, string>;

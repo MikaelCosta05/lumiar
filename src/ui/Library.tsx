@@ -25,8 +25,9 @@ import {
   Download,
   X,
   MonitorUp,
+  SquareDashed,
 } from 'lucide-react';
-import { useMemo, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { effectPlugins, filterPlugins, pluginsVersion, subscribePlugins, transitionPlugins } from '../engine/registry';
 import type { PluginKind, ShaderPlugin } from '../engine/types';
 import type { MediaItem, MediaKind, Project } from '../project/model';
@@ -44,6 +45,7 @@ import { Waveform } from './MediaVisuals';
 import { getPackPreview, usePluginPreviews, usePreviewVersion } from './previews';
 import { MEDIA_MIME, PACK_MIME, PLUGIN_MIME, SOUND_MIME, TEXT_PRESET_MIME } from './selection';
 import { PACK_CATEGORIES, PACKS } from '../project/packLibrary';
+import { ADJUSTMENT_TEMPLATE } from '../project/adjustmentBlock';
 import type { PackTemplate } from '../project/packs';
 import { exportUserPacks, importUserPacks, useUserPacks } from './packStore';
 import { listUserEffects, USER_EFFECTS_CATEGORY } from '../engine/userPlugins';
@@ -53,7 +55,7 @@ import { t } from '../i18n';
 
 export type LibraryTab = 'media' | 'text' | 'stickers' | 'sounds' | 'captions' | 'transcript' | 'voice' | 'packs' | PluginKind;
 
-const TABS: { id: LibraryTab; label: string; icon: ReactNode }[] = [
+const TABS: { id: LibraryTab; label: string; title?: string; icon: ReactNode }[] = [
   { id: 'media', label: t('Mídia'), icon: <Film size={19} /> },
   { id: 'filter', label: t('Filtros'), icon: <Palette size={19} /> },
   { id: 'effect', label: t('Efeitos'), icon: <Sparkles size={19} /> },
@@ -63,21 +65,23 @@ const TABS: { id: LibraryTab; label: string; icon: ReactNode }[] = [
   { id: 'stickers', label: t('Stickers'), icon: <Smile size={19} /> },
   { id: 'sounds', label: t('Sons'), icon: <Music2 size={19} /> },
   { id: 'captions', label: t('Legendas'), icon: <Captions size={19} /> },
-  { id: 'transcript', label: t('Texto'), icon: <FileText size={19} /> },
+  { id: 'transcript', label: t('Transcrição'), title: t('Transcrição: editar o vídeo pelo texto da fala'), icon: <FileText size={19} /> },
   { id: 'voice', label: t('Voz'), icon: <Mic size={19} /> },
 ];
 
 /** Barra de ícones na lateral esquerda. */
 export function Rail({ tab, onTab }: { tab: LibraryTab; onTab: (tab: LibraryTab) => void }) {
   return (
-    <nav className="flex flex-col items-center gap-1 border-r border-line bg-panel py-3">
+    // Rola quando a janela é baixa: senão as últimas abas (Legendas, Transcrição, Voz) ficam escondidas atrás da timeline.
+    <nav className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain py-1.5 [scrollbar-width:none]">
       {TABS.map((item) => (
         <button
           key={item.id}
+          title={item.title}
           onClick={() => onTab(item.id)}
           className={cx(
-            'group relative flex w-14 flex-col items-center gap-1 rounded-xl py-2 text-[10px] font-medium transition-colors',
-            tab === item.id ? 'bg-panel-3 text-fg' : 'text-faint hover:bg-panel-2 hover:text-dim',
+            'group relative flex w-[58px] shrink-0 flex-col items-center gap-1 rounded-xl py-1.5 text-[10.5px] font-medium tracking-[-0.01em] transition-colors',
+            tab === item.id ? 'bg-panel-2 text-fg shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06]' : 'text-faint hover:bg-panel/70 hover:text-dim',
           )}
         >
           {tab === item.id && (
@@ -113,13 +117,15 @@ interface LibraryProps {
   music?: MusicGeneratorProps;
   /** Gravar a tela (e a webcam) */
   onRecordScreen: () => void;
-  /** Montar o vídeo pelo roteiro (aba Texto) */
+  /** Montar o vídeo pelo roteiro (aba Transcrição) */
   onScriptAssembly: () => void;
   /** Para o painel de legendas */
   time: number;
   onChange: (update: (project: Project) => Project) => void;
   onSeek: (time: number) => void;
   notify: (text: string, error?: boolean) => void;
+  /** Legenda para editar (dois cliques nela na timeline); `n` muda a cada pedido */
+  captionFocus?: { id: string; n: number } | null;
   /** Abrir a galeria da comunidade (botão no topo das abas Efeitos e Pacotes) */
   onGallery?: (kind: 'effect' | 'pack') => void;
 }
@@ -127,7 +133,7 @@ interface LibraryProps {
 export function Library(props: LibraryProps) {
   const { tab, project, onApply, onImport, onAddMedia, onRemoveMedia, onAddText } = props;
   return (
-    <aside className="flex min-h-0 flex-col border-r border-line bg-panel">
+    <aside className="surface flex min-h-0 flex-col overflow-hidden">
       {tab === 'media' ? (
         <MediaList
           project={project}
@@ -157,7 +163,14 @@ export function Library(props: LibraryProps) {
           onScriptAssembly={props.onScriptAssembly}
         />
       ) : tab === 'captions' ? (
-        <CaptionsPanel project={project} time={props.time} onChange={props.onChange} onSeek={props.onSeek} notify={props.notify} />
+        <CaptionsPanel
+          project={project}
+          time={props.time}
+          onChange={props.onChange}
+          onSeek={props.onSeek}
+          notify={props.notify}
+          focus={props.captionFocus}
+        />
       ) : (
         <PluginList key={tab} kind={tab} onApply={onApply} onMenu={props.onPluginMenu} notify={props.notify} onGallery={props.onGallery} />
       )}
@@ -296,6 +309,7 @@ function PackList({
         hint={t('Edições prontas: filtro, efeitos, câmera, velocidade e até batidas da música de uma vez.\nCada pacote vira um bloco na timeline que vale para tudo o que está embaixo dele.\n\nClique para aplicar no cursor, arraste até a trilha de pacotes ou use o botão direito para fixar direto num clipe.')}
       />
       <div className="space-y-2.5 px-4 pb-3">
+        <AdjustmentCard onAdd={onAdd} onMenu={onMenu} />
         <label className="relative block">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
           <input className="field w-full pl-8" placeholder={t('Buscar…')} value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -324,7 +338,7 @@ function PackList({
                   <ChevronRight size={13} />
                 </button>
               </div>
-              <div className="flex snap-x gap-2.5 overflow-x-auto scroll-px-4 px-4 pb-1">{row.items.map((p) => card(p, true))}</div>
+              <Carousel>{row.items.map((p) => card(p, true))}</Carousel>
             </section>
           ))}
         </div>
@@ -340,13 +354,39 @@ function PackList({
               <span className="font-normal text-faint">{list.length}</span>
             </button>
           )}
-          <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto px-4 pb-4">
+          <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-3 overflow-y-auto px-4 pb-4">
             {list.map((p) => card(p, false))}
             {list.length === 0 && <p className="col-span-2 py-8 text-center text-xs text-faint">{t('Nada encontrado.')}</p>}
           </div>
         </div>
       )}
     </>
+  );
+}
+
+/** Bloco de ajuste: um pacote vazio, no topo da aba (clique põe no clipe selecionado ou no cursor; dá para arrastar). */
+function AdjustmentCard({ onAdd, onMenu }: { onAdd: (pack: PackTemplate) => void; onMenu: (e: ReactMouseEvent, pack: PackTemplate) => void }) {
+  return (
+    <button
+      title={`${ADJUSTMENT_TEMPLATE.description}\n${ANCHOR_HINT[ADJUSTMENT_TEMPLATE.anchor]}`}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(PACK_MIME, ADJUSTMENT_TEMPLATE.id);
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+      onClick={() => onAdd(ADJUSTMENT_TEMPLATE)}
+      onContextMenu={(e) => onMenu(e, ADJUSTMENT_TEMPLATE)}
+      className="group flex w-full items-center gap-2.5 rounded-lg border border-dashed border-line-strong bg-panel-2 px-2.5 py-2 text-left transition-colors hover:border-accent"
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-panel-3 text-dim group-hover:text-accent">
+        <SquareDashed size={17} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs font-semibold text-fg">{ADJUSTMENT_TEMPLATE.name}</span>
+        <span className="block truncate text-[11px] text-faint">{t('Vazio: você escolhe o filtro, os efeitos, a cor e a câmera')}</span>
+      </span>
+      <Plus size={14} className="shrink-0 text-faint group-hover:text-accent" />
+    </button>
   );
 }
 
@@ -361,7 +401,7 @@ function TextList({ onAdd }: { onAdd: (preset: TextPreset) => void }) {
         count={TEXT_PRESETS.length}
         hint={t('Clique para pôr no cursor, ou arraste até uma trilha de texto. Passe o mouse para ver a animação.')}
       />
-      <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto px-4 pb-4">
+      <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-3 overflow-y-auto px-4 pb-4">
         {TEXT_PRESETS.map((preset) => (
           <button
             key={preset.id}
@@ -408,7 +448,7 @@ function StickerList({ onAdd }: { onAdd: (preset: TextPreset) => void }) {
           options={[{ value: null, label: t('Todos') }, ...STICKER_CATEGORIES.map((c) => ({ value: c, label: t(c) }))]}
         />
       </div>
-      <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-4 gap-2 overflow-y-auto px-4 pb-4">
+      <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(54px,1fr))] gap-2 overflow-y-auto px-4 pb-4">
         {list.map((sticker) => (
           <button
             key={sticker.id}
@@ -553,8 +593,9 @@ function Chips<T extends string | null>({
   value: T;
   onChange: (value: T) => void;
 }) {
+  const { ref, onScroll, mask } = useEdgeFade<HTMLDivElement>();
   return (
-    <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+    <div ref={ref} onScroll={onScroll} style={mask} className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1">
       {options.map((o) => (
         <button
           key={o.value ?? 'all'}
@@ -567,6 +608,59 @@ function Chips<T extends string | null>({
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Onde ainda há conteúdo para rolar nas bordas: esmaece só esse lado (o cartão cortado vira um convite para rolar). */
+function useEdgeFade<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const onScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
+  };
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    onScroll();
+    const observer = new ResizeObserver(onScroll);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const image = `linear-gradient(to right, ${edges.left ? 'transparent, #000 28px' : '#000, #000'}, ${edges.right ? '#000 calc(100% - 40px), transparent' : '#000'})`;
+  return { ref, onScroll, edges, mask: { maskImage: image, WebkitMaskImage: image } };
+}
+
+/** Linha de cartões que rola para o lado: sem barra, bordas esmaecidas e setas ao passar o mouse. */
+function Carousel({ children }: { children: ReactNode }) {
+  const { ref, onScroll, edges, mask } = useEdgeFade<HTMLDivElement>();
+  const page = (direction: number) => ref.current?.scrollBy({ left: direction * (ref.current.clientWidth - 56), behavior: 'smooth' });
+  return (
+    <div className="group/row relative">
+      <div ref={ref} onScroll={onScroll} style={mask} className="no-scrollbar flex snap-x gap-2.5 overflow-x-auto scroll-px-4 px-4 pb-1">
+        {children}
+      </div>
+      {(['left', 'right'] as const).map(
+        (side) =>
+          edges[side] && (
+            <button
+              key={side}
+              tabIndex={-1}
+              aria-label={side === 'left' ? t('Anteriores') : t('Mais')}
+              onClick={() => page(side === 'left' ? -1 : 1)}
+              className={cx(
+                'absolute top-[29px] z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-panel-3/95 text-fg opacity-0 shadow-lg shadow-black/40 transition-opacity hover:bg-panel-2 group-hover/row:opacity-100',
+                side === 'left' ? 'left-1.5' : 'right-1.5',
+              )}
+            >
+              {side === 'left' ? <ChevronLeft size={15} /> : <ChevronRight size={15} />}
+            </button>
+          ),
+      )}
     </div>
   );
 }
@@ -633,7 +727,7 @@ function MediaList({
           ]}
         />
 
-        <div className="mt-3 grid grid-cols-2 gap-3">
+        <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-3">
           {list.map((media) => (
             <div
               key={media.id}
@@ -862,9 +956,7 @@ function PluginList({
                   <ChevronRight size={13} />
                 </button>
               </div>
-              <div className="flex snap-x gap-2.5 overflow-x-auto scroll-px-4 px-4 pb-1">
-                {row.items.map((plugin) => card(plugin, true))}
-              </div>
+              <Carousel>{row.items.map((plugin) => card(plugin, true))}</Carousel>
             </section>
           ))}
         </div>
@@ -880,7 +972,7 @@ function PluginList({
               <span className="font-normal text-faint">{list.length}</span>
             </button>
           )}
-          <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto px-4 pb-4">
+          <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-3 overflow-y-auto px-4 pb-4">
             {list.map((plugin) => card(plugin, false))}
             {list.length === 0 && <p className="col-span-2 py-8 text-center text-xs text-faint">{t('Nada encontrado.')}</p>}
           </div>

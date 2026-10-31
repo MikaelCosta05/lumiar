@@ -257,7 +257,7 @@ export default {
   'Montar a tela dividida': 'Montar la pantalla dividida',
   // BrollDialog
   'Preparando…': 'Preparando…',
-  'Transcreva o vídeo primeiro (aba Texto ou Legendas).': 'Primero transcribe el video (pestaña Texto o Subtítulos).',
+  'Transcreva o vídeo primeiro (aba Transcrição ou Legendas).': 'Primero transcribe el video (pestaña Transcripción o Subtítulos).',
   'Olhando {i}/{n}': 'Mirando {i}/{n}',
   'Imagens de apoio automáticas': 'Imágenes de apoyo automáticas',
   'Enquanto você fala "a praia estava linda", entra um trecho das suas mídias com praia. Desmarque o que não combinar.':

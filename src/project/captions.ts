@@ -189,16 +189,127 @@ export function groupWords(words: CaptionWord[], maxWords: number): Caption[] {
     const prev = current[current.length - 1];
     const pause = prev ? word.start - prev.end : 0;
     // Troca de pessoa sempre começa outra legenda.
-    if (current.length >= maxWords || pause > 0.7 || (current.length && word.end - current[0].start > 3.2) || (prev && prev.speaker !== word.speaker)) flush();
+    if (pause > 0.7 || (prev && prev.speaker !== word.speaker)) flush();
+    else if (current.length >= maxWords || (current.length && word.end - current[0].start > 3.2)) {
+      // Cortou no tamanho: a legenda não termina pendurada num "de", "que", "o"…; ele passa para a próxima.
+      const dangling = current.length >= 2 && isLinkWord(prev.text) ? current.pop()! : null;
+      flush();
+      if (dangling) current.push(dangling);
+    }
     current.push(word);
     if (/[.!?…]$/.test(word.text)) flush();
   }
   flush();
-  // Sem buracos piscando: cada legenda fica até a próxima, se a pausa for curta.
-  for (let i = 0; i < captions.length - 1; i++) {
-    if (captions[i + 1].start - captions[i].end < 0.4) captions[i].end = captions[i + 1].start;
+  for (let i = 0; i < captions.length; i++) {
+    const next = captions[i + 1];
+    // Sem buracos piscando: cada legenda fica até a próxima, se a pausa for curta.
+    if (next && next.start - captions[i].end < 0.4) captions[i].end = next.start;
+    // Tempo para ler: uma legenda curta ou cheia demais fica um pouco mais, pela pausa depois da fala.
+    const wanted = captions[i].start + Math.max(MIN_READ, captions[i].text.length / COMFORT_SPEED);
+    const room = next ? next.start - GAP : Infinity;
+    if (captions[i].end < wanted) captions[i].end = Math.max(captions[i].end, Math.min(wanted, room, captions[i].end + 1));
   }
   return captions;
+}
+
+/** Palavras que ligam à seguinte (artigo, preposição, conjunção), em português, inglês e espanhol. */
+const LINKS = new Set(
+  (
+    'a o as os um uma uns umas de da do das dos em no na nos nas e ou que pra para por com se mas nem ao à aos às pelo pela num numa ' +
+    'the an of to and or in on at for with but if el la los las un una y en con del al por para pero sin'
+  ).split(' '),
+);
+const isLinkWord = (text: string) => LINKS.has(text.toLowerCase().replace(/[^\p{L}]/gu, ''));
+
+/** Velocidade de leitura (caracteres por segundo, contando espaços) que todo mundo acompanha sem esforço. */
+const COMFORT_SPEED = 15;
+/** Acima disso a legenda some antes de dar para ler (o limite usado em legendagem profissional fica entre 17 e 20). */
+export const READING_LIMIT = 20;
+/** Uma legenda fica pelo menos isso na tela (s), mesmo de uma palavra só. */
+const MIN_READ = 0.8;
+/** Espaço mínimo entre uma legenda e a seguinte (s): duas legendas coladas parecem uma só trocando de texto. */
+const GAP = 0.05;
+
+/** Caracteres por segundo que a legenda pede para ser lida. */
+export function readingSpeed(caption: Caption): number {
+  return caption.text.trim().length / Math.max(0.05, caption.end - caption.start);
+}
+
+/**
+ * Dá mais tempo de tela a uma legenda rápida demais: estica o fim pela pausa seguinte e, se não bastar, adianta o
+ * começo pela pausa anterior (até 0,3 s antes da fala, que ainda parece no tempo). As palavras continuam no tempo
+ * real. Devolve a mesma trilha se não houver espaço.
+ */
+export function giveReadingTime(track: CaptionTrack, id: string): CaptionTrack {
+  const captions = [...track.captions].sort((a, b) => a.start - b.start);
+  const i = captions.findIndex((c) => c.id === id);
+  if (i < 0) return track;
+  const c = { ...captions[i] };
+  const needed = c.text.trim().length / COMFORT_SPEED;
+  const next = captions[i + 1];
+  const prev = captions[i - 1];
+  c.end = Math.max(c.end, Math.min(c.start + needed, next ? next.start - GAP : Infinity, c.end + 2));
+  if (c.end - c.start < needed) c.start = Math.min(c.start, Math.max(c.end - needed, prev ? prev.end + GAP : 0, c.start - 0.3, 0));
+  if (c.start === captions[i].start && c.end === captions[i].end) return track;
+  captions[i] = c;
+  return { ...track, captions };
+}
+
+/** Todas as legendas rápidas demais ganham o tempo que couber. */
+export function giveAllReadingTime(track: CaptionTrack): CaptionTrack {
+  return track.captions.filter((c) => readingSpeed(c) > READING_LIMIT).reduce((t, c) => giveReadingTime(t, c.id), track);
+}
+
+/**
+ * Troca o texto mantendo o tempo das palavras que não mudaram (corrigir "píliba" para "pele" não perde o destaque
+ * da palavra falada). As palavras novas ficam no tempo das trocadas ou dividem o espaço entre as vizinhas.
+ */
+export function retext(caption: Caption, text: string): Caption {
+  const parts = text.split(/\s+/).filter(Boolean);
+  const old = caption.words;
+  if (!old?.length || !parts.length) return { ...caption, text, words: undefined };
+  const key = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  // Maior sequência comum entre as palavras antigas e as novas.
+  const n = old.length;
+  const m = parts.length;
+  const lcs = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--) lcs[i][j] = key(old[i].text) === key(parts[j]) ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const words: (CaptionWord | null)[] = new Array(m).fill(null);
+  // Cada trecho trocado: as palavras antigas [i0, i) viram as novas [j0, j).
+  const replace = (i0: number, i: number, j0: number, j: number) => {
+    if (j === j0) return;
+    // Palavra só inserida: pega a metade das vizinhas (com tempo zero ela nunca apareceria no modo palavra).
+    const middle = (w: CaptionWord) => (w.start + w.end) / 2;
+    const start = i > i0 ? old[i0].start : i0 > 0 ? middle(old[i0 - 1]) : caption.start;
+    const end = i > i0 ? old[i - 1].end : i0 < n ? middle(old[i0]) : caption.end;
+    const span = (end - start) / (j - j0);
+    const speaker = old[Math.min(i0, n - 1)].speaker;
+    for (let k = j0; k < j; k++) words[k] = { text: parts[k], start: start + (k - j0) * span, end: start + (k - j0 + 1) * span, ...(speaker !== undefined && { speaker }) };
+  };
+  let i = 0;
+  let j = 0;
+  let i0 = 0;
+  let j0 = 0;
+  while (i < n && j < m) {
+    if (key(old[i].text) === key(parts[j])) {
+      replace(i0, i, j0, j);
+      words[j] = { ...old[i], text: parts[j] };
+      i0 = ++i;
+      j0 = ++j;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
+    else j++;
+  }
+  replace(i0, n, j0, m);
+  const out = words as CaptionWord[];
+  // Sem sobreposição: encolhe a anterior até o começo da seguinte, ou, se ela sumiria, empurra o começo da seguinte.
+  for (let k = 1; k < m; k++) {
+    const [a, b] = [out[k - 1], out[k]];
+    if (a.end <= b.start) continue;
+    if (b.start > a.start) out[k - 1] = { ...a, end: b.start };
+    else out[k] = { ...b, start: Math.min(a.end, b.end - 0.01) };
+  }
+  return { ...caption, text, words: out };
 }
 
 /** Palavras de uma legenda: as reais, ou divididas igualmente no tempo (legendas manuais/SRT). */
@@ -207,6 +318,31 @@ export function captionWords(caption: Caption): CaptionWord[] {
   const parts = caption.text.split(/\s+/).filter(Boolean);
   const span = (caption.end - caption.start) / Math.max(1, parts.length);
   return parts.map((text, i) => ({ text, start: caption.start + i * span, end: caption.start + (i + 1) * span }));
+}
+
+/** Menor duração de uma legenda ao arrastar as bordas (s). */
+const MIN_CAPTION = 0.2;
+
+/** Põe a legenda em outro lugar e em outro tamanho; o tempo de cada palavra acompanha, na mesma proporção. */
+function retime(caption: Caption, start: number, end: number): Caption {
+  const scale = (end - start) / Math.max(1e-6, caption.end - caption.start);
+  const at = (time: number) => start + (time - caption.start) * scale;
+  return { ...caption, start, end, ...(caption.words && { words: caption.words.map((w) => ({ ...w, start: at(w.start), end: at(w.end) })) }) };
+}
+
+/** Arrasta a legenda inteira para começar em `start` (a ordem da lista segue o tempo). */
+export function moveCaption(track: CaptionTrack, id: string, start: number): CaptionTrack {
+  const captions = track.captions.map((c) => (c.id === id ? retime(c, Math.max(0, start), Math.max(0, start) + c.end - c.start) : c));
+  return { ...track, captions: captions.sort((a, b) => a.start - b.start) };
+}
+
+/** Puxa a borda do começo ('in') ou do fim ('out') da legenda até `time`. */
+export function resizeCaption(track: CaptionTrack, id: string, edge: 'in' | 'out', time: number): CaptionTrack {
+  const captions = track.captions.map((c) => {
+    if (c.id !== id) return c;
+    return edge === 'in' ? retime(c, Math.min(Math.max(0, time), c.end - MIN_CAPTION), c.end) : retime(c, c.start, Math.max(time, c.start + MIN_CAPTION));
+  });
+  return { ...track, captions: captions.sort((a, b) => a.start - b.start) };
 }
 
 /** Refaz a divisão (ex.: mudou o máximo de palavras), mantendo legendas manuais como estão. */

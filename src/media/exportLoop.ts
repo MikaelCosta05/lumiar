@@ -85,6 +85,8 @@ export class ExportLooper {
     private readonly fps: number,
     width: number,
     height: number,
+    /** Fundo transparente: cada quadro começa limpo e os guardados não viram JPEG (que perde o alfa) */
+    private readonly transparent = false,
   ) {
     this.canvas = document.createElement('canvas');
     this.canvas.width = width;
@@ -115,7 +117,7 @@ export class ExportLooper {
   /** Mais um quadro renderizado (na ordem). */
   async push(rendered: HTMLCanvasElement, emit: Emit): Promise<void> {
     const index = this.received++;
-    if (this.keep.has(index)) this.kept.set(index, this.heavy ? await jpeg(rendered) : await createImageBitmap(rendered));
+    if (this.keep.has(index)) this.kept.set(index, this.heavy ? await jpeg(rendered, this.transparent) : await createImageBitmap(rendered));
     await this.flush(rendered, index, emit);
   }
 
@@ -134,6 +136,7 @@ export class ExportLooper {
       const over = f.over === null ? null : this.kept.get(f.over);
       if (f.over !== null && !over) return;
       this.ctx.globalAlpha = 1;
+      if (this.transparent) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
       await this.draw(main);
       if (over) {
         this.ctx.globalAlpha = f.alpha;
@@ -164,6 +167,8 @@ export class ExportLooper {
   }
 }
 
-function jpeg(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('jpeg'))), 'image/jpeg', 0.95));
+function jpeg(canvas: HTMLCanvasElement, transparent: boolean): Promise<Blob> {
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('jpeg'))), transparent ? 'image/png' : 'image/jpeg', 0.95),
+  );
 }

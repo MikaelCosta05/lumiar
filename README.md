@@ -15,7 +15,7 @@ A interface está em português, inglês e espanhol ([como traduzir](docs/TRADUC
 
 <br>
 
-![O editor com um vídeo, um título, uma sobreposição e legendas](docs/screenshots/editor.jpg)
+![O editor com um vídeo de viagem, um título, um retrato por cima e legendas](docs/screenshots/editor.jpg)
 
 </div>
 
@@ -27,6 +27,31 @@ pastinha com um shader. Se você souber um pouco de GLSL, dá para criar o seu e
 **Editor de efeitos** (Ferramentas), ou no código ([guia aqui](docs/PLUGINS.md)).
 
 Tudo é processado na placa de vídeo (WebGL2), então o preview mostra exatamente o que vai sair no arquivo final.
+Entre um efeito e outro a imagem fica em 16 bits, e a saída tem dither: degradês de céu, vinheta e brilho não fazem
+degraus, mesmo com vários efeitos empilhados.
+
+Ao abrir, uma tela de carregamento deixa pronto o que o editor usa logo de cara (fontes, janelas, mídias de exemplo,
+o recorte da pessoa e as miniaturas de todos os filtros, efeitos, transições e pacotes). Na primeira vez leva uns 30 s;
+as miniaturas ficam guardadas e as aberturas seguintes levam poucos segundos. Quem não quiser esperar clica em
+*Entrar agora*, e o resto termina por trás.
+
+<img src="docs/screenshots/carregamento.jpg" alt="Tela de carregamento do Lumiar preparando as miniaturas" width="640">
+
+### Novidades da 0.4
+
+- **Visual novo**: a biblioteca, o vídeo, o painel de ajustes e a timeline viraram painéis soltos, de cantos
+  arredondados, e cada um muda de largura arrastando a borda (dois cliques voltam ao padrão).
+- **Tela de carregamento** que deixa tudo pronto antes de abrir: as abas de filtros e pacotes abrem na hora.
+- **Legendas bem mais precisas**: o Whisper erra muito menos palavras (de 13% para 3% no modelo "Precisa") e não
+  inventa frase no silêncio. Legenda rápida demais para ler fica marcada, e corrigir uma palavra não estraga o tempo
+  das outras. [Mais aqui](#textos-e-legendas).
+- **Som do Discord (ou de outro programa) numa trilha separada** ao gravar a tela, com o microfone e o resto do
+  computador em outras trilhas. [Mais aqui](#gravar-a-tela).
+- **Câmera lenta fluida**, **curvas de animação** com alças, **bloco de ajuste**, **paleta de comandos** (Ctrl+K),
+  **exportar com fundo transparente**, aba **Transcrição** para editar pelo texto e efeitos novos (partículas e raios
+  de luz, brilho, retrato high-key, trocar a cor de um objeto).
+
+![Gravar a tela com o som do Discord numa trilha separada](docs/screenshots/gravar.jpg)
 
 ## O que dá para fazer
 
@@ -87,6 +112,11 @@ Tudo é processado na placa de vídeo (WebGL2), então o preview mostra exatamen
   aqui"). Os balões ficam na régua; marcar como feito deixa o balão verde. A lista toda fica em Ferramentas.
 - **Medidor de ritmo** (ícone de velocímetro na barra da timeline): uma faixa na régua marca os trechos com 7 s ou mais
   sem nada mudando na tela (corte, zoom, texto, camada), onde quem assiste costuma desistir.
+- **Paleta de comandos** (**Ctrl+K**, Cmd+K no Mac): ache qualquer filtro, efeito, transição, pacote, sticker, som ou
+  ação dos menus digitando o nome ("glicth" acha "Glitch") e aperte Enter: aplica no clipe selecionado ou no cursor,
+  como um clique na biblioteca. Os usados por último aparecem primeiro.
+- **Painéis do seu tamanho**: arraste a borda da biblioteca, do painel de ajustes ou da timeline para dar mais espaço a
+  cada um; dois cliques na borda voltam ao tamanho padrão, e o programa lembra na próxima vez.
 - **Atalhos de editor profissional**: J/K/L para tocar para trás, pausar e para frente (apertando de novo, 2× e 4×),
   Q/W para cortar do começo do clipe até o cursor ou do cursor até o fim, e Alt+arrastar para duplicar.
 - **Slip, slide e roll** (seletor na barra da timeline, ou as teclas Y, U e N; V volta para a seleção): o *slip*
@@ -124,7 +154,9 @@ uma miniatura e ela mostra o efeito animado. Para aplicar, é só clicar com o c
 - **Texto atrás da pessoa**: na aba Posição do texto (ou no clique direito), *Atrás da pessoa* põe o título entre
   ela e o fundo.
 
-**Efeitos com o tempo** (categoria *Tempo*): usam os quadros anteriores, então aparecem tocando o vídeo.
+**Efeitos com o tempo** (categoria *Tempo*): usam os quadros anteriores. Tocando, aparecem na hora; pausado ou depois
+de arrastar o cursor, o Lumiar calcula o segundo anterior por trás e, num instante, mostra o quadro igual ao da
+exportação.
 
 - **Time warp scan**: uma linha atravessa a tela congelando o que fica para trás (o filtro que estica rostos).
 - **Datamosh**: os pixels não se renovam e a imagem escorre junto com o movimento. Também existe como transição: o
@@ -191,7 +223,10 @@ a tela) e **Zoom infinito** (a câmera entra num ponto da imagem e sai no próxi
 - **Igualar a cor**: clique direito num clipe → *Igualar a cor com…* e escolha o clipe de referência (câmeras
   diferentes, luz que mudou). O ajuste vira curvas na correção manual.
 - **Curvas de animação**: em cima de um keyframe, o botão de curva escolhe como ele chega no próximo (suave, linear,
-  acelerando, freando, passando do ponto e voltando, elástico, quicando).
+  acelerando, freando, passando do ponto e voltando, elástico, quicando, e as exponenciais: arranca e freia forte,
+  começa parado e dispara, rápido no meio). Em **Personalizada**, arraste as duas alças da curva (como o
+  `cubic-bezier` do CSS, podendo passar do ponto) e veja uma bolinha fazendo o movimento; ela começa na forma da curva
+  que estava escolhida, e os valores também podem ser digitados.
 
 ### Pacotes de edição
 
@@ -200,7 +235,7 @@ pacote, ele vira um bloco numa trilha própria e vale para tudo o que está emba
 arrasta o bloco para o ponto certo e puxa as bordas para encaixar. As animações de entrada e saída se ajustam
 sozinhas ao novo tamanho.
 
-![Pacote "Trailer épico" sobre a entrevista, com uma "Batida" mais à frente](docs/screenshots/pacotes.jpg)
+![Pacote "Trailer épico" sobre o vídeo do drone](docs/screenshots/pacotes.jpg)
 
 São 333 pacotes em 25 categorias. Alguns fazem bem mais do que mudar a cor:
 
@@ -264,6 +299,11 @@ Cada pacote sabe onde entrar:
 No painel da direita dá para baixar a intensidade, suavizar a entrada e a saída, ligar e desligar cada efeito ou
 trocar o filtro, sem mexer no pacote original.
 
+**Bloco de ajuste** (no topo da aba Pacotes, no clique direito da timeline ou pelo Ctrl+K): um pacote vazio. Ponha na
+trilha de pacotes, puxe as bordas e escolha nele o filtro, a cor (ajustes rápidos, rodas, curvas e LUT, como na aba Cor
+do clipe), os efeitos e a câmera: vale para tudo o que está embaixo, só naquele trecho. A aba Cor de qualquer pacote tem
+o mesmo. Dá para salvar como meu pacote, e a cor (até a LUT) vai junto para outros projetos.
+
 Também dá para trabalhar como numa action do Photoshop:
 
 - **Fixar direto no clipe** (botão direito no pacote) grava o filtro, os efeitos e a câmera do pacote no próprio clipe.
@@ -290,7 +330,7 @@ Também dá para trabalhar como numa action do Photoshop:
 ### Edição rápida
 
 - **Montar pelo roteiro**: gravou cada frase várias vezes? Com o roteiro escrito (aba Voz) e o vídeo transcrito, o
-  botão *Montar pelo roteiro* (aba Texto) acha as tentativas de cada frase, fica com a melhor (normalmente a última
+  botão *Montar pelo roteiro* (aba Transcrição) acha as tentativas de cada frase, fica com a melhor (normalmente a última
   que saiu completa) e tira os erros, as repetições e a conversa no meio. Dá para trocar de tentativa antes de montar.
 - **Gancho de abertura** (Ferramentas): o Lumiar acha os momentos mais fortes do vídeo e copia o escolhido para os
   primeiros segundos, como prévia, com um flash antes do vídeo começar de verdade.
@@ -333,7 +373,7 @@ Também dá para trabalhar como numa action do Photoshop:
 
 ### Editar pelo texto
 
-Na aba **Texto**, o Lumiar transcreve a fala do vídeo e mostra como um texto. Selecione palavras e aperte Delete: o
+Na aba **Transcrição**, o Lumiar transcreve a fala do vídeo e mostra como um texto. Selecione palavras e aperte Delete: o
 trecho sai do vídeo e todo o resto anda junto. Clicar numa palavra leva o cursor até ela.
 
 O botão **Tirar vícios** encontra e remove de uma vez as hesitações ("é…", "hum", "ahn"), as muletas soltas ("tipo,",
@@ -392,6 +432,14 @@ Em **Revisar um por um**, cada vício aparece numa lista para ouvir e desmarcar 
   de entrada, saída e contínuas.
 - **Legendas automáticas** com o Whisper, rodando no seu computador: cada palavra ganha o seu tempo e dá para usar
   estilos como o "destaque" do TikTok, em que a palavra falada muda de cor. Também importa e exporta `.srt` e `.vtt`.
+  Em vídeos longos mostra a porcentagem e quanto falta, pula os trechos em silêncio e dá para cancelar.
+  Antes de ouvir, o Lumiar ajusta o volume da voz (legenda até gravação baixa), acha onde há fala e encolhe os
+  silêncios longos (o Whisper não inventa frase na música nem na pausa); a frase que ele pula é ouvida de novo, e o
+  começo e o fim de cada palavra acompanham a voz com precisão de 20 ms. O modelo padrão é o "Precisa".
+- **Editar as legendas**: corrija o texto na lista da aba Legendas, ou dê dois cliques numa legenda (na timeline ou
+  no preview) para ir direto ao texto dela. Na timeline, arraste a legenda para mudar o tempo ou puxe as bordas.
+  Corrigir uma palavra mantém o tempo das outras (o destaque da palavra falada continua certo). Legenda rápida demais
+  para ler fica marcada com os caracteres por segundo, e um clique dá a ela mais tempo de tela pela pausa ao lado.
 - **Legendas traduzidas para o inglês**: o Whisper ouve em português (ou outro idioma) e escreve em inglês.
 - **Legendas em outros idiomas** (aba Legendas → Outros idiomas): traduz para inglês, espanhol, francês, italiano ou
   português e baixa um .srt por idioma (para enviar ao YouTube), ou troca as legendas da tela.
@@ -402,6 +450,8 @@ Em **Revisar um por um**, cada vício aparece numa lista para ouvir e desmarcar 
   de nome" na primeira vez que fala, com as cores e a fonte do Kit da marca, se houver. Cada faixa é um texto comum;
   rodar de novo troca as faixas antigas em vez de duplicar.
 
+![Aba Legendas com a lista de legendas e a legenda no vídeo](docs/screenshots/legendas.jpg)
+
 ### Voz: narração e dublagem
 
 - **Grave a narração** com o vídeo tocando junto. Você escolhe o microfone, testa o volume, tem contagem regressiva
@@ -409,7 +459,7 @@ Em **Revisar um por um**, cada vício aparece numa lista para ouvir e desmarcar 
   você fala: parou para respirar ou pensar, o texto espera.
 - **Dublagem**: selecione um clipe e grave por cima dele, no tempo certo. A gravação para sozinha no fim do clipe.
 
-![Gravando a narração com o teleprompter na tela](docs/screenshots/voz.jpg)
+![Aba Voz com o roteiro do teleprompter](docs/screenshots/voz.jpg)
 
 - **Voz sintética** em português, inglês e espanhol, gerada sem internet. Dá até para dublar automaticamente todas as legendas.
 - **Efeitos de voz**: voz limpa (estilo podcast), telefone, rádio, megafone, eco, caverna, robô, debaixo d'água,
@@ -447,6 +497,11 @@ No programa instalado, o Lumiar também anota por onde o mouse andou:
   lugares onde o mouse para. Os zooms viram keyframes da câmera (dá para ajustar ou refazer pelo clique direito no clipe).
 - **Destaque do cursor**: um círculo suave em volta do mouse e uma onda a cada clique.
 - **Roteiro numa janelinha**: o teleprompter abre numa janela que fica por cima de tudo, acompanhando a sua voz.
+- **Som de um programa separado** (Windows 10 2004 ou mais novo): escolha um programa aberto, como o Discord, e o som
+  dele vai numa trilha só dele. O microfone vai em outra e o resto do computador (jogo, música) em outra, sem o som do
+  programa escolhido repetido. Dá para baixar o volume da chamada, cortar um trecho ou limpar o ruído do microfone sem
+  mexer no resto. Quem grava é o `lumiar-audio.exe` (código em `electron/app-audio`), compilado com o compilador C#
+  que já vem no Windows (`node scripts/build-app-audio.cjs`; o `npm run dist:win` faz isso sozinho).
 
 ### Fotos
 
@@ -510,6 +565,8 @@ Na hora de exportar: **MP4, WebM, MOV, GIF animado** ou só o áudio em **WAV/M4
 em quatro níveis de qualidade. Em **Volume**, o som do vídeo inteiro pode sair no padrão das plataformas (-14 LUFS
 para YouTube, Instagram, TikTok e Spotify; -16 para podcast; -23 para TV), com os picos abaixo de -1 dB: não sai baixo
 nem é abaixado (e distorcido) pela plataforma. Dá para exportar só um trecho ou salvar o quadro atual como imagem.
+Com **Fundo transparente** (WebM com VP9 e alfa, ou **PNG**, uma sequência de imagens num `.zip`), onde não há vídeo
+fica transparente: títulos, stickers, elementos animados ou a pessoa recortada vão para outro editor por cima de outro vídeo.
 Em **Exportar em vários formatos de uma vez**, marque YouTube (16:9), Reels/TikTok/Shorts (9:16), feed (4:5),
 quadrado e um GIF curto, e o Lumiar gera todos em sequência, com o formato no fim do nome (`Meu vídeo - 9x16.mp4`).
 Quando a proporção muda, **Seguir o rosto** (padrão) preenche a tela e acompanha quem aparece, como no "Converter para
@@ -599,6 +656,7 @@ passam a mostrar a tecla nova. A escolha fica guardada no computador.
 | Ctrl + S / Ctrl + O | Salvar / abrir projeto |
 | Delete | Excluir o que está selecionado |
 | ? | Ver e mudar os atalhos |
+| Ctrl + K | Paleta de comandos: digite o nome de um filtro, efeito, transição, pacote, sticker, som ou ação (sem acento e até com erro de digitação) e aperte Enter para aplicar |
 
 ## Rodando pelo código
 
@@ -623,6 +681,8 @@ Outros comandos:
 | `npm run typecheck` | Confere os tipos do TypeScript |
 | `npm test` | Roda os testes da lógica (vitest) |
 | `npm run e2e` | Abre o Lumiar de verdade (Electron) e clica nele: testes de ponta a ponta |
+| `npm run visual:ref` e `npm run visual` | Teste visual dos plugins: grava as imagens de referência antes de mexer e depois aponta o que mudou, com um relatório em `.tmp-visual/relatorio.html` ([detalhes](docs/PLUGINS.md)) |
+| `npx electron scripts/bench/run.cjs --ids effects/brilho --out pasta` | Bancada: renderiza plugins e pacotes em alta resolução e mede o tempo por quadro ([detalhes](docs/PLUGINS.md)) |
 
 **Testes de ponta a ponta**: `npm run e2e` compila uma cópia do app em `.tmp-e2e/app` e abre o Lumiar de verdade, com
 uma pasta de dados vazia só para o teste (não mexe no seu Lumiar instalado nem nos seus projetos). Os testes ficam em
@@ -645,7 +705,10 @@ mídia ─► câmera / encaixe ─► efeitos ─► filtro ─┘
 ```
 
 O preview e a exportação usam o mesmo renderizador, então o arquivo final sai igual ao que aparece na tela.
-Além da imagem, um efeito pode usar a máscara da pessoa, a profundidade, o fundo sem a pessoa, o movimento, os
+As imagens intermediárias são de 16 bits (meia precisão) e a última passada aplica dither antes dos 8 bits da tela e
+do vídeo. Todo plugin recebe uma biblioteca de funções (`src/engine/glslLib.ts`: ruído, grão de filme, desfoque,
+brilho, aberração cromática, cor em Oklab e luz linear, formas sem serrilhado).
+Além da imagem, um efeito (ou um filtro) pode usar a máscara da pessoa, a profundidade, o fundo sem a pessoa, o movimento, os
 quadros de até 1 s atrás e uma imagem que ele mesmo guarda de um quadro para o outro; o motor descobre pelo código
 do shader o que cada efeito usa e só calcula isso.
 Os vídeos são lidos e gravados com o [Mediabunny](https://mediabunny.dev); as legendas e a voz sintética usam

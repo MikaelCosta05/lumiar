@@ -1,7 +1,7 @@
 {
   "name": "lumiar",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lumiar — editor de vídeo focado em efeitos e transições na GPU",
   "homepage": "https://github.com/MikaelCosta05/lumiar",
   "author": {
@@ -17,8 +17,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test -c e2e/playwright.config.ts",
+    "visual:ref": "electron scripts/bench/visual.cjs --ref",
+    "visual": "electron scripts/bench/visual.cjs",
     "app": "npm run build && electron .",
-    "dist:win": "npm run build && electron-builder --win nsis --x64",
+    "dist:win": "npm run build && node scripts/build-app-audio.cjs && electron-builder --win nsis --x64",
     "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64",
     "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64 --x64"
   },
@@ -76,7 +78,16 @@
           ]
         }
       ],
-      "icon": "electron/icon.png"
+      "icon": "electron/icon.png",
+      "extraResources": [
+        {
+          "from": "electron/bin",
+          "to": "bin",
+          "filter": [
+            "lumiar-audio.exe"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
